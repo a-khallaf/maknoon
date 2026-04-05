@@ -9,8 +9,6 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// ... existing VaultEntry, SealEntry, OpenEntry ...
-
 // DeriveVaultKey derives a 32-byte master key from a password and salt using Argon2id.
 func DeriveVaultKey(password, salt []byte) []byte {
 	key := argon2.IDKey(password, salt, 3, 64*1024, 4, 32)
@@ -18,7 +16,6 @@ func DeriveVaultKey(password, salt []byte) []byte {
 }
 
 // VaultEntry represents a single secret stored in the vault.
-// The entire struct is marshaled and then encrypted.
 type VaultEntry struct {
 	Service  string `json:"service"`
 	Username string `json:"username"`
@@ -28,6 +25,11 @@ type VaultEntry struct {
 
 // SealEntry encrypts a VaultEntry into a ciphertext blob using the master key.
 func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
+	// Zero out master key on exit to protect memory
+	defer func() {
+		for i := range masterKey { masterKey[i] = 0 }
+	}()
+
 	plaintext, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
@@ -43,13 +45,17 @@ func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Ciphertext = Nonce + EncryptedData
 	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
 	return ciphertext, nil
 }
 
 // OpenEntry decrypts a ciphertext blob into a VaultEntry.
 func OpenEntry(ciphertext []byte, masterKey []byte) (*VaultEntry, error) {
+	// Zero out master key on exit to protect memory
+	defer func() {
+		for i := range masterKey { masterKey[i] = 0 }
+	}()
+
 	aead, err := chacha20poly1305.NewX(masterKey)
 	if err != nil {
 		return nil, err

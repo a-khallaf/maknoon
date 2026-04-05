@@ -21,6 +21,8 @@ func GeneratePQKeyPair() (kemPub, kemPriv, sigPub, sigPriv []byte, err error) {
 	// 2. SIG (Signing)
 	spk, ssk, err := mldsa87.GenerateKey(rand.Reader)
 	if err != nil {
+		// Zero out KEM keys before failing
+		for i := range kemPriv { kemPriv[i] = 0 }
 		return nil, nil, nil, nil, err
 	}
 	sigPub, _ = spk.MarshalBinary()
@@ -31,6 +33,11 @@ func GeneratePQKeyPair() (kemPub, kemPriv, sigPub, sigPriv []byte, err error) {
 
 // SignData signs a message using an ML-DSA-87 private key.
 func SignData(message []byte, privKeyBytes []byte) ([]byte, error) {
+	// Zero out the input bytes after unmarshaling to protect memory
+	defer func() {
+		for i := range privKeyBytes { privKeyBytes[i] = 0 }
+	}()
+
 	sk := new(mldsa87.PrivateKey)
 	if err := sk.UnmarshalBinary(privKeyBytes); err != nil {
 		return nil, fmt.Errorf("invalid signing key: %w", err)

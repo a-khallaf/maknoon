@@ -45,6 +45,11 @@ func GenCmd() *cobra.Command {
 					}
 				}
 				fmt.Println(result)
+				// Clear the slice from memory
+				for i := range passphrase {
+					passphrase[i] = ""
+				}
+				passphrase = nil
 				return nil
 			}
 
