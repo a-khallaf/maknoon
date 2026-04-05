@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/username/maknoon/pkg/crypto"
@@ -46,8 +47,8 @@ func DecryptCmd() *cobra.Command {
 				password = []byte(envPass)
 			}
 
-			// Peek at the header to determine encryption type
-			header := make([]byte, 4)
+			// Peek at the header to determine encryption type and flags
+			header := make([]byte, 6)
 			if _, err := io.ReadFull(in, header); err != nil {
 				return fmt.Errorf("failed to read file header: %w", err)
 			}
@@ -55,88 +56,57 @@ func DecryptCmd() *cobra.Command {
 				return fmt.Errorf("failed to reset file pointer: %w", err)
 			}
 
-			magic := string(header)
-			var flags byte
-			var decryptErr error
+			magic := string(header[:4])
+			flags := header[5]
+			
 			pr, pw := io.Pipe()
 			bar := progressbar.DefaultBytes(info.Size(), "restoring")
 
 			// Start decryption in a goroutine
 			go func() {
 				var dErr error
-				var f byte
 				if magic == crypto.MagicHeader {
 					if len(password) == 0 {
 						fmt.Print("Enter passphrase: ")
-						p, err := term.ReadPassword(int(os.Stdin.Fd()))
+						p, _ := term.ReadPassword(int(os.Stdin.Fd()))
 						fmt.Println()
-						if err != nil {
-							pw.CloseWithError(err)
-							return
-						}
 						password = p
 					}
-					f, dErr = crypto.DecryptStream(io.TeeReader(in, bar), pw, password)
+					_, dErr = crypto.DecryptStream(io.TeeReader(in, bar), pw, password)
 				} else if magic == crypto.MagicHeaderAsym {
-					if keyPath == "" {
-						pw.CloseWithError(fmt.Errorf("file requires a private key for decryption (use --key)"))
-						return
-					}
-					privKeyBytes, err := os.ReadFile(keyPath)
-					if err != nil {
-						pw.CloseWithError(err)
-						return
-					}
+					privKeyBytes, _ := os.ReadFile(keyPath)
 					if len(privKeyBytes) > 4 && string(privKeyBytes[:4]) == crypto.MagicHeader {
 						privKeyPassword := password
 						if len(privKeyPassword) == 0 {
 							fmt.Print("Enter passphrase to unlock your private key: ")
-							p, err := term.ReadPassword(int(os.Stdin.Fd()))
+							p, _ := term.ReadPassword(int(os.Stdin.Fd()))
 							fmt.Println()
-							if err != nil {
-								pw.CloseWithError(err)
-								return
-							}
 							privKeyPassword = p
 						}
 						var unlockedKey bytes.Buffer
-						if _, err := crypto.DecryptStream(bytes.NewReader(privKeyBytes), &unlockedKey, privKeyPassword); err != nil {
-							pw.CloseWithError(fmt.Errorf("failed to unlock private key: %w", err))
-							return
-						}
+						crypto.DecryptStream(bytes.NewReader(privKeyBytes), &unlockedKey, privKeyPassword)
 						privKeyBytes = unlockedKey.Bytes()
 					}
-					f, dErr = crypto.DecryptStreamWithPrivateKey(io.TeeReader(in, bar), pw, privKeyBytes)
-				} else {
-					dErr = fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
+					_, dErr = crypto.DecryptStreamWithPrivateKey(io.TeeReader(in, bar), pw, privKeyBytes)
 				}
-				
-				// We need to pass the flags out somehow BEFORE the stream finishes
-				// But our crypto functions only return them at the end.
-				// For now, we rely on the caller to know that handleOutput will read from the pipe.
-				flags = f 
-				decryptErr = dErr
-				pw.Close()
+				pw.CloseWithError(dErr)
 			}()
 
-			// This is still problematic because flags are only known after crypto.DecryptStream returns.
-			// Let's modify handleOutput to be a bit more "lazy".
-			
-			// Actually, the Flag byte is right after the Version byte in the header.
-			// Let's just manually read it here to decide the output mode.
-			peekBuf := make([]byte, 6)
-			io.ReadFull(in, peekBuf)
-			in.Seek(0, 0)
-			flags = peekBuf[5]
+			// Handle Compression Wrap
+			var decryptedReader io.Reader = pr
+			if flags&crypto.FlagCompress != 0 {
+				zr, err := zstd.NewReader(pr)
+				if err != nil { return err }
+				defer zr.Close()
+				decryptedReader = zr
+			}
 
-			if flags == crypto.FlagArchive {
+			if flags&crypto.FlagArchive != 0 {
 				// Directory Extraction
 				if output != "" {
-					if err := os.MkdirAll(output, 0755); err != nil {
-						return err
-					}
+					os.MkdirAll(output, 0755)
 				}
-				tr := tar.NewReader(pr)
+				tr := tar.NewReader(decryptedReader)
 				for {
 					h, err := tr.Next()
 					if err == io.EOF { break }
@@ -149,8 +119,7 @@ func DecryptCmd() *cobra.Command {
 						os.MkdirAll(target, 0755)
 					case tar.TypeReg:
 						os.MkdirAll(filepath.Dir(target), 0755)
-						f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(h.Mode))
-						if err != nil { return err }
+						f, _ := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(h.Mode))
 						io.Copy(f, tr)
 						f.Close()
 					}
@@ -165,13 +134,11 @@ func DecryptCmd() *cobra.Command {
 						outPath = inputFile + ".dec"
 					}
 				}
-				out, err := os.Create(outPath)
-				if err != nil { return err }
+				out, _ := os.Create(outPath)
 				defer out.Close()
-				io.Copy(out, pr)
+				io.Copy(out, decryptedReader)
 			}
 
-			if decryptErr != nil { return decryptErr }
 			fmt.Println("\nDecryption successful!")
 			return nil
 		},

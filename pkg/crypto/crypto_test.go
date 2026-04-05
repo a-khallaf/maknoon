@@ -16,7 +16,7 @@ func TestSymmetricRoundTrip(t *testing.T) {
 
 	// 1. Encrypt
 	var encrypted bytes.Buffer
-	err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagFile)
+	err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone)
 	if err != nil {
 		t.Fatalf("Encryption failed: %v", err)
 	}
@@ -28,8 +28,8 @@ func TestSymmetricRoundTrip(t *testing.T) {
 		t.Fatalf("Decryption failed: %v", err)
 	}
 
-	if flags != FlagFile {
-		t.Errorf("Expected FlagFile, got %v", flags)
+	if flags != FlagNone {
+		t.Errorf("Expected FlagNone, got %v", flags)
 	}
 
 	// 3. Verify
@@ -49,7 +49,7 @@ func TestAsymmetricRoundTrip(t *testing.T) {
 
 	// 2. Encrypt with Public Key
 	var encrypted bytes.Buffer
-	err = EncryptStreamWithPublicKey(bytes.NewReader(originalData), &encrypted, pub, FlagFile)
+	err = EncryptStreamWithPublicKey(bytes.NewReader(originalData), &encrypted, pub, FlagNone)
 	if err != nil {
 		t.Fatalf("Asymmetric encryption failed: %v", err)
 	}
@@ -61,8 +61,8 @@ func TestAsymmetricRoundTrip(t *testing.T) {
 		t.Fatalf("Asymmetric decryption failed: %v", err)
 	}
 
-	if flags != FlagFile {
-		t.Errorf("Expected FlagFile, got %v", flags)
+	if flags != FlagNone {
+		t.Errorf("Expected FlagNone, got %v", flags)
 	}
 
 	// 4. Verify
@@ -76,7 +76,7 @@ func TestEmptyFile(t *testing.T) {
 	originalData := []byte("")
 
 	var encrypted bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagFile); err != nil {
+	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestInvalidPassword(t *testing.T) {
 	data := []byte("sensitive info")
 
 	var encrypted bytes.Buffer
-	EncryptStream(bytes.NewReader(data), &encrypted, password, FlagFile)
+	EncryptStream(bytes.NewReader(data), &encrypted, password, FlagNone)
 
 	var decrypted bytes.Buffer
 	_, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, wrongPassword)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/username/maknoon/pkg/crypto"
@@ -17,6 +18,7 @@ func EncryptCmd() *cobra.Command {
 	var output string
 	var pubKeyPath string
 	var passphrase string
+	var compress bool
 
 	cmd := &cobra.Command{
 		Use:   "encrypt [file/dir]",
@@ -40,42 +42,33 @@ func EncryptCmd() *cobra.Command {
 			}
 			defer out.Close()
 
-			flags := crypto.FlagFile
+			flags := crypto.FlagNone
 			if stat.IsDir() {
-				flags = crypto.FlagArchive
+				flags |= crypto.FlagArchive
+			}
+			if compress {
+				flags |= crypto.FlagCompress
 			}
 
 			// Prepare the data source
-			var reader io.Reader
+			var sourceReader io.Reader
 			var totalSize int64
 
 			if stat.IsDir() {
-				// Archive Mode: Set totalSize to -1 because tar headers add unpredictable overhead
-				totalSize = -1
-
-				// Create a pipe to stream tar data
+				totalSize = -1 // TAR overhead is unpredictable
 				pr, pw := io.Pipe()
-				reader = pr
+				sourceReader = pr
 				go func() {
 					tw := tar.NewWriter(pw)
-					// Determine the base directory to preserve the input folder name
 					baseDir := filepath.Dir(filepath.Clean(inputPath))
-					
 					err := filepath.Walk(inputPath, func(path string, info os.FileInfo, err error) error {
 						if err != nil { return err }
-						
-						// Ensure the name in the tar is relative to baseDir
 						rel, err := filepath.Rel(baseDir, path)
 						if err != nil { return err }
-
 						header, err := tar.FileInfoHeader(info, "")
 						if err != nil { return err }
 						header.Name = rel
-
-						if err := tw.WriteHeader(header); err != nil {
-							return err
-						}
-
+						if err := tw.WriteHeader(header); err != nil { return err }
 						if !info.IsDir() {
 							f, err := os.Open(path)
 							if err != nil { return err }
@@ -89,84 +82,66 @@ func EncryptCmd() *cobra.Command {
 					pw.CloseWithError(err)
 				}()
 			} else {
-				// Single File Mode
 				f, err := os.Open(inputPath)
-				if err != nil {
-					return fmt.Errorf("failed to open input file: %w", err)
-				}
+				if err != nil { return fmt.Errorf("failed to open input file: %w", err) }
 				defer f.Close()
-				reader = f
+				sourceReader = f
 				totalSize = stat.Size()
 			}
 
-			// Asymmetric Mode (Public Key)
-			if pubKeyPath != "" {
-				pubKeyBytes, err := os.ReadFile(pubKeyPath)
-				if err != nil {
-					return fmt.Errorf("failed to read public key: %w", err)
-				}
-				fmt.Printf("Encrypting '%s' using public key '%s'...\n", inputPath, pubKeyPath)
+			// Wrap sourceReader with Compression if requested
+			var finalReader io.Reader = sourceReader
+			if compress {
+				pr, pw := io.Pipe()
+				finalReader = pr
+				go func() {
+					zw, _ := zstd.NewWriter(pw)
+					_, err := io.Copy(zw, sourceReader)
+					zw.Close()
+					pw.CloseWithError(err)
+				}()
+			}
 
-				bar := progressbar.DefaultBytes(totalSize, "preserving")
-				if err := crypto.EncryptStreamWithPublicKey(io.TeeReader(reader, bar), out, pubKeyBytes, flags); err != nil {
-					return fmt.Errorf("encryption failed: %w", err)
-				}
-			} else {
-				// Symmetric Mode (Passphrase)
-				var password []byte
-				
-				// 1. Check Flag
+			// Determine passphrase if needed
+			var password []byte
+			if pubKeyPath == "" {
 				if passphrase != "" {
 					password = []byte(passphrase)
-				}
-				
-				// 2. Check Environment Variable
-				if len(password) == 0 {
-					if envPass := os.Getenv("MAKNOON_PASSPHRASE"); envPass != "" {
-						password = []byte(envPass)
-					}
-				}
-
-				// 3. Fallback to Interactive
-				if len(password) == 0 {
+				} else if envPass := os.Getenv("MAKNOON_PASSPHRASE"); envPass != "" {
+					password = []byte(envPass)
+				} else {
 					fmt.Print("Enter passphrase: ")
 					p, err := term.ReadPassword(int(os.Stdin.Fd()))
 					fmt.Println()
-					if err != nil {
-						return err
-					}
+					if err != nil { return err }
 					password = p
 
 					fmt.Print("Confirm passphrase: ")
 					confirm, err := term.ReadPassword(int(os.Stdin.Fd()))
 					fmt.Println()
-					if err != nil {
-						return err
-					}
-					defer func() {
-						for i := range confirm {
-							confirm[i] = 0
-						}
-					}()
+					if err != nil { return err }
 					if string(password) != string(confirm) {
 						return fmt.Errorf("passphrases do not match")
 					}
 				}
-
 				defer func() {
-					for i := range password {
-						password[i] = 0
-					}
+					for i := range password { password[i] = 0 }
 				}()
-
-				fmt.Printf("Encrypting '%s' using passphrase...\n", inputPath)
-
-				bar := progressbar.DefaultBytes(totalSize, "preserving")
-				if err := crypto.EncryptStream(io.TeeReader(reader, bar), out, password, flags); err != nil {
-					return fmt.Errorf("encryption failed: %w", err)
-				}
 			}
 
+			bar := progressbar.DefaultBytes(totalSize, "preserving")
+			var encErr error
+			if pubKeyPath != "" {
+				pubKeyBytes, err := os.ReadFile(pubKeyPath)
+				if err != nil { return fmt.Errorf("failed to read public key: %w", err) }
+				fmt.Printf("Encrypting '%s' using public key '%s'...\n", inputPath, pubKeyPath)
+				encErr = crypto.EncryptStreamWithPublicKey(io.TeeReader(finalReader, bar), out, pubKeyBytes, flags)
+			} else {
+				fmt.Printf("Encrypting '%s' using passphrase...\n", inputPath)
+				encErr = crypto.EncryptStream(io.TeeReader(finalReader, bar), out, password, flags)
+			}
+
+			if encErr != nil { return fmt.Errorf("encryption failed: %w", encErr) }
 			fmt.Println("\nEncryption successful! Data is now Maknoon (carefully preserved).")
 			return nil
 		},
@@ -175,5 +150,6 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default is input.makn)")
 	cmd.Flags().StringVarP(&pubKeyPath, "pubkey", "p", "", "Path to the recipient's public key for asymmetric encryption")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for symmetric encryption (Avoid for security!)")
+	cmd.Flags().BoolVarP(&compress, "compress", "c", false, "Enable Zstd compression before encryption")
 	return cmd
 }

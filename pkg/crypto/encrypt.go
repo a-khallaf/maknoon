@@ -19,9 +19,10 @@ const (
 	Version         = byte(1)
 	SaltSize        = 32
 
-	// Flags
-	FlagFile    = byte(0)
-	FlagArchive = byte(1)
+	// Flags (Bitmask)
+	FlagNone     = byte(0)
+	FlagArchive  = 1 << 0 // 0x01
+	FlagCompress = 1 << 1 // 0x02
 )
 
 // EncryptStream symmetrically encrypts data from r to w using a passphrase.
