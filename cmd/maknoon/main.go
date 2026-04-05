@@ -17,6 +17,7 @@ func main() {
 	rootCmd.AddCommand(commands.EncryptCmd())
 	rootCmd.AddCommand(commands.DecryptCmd())
 	rootCmd.AddCommand(commands.KeygenCmd())
+	rootCmd.AddCommand(commands.GenCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
