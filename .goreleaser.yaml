@@ -30,10 +30,8 @@ archives:
     files:
       - maknoon.1
     format_overrides:
-...
-    install: |
-      bin.install "maknoon"
-      man1.install "maknoon.1"
+      - goos: windows
+        format: zip
 
 checksum:
   name_template: 'checksums.txt'
@@ -62,3 +60,4 @@ brews:
       system "#{bin}/maknoon --version"
     install: |
       bin.install "maknoon"
+      man1.install "maknoon.1"
