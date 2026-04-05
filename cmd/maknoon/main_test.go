@@ -123,7 +123,7 @@ func TestIntegrationAsymmetricEncryptedKey(t *testing.T) {
 	encFile := inputFile + ".makn"
 	
 	encCmd := commands.EncryptCmd()
-	encCmd.SetArgs([]string{inputFile, "-o", encFile, "--public-key", keyBase + ".pub"})
+	encCmd.SetArgs([]string{inputFile, "-o", encFile, "--public-key", keyBase + ".kem.pub"})
 	if err := encCmd.Execute(); err != nil {
 		t.Fatalf("Asymmetric encryption failed: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestIntegrationAsymmetricEncryptedKey(t *testing.T) {
 	// 3. Decrypt using Protected Private Key (automatically uses MAKNOON_PASSPHRASE)
 	restoredFile := filepath.Join(tmpDir, "data.restored.txt")
 	decCmd := commands.DecryptCmd()
-	decCmd.SetArgs([]string{encFile, "-o", restoredFile, "--private-key", keyBase})
+	decCmd.SetArgs([]string{encFile, "-o", restoredFile, "--private-key", keyBase + ".kem.key"})
 	if err := decCmd.Execute(); err != nil {
 		t.Fatalf("Asymmetric decryption failed: %v", err)
 	}
@@ -221,5 +221,35 @@ func TestIntegrationVaultAutomation(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, service) || !strings.Contains(output, user) || !strings.Contains(output, password) {
 		t.Errorf("Vault get output mismatch. Got: %s", output)
+	}
+}
+
+func TestIntegrationSignVerify(t *testing.T) {
+	tmpDir := t.TempDir()
+	keyBase := filepath.Join(tmpDir, "id_test_sig")
+	
+	// 1. Keygen (No password for simple test)
+	genCmd := commands.KeygenCmd()
+	genCmd.SetArgs([]string{"-o", keyBase, "--no-password"})
+	if err := genCmd.Execute(); err != nil {
+		t.Fatalf("Keygen failed: %v", err)
+	}
+
+	// 2. Sign a file
+	inputFile := filepath.Join(tmpDir, "message.txt")
+	content := []byte("Post-Quantum Authentication")
+	os.WriteFile(inputFile, content, 0644)
+	
+	signCmd := commands.SignCmd()
+	signCmd.SetArgs([]string{inputFile, "--private-key", keyBase + ".sig.key"})
+	if err := signCmd.Execute(); err != nil {
+		t.Fatalf("Signing failed: %v", err)
+	}
+
+	// 3. Verify the file
+	verifyCmd := commands.VerifyCmd()
+	verifyCmd.SetArgs([]string{inputFile, "--public-key", keyBase + ".sig.pub"})
+	if err := verifyCmd.Execute(); err != nil {
+		t.Fatalf("Verification failed: %v", err)
 	}
 }

@@ -40,7 +40,7 @@ func TestSymmetricRoundTrip(t *testing.T) {
 
 func TestAsymmetricRoundTrip(t *testing.T) {
 	// 1. Generate PQ Keypair
-	pub, priv, err := GeneratePQKeyPair()
+	pub, priv, _, _, err := GeneratePQKeyPair()
 	if err != nil {
 		t.Fatalf("Keygen failed: %v", err)
 	}

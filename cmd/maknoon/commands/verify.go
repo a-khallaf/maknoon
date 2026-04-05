@@ -1,0 +1,48 @@
+package commands
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+	"github.com/username/maknoon/pkg/crypto"
+)
+
+func VerifyCmd() *cobra.Command {
+	var pubKeyPath string
+	var signaturePath string
+
+	cmd := &cobra.Command{
+		Use:   "verify [file]",
+		Short: "Verify a file's Post-Quantum (ML-DSA) signature",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			filePath := args[0]
+			data, err := os.ReadFile(filePath)
+			if err != nil { return err }
+
+			if signaturePath == "" {
+				signaturePath = filePath + ".sig"
+			}
+			sigBytes, err := os.ReadFile(signaturePath)
+			if err != nil { return fmt.Errorf("signature file not found: %w", err) }
+
+			resolvedPath := resolveKeyPath(pubKeyPath)
+			pubKeyBytes, err := os.ReadFile(resolvedPath)
+			if err != nil { return fmt.Errorf("failed to read public key: %w", err) }
+
+			valid := crypto.VerifySignature(data, sigBytes, pubKeyBytes)
+			if valid {
+				fmt.Println("✅ Signature Verified! The data is authentic and has not been tampered with.")
+			} else {
+				return fmt.Errorf("❌ Signature Verification FAILED! The data might be corrupted or from an untrusted source")
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&pubKeyPath, "public-key", "p", "", "Path to the ML-DSA public key")
+	cmd.Flags().StringVarP(&signaturePath, "signature", "g", "", "Path to the signature file (defaults to file.sig)")
+	return cmd
+}
