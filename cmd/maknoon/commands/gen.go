@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/spf13/cobra"
+	"github.com/username/maknoon/pkg/crypto"
 )
 
 const (
@@ -18,11 +19,36 @@ const (
 func GenCmd() *cobra.Command {
 	var length int
 	var noSymbols bool
+	var words int
+	var separator string
 
 	cmd := &cobra.Command{
 		Use:   "gen",
-		Short: "Generate a high-entropy secure password",
+		Short: "Generate a high-entropy secure password or passphrase",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if words > 0 {
+				// Passphrase Mode
+				var passphrase []string
+				for i := 0; i < words; i++ {
+					num, err := rand.Int(rand.Reader, big.NewInt(int64(len(crypto.WordList))))
+					if err != nil {
+						return fmt.Errorf("entropy failure: %w", err)
+					}
+					passphrase = append(passphrase, crypto.WordList[num.Int64()])
+				}
+
+				result := ""
+				for i, word := range passphrase {
+					result += word
+					if i < len(passphrase)-1 {
+						result += separator
+					}
+				}
+				fmt.Println(result)
+				return nil
+			}
+
+			// Random String Mode
 			charset := lowerLetters + upperLetters + digits
 			if !noSymbols {
 				charset += symbols
@@ -50,8 +76,10 @@ func GenCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVarP(&length, "length", "l", 32, "Length of the generated password")
-	cmd.Flags().BoolVarP(&noSymbols, "no-symbols", "n", false, "Exclude symbols from the password")
+	cmd.Flags().IntVarP(&length, "length", "l", 32, "Length of the generated password (random string mode)")
+	cmd.Flags().BoolVarP(&noSymbols, "no-symbols", "n", false, "Exclude symbols from the password (random string mode)")
+	cmd.Flags().IntVarP(&words, "words", "w", 0, "Number of words for a passphrase (e.g. 4 for 'detect-logic-future-ocean')")
+	cmd.Flags().StringVarP(&separator, "separator", "p", "-", "Separator between words in a passphrase")
 	
 	return cmd
 }
