@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/username/maknoon/cmd/maknoon/commands"
@@ -179,5 +181,45 @@ func TestIntegrationCompression(t *testing.T) {
 		t.Logf("Warning: Encrypted size (%d) not smaller than original (%d). Redundancy might be low.", statEnc.Size(), statOrig.Size())
 	} else {
 		t.Logf("Compression success: %d -> %d bytes", statOrig.Size(), statEnc.Size())
+	}
+}
+
+func TestIntegrationVaultAutomation(t *testing.T) {
+	// Use a unique vault name for this test to avoid messing with user data
+	vName := "test_automation_vault"
+	passphrase := "vault-master-123"
+	service := "test-service"
+	password := "ultra-secret-123"
+	user := "test-user"
+
+	// 1. Set a secret non-interactively
+	setCmd := commands.VaultCmd()
+	setCmd.SetArgs([]string{"--vault", vName, "--passphrase", passphrase, "set", service, password, "--user", user})
+	if err := setCmd.Execute(); err != nil {
+		t.Fatalf("Vault set failed: %v", err)
+	}
+
+	// 2. Get the secret non-interactively
+	getCmd := commands.VaultCmd()
+	getCmd.SetArgs([]string{"--vault", vName, "--passphrase", passphrase, "get", service})
+	
+	// Capture stdout to verify the output
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	if err := getCmd.Execute(); err != nil {
+		os.Stdout = old
+		t.Fatalf("Vault get failed: %v", err)
+	}
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stdout = old
+
+	output := buf.String()
+	if !strings.Contains(output, service) || !strings.Contains(output, user) || !strings.Contains(output, password) {
+		t.Errorf("Vault get output mismatch. Got: %s", output)
 	}
 }

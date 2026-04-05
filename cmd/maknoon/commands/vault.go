@@ -22,6 +22,7 @@ const (
 )
 
 var vaultName string
+var vaultPassphrase string
 
 func VaultCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -30,6 +31,7 @@ func VaultCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&vaultName, "vault", "v", "default", "Name or full path of the vault to use")
+	cmd.PersistentFlags().StringVarP(&vaultPassphrase, "passphrase", "s", "", "Master passphrase for the vault (Avoid for security!)")
 
 	cmd.AddCommand(vaultSetCmd())
 	cmd.AddCommand(vaultGetCmd())
@@ -77,7 +79,9 @@ func openVault() (*bbolt.DB, []byte, error) {
 
 	// Get Master Password
 	var passphrase []byte
-	if envPass := os.Getenv("MAKNOON_PASSPHRASE"); envPass != "" {
+	if vaultPassphrase != "" {
+		passphrase = []byte(vaultPassphrase)
+	} else if envPass := os.Getenv("MAKNOON_PASSPHRASE"); envPass != "" {
 		passphrase = []byte(envPass)
 	} else {
 		fmt.Print("Enter Vault Master Passphrase: ")
