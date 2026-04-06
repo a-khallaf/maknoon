@@ -47,17 +47,20 @@ func DecryptCmd() *cobra.Command {
 			flags := header[5]
 			
 			pr, pw := io.Pipe()
+			
+			// Note: For decryption, we track progress based on the INPUT stream
 			bar := progressbar.DefaultBytes(info.Size(), "restoring")
+			proxyIn := io.TeeReader(in, bar)
 
 			go func() {
 				var dErr error
 				if magic == crypto.MagicHeader {
 					password, dErr = ensurePassword(password)
 					if dErr == nil {
-						_, dErr = crypto.DecryptStream(io.TeeReader(in, bar), pw, password)
+						_, dErr = crypto.DecryptStream(proxyIn, pw, password)
 					}
 				} else if magic == crypto.MagicHeaderAsym {
-					dErr = handleAsymmetricDecryption(in, bar, pw, keyPath, password)
+					dErr = handleAsymmetricDecryption(proxyIn, nil, pw, keyPath, password)
 				} else {
 					dErr = fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
 				}
@@ -110,7 +113,7 @@ func handleAsymmetricDecryption(in io.Reader, bar *progressbar.ProgressBar, pw *
 		privKeyBytes = unlockedKey.Bytes()
 		defer crypto.SafeClear(privKeyBytes)
 	}
-	_, err = crypto.DecryptStreamWithPrivateKey(io.TeeReader(in, bar), pw, privKeyBytes)
+	_, err = crypto.DecryptStreamWithPrivateKey(in, pw, privKeyBytes)
 	return err
 }
 

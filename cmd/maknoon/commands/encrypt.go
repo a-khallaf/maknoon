@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/a-khallaf/maknoon/pkg/crypto"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -76,7 +77,24 @@ func EncryptCmd() *cobra.Command {
 
 			fmt.Printf("Protecting '%s'...\n", inputPath)
 
+			// Progress wrapping
+			totalSize := stat.Size()
+			if stat.IsDir() {
+				totalSize = -1
+			} else {
+				// Account for header overhead: 
+				// - Symmetric: ~81 bytes
+				// - Asymmetric (KEM): ~1600 bytes
+				if opts.PublicKey != nil {
+					totalSize += 1650
+				} else {
+					totalSize += 128
+				}
+			}
+			bar := progressbar.DefaultBytes(totalSize, "preserving")
+			opts.ProgressWriter = bar
 			return crypto.Protect(inputPath, out, opts)
+
 		},
 	}
 

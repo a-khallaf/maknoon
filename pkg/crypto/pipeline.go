@@ -11,16 +11,23 @@ import (
 
 // Options defines settings for the protection process.
 type Options struct {
-	Passphrase []byte
-	PublicKey  []byte
-	Compress   bool
-	IsArchive  bool
+	Passphrase     []byte
+	PublicKey      []byte
+	Compress       bool
+	IsArchive      bool
+	ProgressWriter io.Writer // Optional writer to track progress
 }
 
 // Protect handles the full encryption pipeline for a file or directory.
 func Protect(inputPath string, w io.Writer, opts Options) error {
 	var sourceReader io.Reader
 	var flags byte
+
+	// Target writer might be wrapped for progress
+	targetWriter := w
+	if opts.ProgressWriter != nil {
+		targetWriter = io.MultiWriter(w, opts.ProgressWriter)
+	}
 
 	if opts.IsArchive {
 		flags |= FlagArchive
@@ -30,26 +37,16 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 			tw := tar.NewWriter(pw)
 			baseDir := filepath.Dir(filepath.Clean(inputPath))
 			err := filepath.Walk(inputPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
+				if err != nil { return err }
 				rel, err := filepath.Rel(baseDir, path)
-				if err != nil {
-					return err
-				}
+				if err != nil { return err }
 				header, err := tar.FileInfoHeader(info, "")
-				if err != nil {
-					return err
-				}
+				if err != nil { return err }
 				header.Name = rel
-				if err := tw.WriteHeader(header); err != nil {
-					return err
-				}
+				if err := tw.WriteHeader(header); err != nil { return err }
 				if !info.IsDir() {
 					f, err := os.Open(path)
-					if err != nil {
-						return err
-					}
+					if err != nil { return err }
 					defer f.Close()
 					_, err = io.Copy(tw, f)
 					return err
@@ -61,9 +58,7 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 		}()
 	} else {
 		f, err := os.Open(inputPath)
-		if err != nil {
-			return err
-		}
+		if err != nil { return err }
 		defer f.Close()
 		sourceReader = f
 	}
@@ -82,41 +77,31 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 	}
 
 	if len(opts.PublicKey) > 0 {
-		return EncryptStreamWithPublicKey(sourceReader, w, opts.PublicKey, flags)
+		return EncryptStreamWithPublicKey(sourceReader, targetWriter, opts.PublicKey, flags)
 	}
-	return EncryptStream(sourceReader, w, opts.Passphrase, flags)
+	return EncryptStream(sourceReader, targetWriter, opts.Passphrase, flags)
 }
 
 // ExtractArchive takes a decrypted tar stream and extracts it to the target directory.
 func ExtractArchive(r io.Reader, outputDir string) error {
 	if outputDir != "" {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return err
-		}
+		if err := os.MkdirAll(outputDir, 0755); err != nil { return err }
 	}
 	tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
+		if err == io.EOF { break }
+		if err != nil { return err }
 		target := h.Name
-		if outputDir != "" {
-			target = filepath.Join(outputDir, h.Name)
-		}
-
+		if outputDir != "" { target = filepath.Join(outputDir, h.Name) }
+		
 		switch h.Typeflag {
 		case tar.TypeDir:
 			os.MkdirAll(target, 0755)
 		case tar.TypeReg:
 			os.MkdirAll(filepath.Dir(target), 0755)
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(h.Mode))
-			if err != nil {
-				return err
-			}
+			if err != nil { return err }
 			io.Copy(f, tr)
 			f.Close()
 		}
