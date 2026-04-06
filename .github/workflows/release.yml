@@ -2,14 +2,13 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
 permissions:
   contents: write
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   goreleaser:
@@ -26,6 +25,14 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
+      - name: Bump version and push tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: tag_action
+        uses: anothrNick/github-tag-action@1.71.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7

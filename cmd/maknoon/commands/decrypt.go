@@ -97,11 +97,11 @@ func DecryptCmd() *cobra.Command {
 			}()
 
 			// 3. Now that we have everything, initialize the Progress Bar and Pipe
+			fmt.Printf("Decrypting '%s'...\n", inputFile)
+
 			pr, pw := io.Pipe()
 			bar := progressbar.DefaultBytes(info.Size(), "restoring")
 			proxyIn := io.TeeReader(in, bar)
-
-			fmt.Printf("Decrypting '%s'...\n", inputFile)
 
 			go func() {
 				var dErr error
