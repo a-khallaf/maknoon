@@ -88,9 +88,9 @@ func EncryptCmd() *cobra.Command {
 					headerOverhead = 1650 // Asymmetric (KEM)
 				}
 
-				// 2. Calculate AEAD tag overhead (16 bytes per 64KB chunk)
+				// 2. Calculate AEAD tag + length overhead (20 bytes per 64KB chunk)
 				numChunks := (stat.Size() + crypto.ChunkSize - 1) / crypto.ChunkSize
-				tagOverhead := numChunks * 16
+				tagOverhead := numChunks * 20
 
 				totalSize += headerOverhead + tagOverhead
 			}
