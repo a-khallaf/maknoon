@@ -34,9 +34,7 @@ func DecryptCmd() *cobra.Command {
 			info, err := in.Stat()
 			if err != nil { return err }
 
-			password := getPassphrase(passphrase)
-
-			// Peek at the header to determine flags
+			// 1. Peek at the header to determine encryption type and flags
 			header := make([]byte, 6)
 			if _, err := io.ReadFull(in, header); err != nil {
 				return fmt.Errorf("failed to read file header: %w", err)
@@ -46,23 +44,71 @@ func DecryptCmd() *cobra.Command {
 			magic := string(header[:4])
 			flags := header[5]
 			
+			// 2. Handle Passphrase/Identity logic BEFORE initializing UI
+			var password []byte
+			if passphrase != "" {
+				password = []byte(passphrase)
+			} else if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
+				password = []byte(env)
+			}
+
+			var finalKey []byte
+			if magic == crypto.MagicHeader {
+				// Symmetric: ensure we have the file password
+				if len(password) == 0 {
+					fmt.Print("Enter passphrase: ")
+					p, err := term.ReadPassword(int(os.Stdin.Fd()))
+					fmt.Println()
+					if err != nil { return err }
+					password = p
+				}
+				finalKey = password
+			} else if magic == crypto.MagicHeaderAsym {
+				// Asymmetric: load and potentially unlock private key
+				resolvedPath := crypto.ResolveKeyPath(keyPath)
+				keyBytes, err := os.ReadFile(resolvedPath)
+				if err != nil { return fmt.Errorf("failed to read private key: %w", err) }
+
+				if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
+					// Unlock private key
+					if len(password) == 0 {
+						fmt.Print("Enter passphrase to unlock your private key: ")
+						p, err := term.ReadPassword(int(os.Stdin.Fd()))
+						fmt.Println()
+						if err != nil { return err }
+						password = p
+					}
+					var unlockedKey bytes.Buffer
+					if _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password); err != nil {
+						return fmt.Errorf("failed to unlock private key: %w", err)
+					}
+					finalKey = unlockedKey.Bytes()
+				} else {
+					finalKey = keyBytes
+				}
+			} else {
+				return fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
+			}
+
+			// Clean RAM on exit
+			defer func() {
+				if len(password) > 0 { crypto.SafeClear(password) }
+				if magic == crypto.MagicHeaderAsym { crypto.SafeClear(finalKey) }
+			}()
+
+			// 3. Now that we have everything, initialize the Progress Bar and Pipe
 			pr, pw := io.Pipe()
-			
-			// Note: For decryption, we track progress based on the INPUT stream
 			bar := progressbar.DefaultBytes(info.Size(), "restoring")
 			proxyIn := io.TeeReader(in, bar)
+
+			fmt.Printf("Decrypting '%s'...\n", inputFile)
 
 			go func() {
 				var dErr error
 				if magic == crypto.MagicHeader {
-					password, dErr = ensurePassword(password)
-					if dErr == nil {
-						_, dErr = crypto.DecryptStream(proxyIn, pw, password)
-					}
-				} else if magic == crypto.MagicHeaderAsym {
-					dErr = handleAsymmetricDecryption(proxyIn, nil, pw, keyPath, password)
+					_, dErr = crypto.DecryptStream(proxyIn, pw, finalKey)
 				} else {
-					dErr = fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
+					_, dErr = crypto.DecryptStreamWithPrivateKey(proxyIn, pw, finalKey)
 				}
 				pw.CloseWithError(dErr)
 			}()
@@ -75,46 +121,6 @@ func DecryptCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&keyPath, "private-key", "k", "", "Path to your private key")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for decryption")
 	return cmd
-}
-
-func getPassphrase(manual string) []byte {
-	if manual != "" {
-		return []byte(manual)
-	}
-	if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
-		return []byte(env)
-	}
-	return nil
-}
-
-func ensurePassword(p []byte) ([]byte, error) {
-	if len(p) > 0 {
-		return p, nil
-	}
-	fmt.Print("Enter passphrase: ")
-	res, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	return res, err
-}
-
-func handleAsymmetricDecryption(in io.Reader, bar *progressbar.ProgressBar, pw *io.PipeWriter, keyPath string, password []byte) error {
-	resolvedPath := crypto.ResolveKeyPath(keyPath)
-	privKeyBytes, err := os.ReadFile(resolvedPath)
-	if err != nil { return err }
-
-	if len(privKeyBytes) > 4 && string(privKeyBytes[:4]) == crypto.MagicHeader {
-		privKeyPassword, err := ensurePassword(password)
-		if err != nil { return err }
-		
-		var unlockedKey bytes.Buffer
-		if _, err := crypto.DecryptStream(bytes.NewReader(privKeyBytes), &unlockedKey, privKeyPassword); err != nil {
-			return fmt.Errorf("failed to unlock private key: %w", err)
-		}
-		privKeyBytes = unlockedKey.Bytes()
-		defer crypto.SafeClear(privKeyBytes)
-	}
-	_, err = crypto.DecryptStreamWithPrivateKey(in, pw, privKeyBytes)
-	return err
 }
 
 func finalizeDecryption(pr io.Reader, flags byte, output, inputFile string) error {
