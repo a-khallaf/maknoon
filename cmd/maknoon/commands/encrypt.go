@@ -82,14 +82,17 @@ func EncryptCmd() *cobra.Command {
 			if stat.IsDir() {
 				totalSize = -1
 			} else {
-				// Account for header overhead: 
-				// - Symmetric: ~81 bytes
-				// - Asymmetric (KEM): ~1600 bytes
+				// 1. Calculate header overhead
+				headerOverhead := int64(128) // Symmetric default
 				if opts.PublicKey != nil {
-					totalSize += 1650
-				} else {
-					totalSize += 128
+					headerOverhead = 1650 // Asymmetric (KEM)
 				}
+
+				// 2. Calculate AEAD tag overhead (16 bytes per 64KB chunk)
+				numChunks := (stat.Size() + crypto.ChunkSize - 1) / crypto.ChunkSize
+				tagOverhead := numChunks * 16
+
+				totalSize += headerOverhead + tagOverhead
 			}
 			bar := progressbar.DefaultBytes(totalSize, "preserving")
 			opts.ProgressWriter = bar
