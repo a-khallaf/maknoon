@@ -22,7 +22,7 @@ func EncryptCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			inputPath := args[0]
-
+			
 			stat, err := os.Stat(inputPath)
 			if err != nil {
 				return fmt.Errorf("failed to access input path: %w", err)
@@ -47,9 +47,7 @@ func EncryptCmd() *cobra.Command {
 			if pubKeyPath != "" {
 				resolvedPath := crypto.ResolveKeyPath(pubKeyPath)
 				pk, err := os.ReadFile(resolvedPath)
-				if err != nil {
-					return err
-				}
+				if err != nil { return err }
 				opts.PublicKey = pk
 			} else {
 				// Handle Passphrase
@@ -61,43 +59,32 @@ func EncryptCmd() *cobra.Command {
 					fmt.Print("Enter passphrase: ")
 					p, err := term.ReadPassword(int(os.Stdin.Fd()))
 					fmt.Println()
-					if err != nil {
-						return err
-					}
+					if err != nil { return err }
 					opts.Passphrase = p
+
+					fmt.Print("Confirm passphrase: ")
+					confirm, _ := term.ReadPassword(int(os.Stdin.Fd()))
+					fmt.Println()
+					if string(opts.Passphrase) != string(confirm) {
+						return fmt.Errorf("passphrases do not match")
+					}
 				}
 			}
 
 			// Clean RAM on exit
 			defer func() {
-				if len(opts.Passphrase) > 0 {
-					crypto.SafeClear(opts.Passphrase)
-				}
+				if len(opts.Passphrase) > 0 { crypto.SafeClear(opts.Passphrase) }
 			}()
 
 			fmt.Printf("Protecting '%s'...\n", inputPath)
-
-			// Progress wrapping
+			
+			// Progress wrapping (tracking the INPUT size is always accurate)
 			totalSize := stat.Size()
-			if stat.IsDir() {
-				totalSize = -1
-			} else {
-				// 1. Calculate header overhead
-				headerOverhead := int64(128) // Symmetric default
-				if opts.PublicKey != nil {
-					headerOverhead = 1650 // Asymmetric (KEM)
-				}
-
-				// 2. Calculate AEAD tag + length overhead (20 bytes per 64KB chunk)
-				numChunks := (stat.Size() + crypto.ChunkSize - 1) / crypto.ChunkSize
-				tagOverhead := numChunks * 20
-
-				totalSize += headerOverhead + tagOverhead
-			}
+			if stat.IsDir() { totalSize = -1 }
 			bar := progressbar.DefaultBytes(totalSize, "preserving")
-			opts.ProgressWriter = bar
-			return crypto.Protect(inputPath, out, opts)
+			opts.ProgressReader = bar
 
+			return crypto.Protect(inputPath, out, opts)
 		},
 	}
 

@@ -15,19 +15,13 @@ type Options struct {
 	PublicKey      []byte
 	Compress       bool
 	IsArchive      bool
-	ProgressWriter io.Writer // Optional writer to track progress
+	ProgressReader io.Reader // Optional reader to track progress
 }
 
 // Protect handles the full encryption pipeline for a file or directory.
 func Protect(inputPath string, w io.Writer, opts Options) error {
 	var sourceReader io.Reader
 	var flags byte
-
-	// Target writer might be wrapped for progress
-	targetWriter := w
-	if opts.ProgressWriter != nil {
-		targetWriter = io.MultiWriter(w, opts.ProgressWriter)
-	}
 
 	if opts.IsArchive {
 		flags |= FlagArchive
@@ -63,6 +57,14 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 		sourceReader = f
 	}
 
+	// Wrap the source with progress tracking BEFORE compression/encryption
+	if opts.ProgressReader != nil {
+		// The caller provides a reader that wraps 'sourceReader' (e.g. via TeeReader)
+		// But since we swapped sourceReader above, we need to be careful.
+		// Better approach: wrap the specific reader we are using.
+		sourceReader = io.TeeReader(sourceReader, opts.ProgressReader.(io.Writer))
+	}
+
 	if opts.Compress {
 		flags |= FlagCompress
 		pr, pw := io.Pipe()
@@ -77,9 +79,9 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 	}
 
 	if len(opts.PublicKey) > 0 {
-		return EncryptStreamWithPublicKey(sourceReader, targetWriter, opts.PublicKey, flags)
+		return EncryptStreamWithPublicKey(sourceReader, w, opts.PublicKey, flags)
 	}
-	return EncryptStream(sourceReader, targetWriter, opts.Passphrase, flags)
+	return EncryptStream(sourceReader, w, opts.Passphrase, flags)
 }
 
 // ExtractArchive takes a decrypted tar stream and extracts it to the target directory.
