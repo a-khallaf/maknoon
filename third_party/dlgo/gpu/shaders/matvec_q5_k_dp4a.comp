@@ -1,0 +1,168 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_control_flow_attributes : enable
+
+// Q5_K weights × Q8_1 input using dotPacked4x8EXT (dp4a).
+// 128 threads, 2 rows per workgroup.
+// Each thread handles one full sub-block (32 elements = 8 dp4a calls).
+// 8 sub-blocks per super-block → 16 super-blocks per iteration.
+//
+// Q5_K memory layout (256 elements per super-block):
+//   qs[128]: byte j low nibble = element's lower 4 bits (for element j or j+128)
+//   qh[32]:  byte j bit k = 5th bit for element in group k (k = grp*2 + half)
+//   4 groups of 64 elements, each split into 2 sub-blocks of 32:
+//     Sub-block s: group = s/2, half = s%2
+//     Elements: group*64 + half*32 + [0..31]
+//     qs: bytes [group*32 .. group*32+31], nibble shift = half*4
+//     qh: bytes [0..31], bit = group*2 + half
+
+layout(local_size_x = 128) in;
+
+struct block_q5_k {
+    float16_t d;
+    float16_t dmin;
+    uint8_t scales[12];
+    uint8_t qh[32];
+    uint8_t qs[128];
+};
+struct block_q5_k_p32 {
+    float16_t d;
+    float16_t dmin;
+    uint8_t scales[12];
+    uint32_t qh[8];
+    uint32_t qs[32];
+};
+
+struct block_q8_1 {
+    float16_t d;
+    float16_t s;
+    int32_t qs[8];
+};
+
+layout(set = 0, binding = 0) buffer Out { float out_data[]; };
+layout(scalar, set = 0, binding = 1) readonly buffer A { block_q5_k data_a[]; };
+layout(scalar, set = 0, binding = 1) readonly buffer AP32 { block_q5_k_p32 data_a_p32[]; };
+layout(scalar, set = 0, binding = 2) readonly buffer B { block_q8_1 data_b[]; };
+
+layout(push_constant) uniform Params {
+    int rows;
+    int cols;
+};
+
+#define NUM_ROWS 2
+shared float tmpsh[NUM_ROWS][4];
+
+int unpack_scale(uint i0, uint i1, uint t, int idx) {
+    if (idx < 4) {
+        return int((i0 >> (idx * 8)) & 0x3Fu);
+    }
+    int j = idx - 4;
+    uint lo4 = ((t >> (j * 8)) & 0xFFu) & 0x0Fu;
+    uint hi2 = (((i0 >> (j * 8)) & 0xFFu) >> 6) & 0x03u;
+    return int(lo4 | (hi2 << 4));
+}
+
+int unpack_min(uint i0, uint i1, uint t, int idx) {
+    if (idx < 4) {
+        return int((i1 >> (idx * 8)) & 0x3Fu);
+    }
+    int j = idx - 4;
+    uint lo4 = (((t >> (j * 8)) & 0xFFu) >> 4) & 0x0Fu;
+    uint hi2 = (((i1 >> (j * 8)) & 0xFFu) >> 6) & 0x03u;
+    return int(lo4 | (hi2 << 4));
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint first_row = gl_WorkGroupID.x * uint(NUM_ROWS);
+
+    uint ncols = uint(cols);
+    uint num_sb = ncols >> 8;
+
+    uint num_rows = uint(NUM_ROWS);
+    if (first_row + num_rows > uint(rows)) {
+        num_rows = uint(rows) - first_row;
+        if (first_row >= uint(rows)) return;
+    }
+
+    uint sub_id = tid & 7u;    // sub-block 0-7
+    uint sb_off = tid >> 3;     // super-block stride (0-15)
+
+    uint grp = sub_id >> 1;      // group 0-3
+    uint h_nib = sub_id & 1u;    // 0=low nibble, 1=high nibble
+
+    // qs: 32 bytes per group, nibble selected by h_nib
+    uint qs_base = grp * 8u;     // uint32 index (8 per 32 bytes)
+    uint nib_shift = h_nib * 4u;
+
+    // qh: all 32 bytes (8 uint32), bit position = grp*2 + h_nib
+    uint qh_bit = grp * 2u + h_nib;
+
+    int scale_idx = int(sub_id);
+
+    float temp[NUM_ROWS];
+    [[unroll]] for (int r = 0; r < NUM_ROWS; r++) temp[r] = 0.0;
+
+    for (uint i = sb_off; i < num_sb; i += 16u) {
+        uint b_ib = i * 8u + sub_id;
+        float d_b = float(data_b[b_ib].d);
+        float s_b = float(data_b[b_ib].s);
+
+        int32_t bqs[8];
+        [[unroll]] for (uint j = 0; j < 8u; j++)
+            bqs[j] = data_b[b_ib].qs[j];
+
+        [[unroll]] for (uint n = 0; n < NUM_ROWS; n++) {
+            uint ib = (first_row + n) * num_sb + i;
+
+            float d_val = float(data_a[ib].d);
+            float dmin_val = float(data_a[ib].dmin);
+
+            uint si0 = uint(data_a[ib].scales[0]) | (uint(data_a[ib].scales[1]) << 8) |
+                (uint(data_a[ib].scales[2]) << 16) | (uint(data_a[ib].scales[3]) << 24);
+            uint si1 = uint(data_a[ib].scales[4]) | (uint(data_a[ib].scales[5]) << 8) |
+                (uint(data_a[ib].scales[6]) << 16) | (uint(data_a[ib].scales[7]) << 24);
+            uint st = uint(data_a[ib].scales[8]) | (uint(data_a[ib].scales[9]) << 8) |
+                (uint(data_a[ib].scales[10]) << 16) | (uint(data_a[ib].scales[11]) << 24);
+
+            float sc = d_val * float(unpack_scale(si0, si1, st, scale_idx));
+            float dm = dmin_val * float(unpack_min(si0, si1, st, scale_idx));
+
+            int dp_sum = 0;
+            [[unroll]] for (uint j = 0; j < 8u; j++) {
+                uint qs_v = (data_a_p32[ib].qs[qs_base + j] >> nib_shift) & 0x0F0F0F0Fu;
+                uint qh_v = (data_a_p32[ib].qh[j] >> qh_bit) & 0x01010101u;
+                int32_t a_val = int32_t(qs_v | (qh_v << 4));
+                dp_sum += dotPacked4x8EXT(a_val, bqs[j]);
+            }
+
+            temp[n] += sc * float(dp_sum) * d_b - dm * s_b;
+        }
+    }
+
+    [[unroll]] for (int r = 0; r < NUM_ROWS; r++) {
+        temp[r] = subgroupAdd(temp[r]);
+    }
+
+    if (gl_SubgroupInvocationID == 0u) {
+        [[unroll]] for (int r = 0; r < NUM_ROWS; r++) {
+            tmpsh[r][gl_SubgroupID] = temp[r];
+        }
+    }
+    barrier();
+
+    if (tid == 0u) {
+        [[unroll]] for (uint n = 0; n < num_rows; n++) {
+            float sum = 0.0;
+            [[unroll]] for (uint s = 0; s < gl_NumSubgroups; s++) {
+                sum += tmpsh[n][s];
+            }
+            out_data[first_row + n] = sum;
+        }
+    }
+}
