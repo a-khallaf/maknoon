@@ -8,26 +8,27 @@
 
 Maknoon is a versatile, ultra-efficient CLI encryption tool designed for a post-quantum world. It combines bleeding-edge cryptographic standards with a high-performance streaming architecture to protect your files and directories with absolute care.
 
-## ✨ Core Philosophies
+## ✨ Core Philosophies & Design Choices
 
-1.  **Bleeding-Edge Security:** Uses hybrid cryptographic schemes (ML-KEM/ML-DSA), preparing your data for the future of quantum computing.
-2.  **Hyper-Efficiency:** Processes massive files (100GB+) and complex directories with a **constant memory footprint** (~64KB).
-3.  **Memory Hygiene:** Strictly adheres to the "Carefully Preserved" ethos by explicitly zeroing out all sensitive data (passphrases, keys, secrets) from RAM immediately after use.
-4.  **Post-Quantum Signatures:** Provides non-repudiation and integrity using ML-DSA (Dilithium) signatures.
-5.  **Transparent Archiving:** Encrypts entire directories on-the-fly using streaming TAR integration.
-6.  **High-Speed Compression:** Optional Zstd compression support.
-7.  **Modern DX:** Intuitive CLI with real-time progress feedback, automation support, and automatic header detection.
+1.  **Post-Quantum Readiness (ML-KEM/ML-DSA):** Traditional RSA and Elliptic Curve cryptography are vulnerable to future quantum computers (Shor's algorithm). Maknoon uses **NIST-standardized** Post-Quantum algorithms (Kyber1024 and Dilithium87) to ensure your data remains secure for decades, not just years.
+2.  **Streaming Architecture (Hyper-Efficiency):** Unlike tools that load entire files into RAM, Maknoon uses a **64KB chunk-based streaming pipeline**. This ensures a **constant memory footprint** (~64KB) whether you are encrypting a 1MB PDF or a 1TB database backup.
+3.  **Strict Memory Hygiene:** To prevent sensitive data leakage through memory forensics or swap files, Maknoon **explicitly zeros out** all passphrases and raw keys from RAM using `defer` blocks and `SafeClear` patterns immediately after use.
+4.  **Authenticated Encryption (XChaCha20-Poly1305):** We chose XChaCha20-Poly1305 over AES-GCM for its superior performance in software-only environments and its resilience against nonce-misuse (due to its 192-bit extended nonce). Every chunk is independently authenticated, ensuring that any bit of corruption is detected immediately.
+5.  **Transparent Directory Support:** Maknoon treats directories as first-class citizens. By integrating a **streaming TAR encoder** into the cryptographic pipeline, it encrypts entire directory trees on-the-fly without creating intermediate unencrypted temporary files.
+6.  **High-Speed Compression:** Optional **Zstd** integration provides industry-leading compression ratios and speeds, perfectly suited for the streaming nature of the tool.
 
 ---
 
-## 🛠 Technical Stack
+## 🛠 Technical Stack & Rationale
 
-*   **Symmetric Encryption:** XChaCha20-Poly1305 (Fast, authenticated encryption).
-*   **Key Derivation:** Argon2id (Memory-hard, GPU-resistant).
-*   **Compression:** Zstd (High-performance streaming compression).
-*   **Post-Quantum KEM:** ML-KEM / Kyber1024 (NIST-standardized encryption).
-*   **Post-Quantum SIG:** ML-DSA-87 / Dilithium (NIST-standardized signatures).
-*   **Vault Storage:** bbolt (Pure-Go persistent key-value store).
+| Component | Choice | Rationale |
+| :--- | :--- | :--- |
+| **Symmetric Cipher** | XChaCha20-Poly1305 | Modern AEAD; fast in software; 192-bit nonce for safety. |
+| **KEM (Asymmetric)** | ML-KEM / Kyber1024 | NIST-standardized; Category 5 security (highest). |
+| **Signature (SIG)** | ML-DSA-87 / Dilithium | NIST-standardized; robust non-repudiation. |
+| **KDF** | Argon2id | Memory-hard and side-channel resistant; superior to PBKDF2. |
+| **Compression** | Zstd | Modern, streaming-friendly, and extremely fast. |
+| **Database** | bbolt | Embedded, ACID-compliant, and pure-Go for portability. |
 
 ---
 
@@ -49,7 +50,7 @@ go build -o maknoon ./cmd/maknoon
 ```
 
 ### 1. Key Generation (Post-Quantum)
-Generate a full Post-Quantum identity (Encryption + Signing keys).
+Generate a full Post-Quantum identity (Encryption + Signing keys). By default, these are stored in `~/.maknoon/keys/`.
 
 ```bash
 # Generates id_identity.kem.{key,pub} and id_identity.sig.{key,pub}
@@ -58,33 +59,52 @@ Generate a full Post-Quantum identity (Encryption + Signing keys).
 
 ### 2. Encryption & Signing
 
-**Passphrase Mode:**
+**Symmetric Mode (Passphrase):**
+Uses Argon2id for key derivation and XChaCha20-Poly1305 for encryption.
 ```bash
 ./maknoon encrypt sensitive_report.pdf
 ```
 
 **Asymmetric Mode (Public Key):**
+Uses ML-KEM-1024 to wrap a per-file ephemeral symmetric key.
 ```bash
 ./maknoon encrypt massive_data.iso --public-key id_identity.kem.pub
 ```
 
-**Digital Signature:**
+**Digital Signature & Verification:**
+Provides non-repudiation using ML-DSA-87 (Dilithium).
 ```bash
+# Sign
 ./maknoon sign document.pdf --private-key id_identity.sig.key
-```
 
-**Verify Signature:**
-```bash
+# Verify
 ./maknoon verify document.pdf --public-key id_identity.sig.pub
 ```
 
 ### 3. Password Vault
-Securely store and retrieve credentials in a quantum-resistant database.
+Securely store and retrieve credentials in a quantum-resistant database. The vault itself is protected by an Argon2id-derived master key.
 
 ```bash
 ./maknoon vault set github.com --user myname
 ./maknoon vault get github.com
+./maknoon vault list
 ```
+
+---
+
+## 🏗 Security Architecture
+
+### Nonce Management
+Each file starts with a random 192-bit base nonce. Every 64KB chunk XORs a 64-bit counter into this base. This architecture guarantees that **2^64 chunks** (approx. 1 zettabyte) can be safely encrypted per file without nonce collision risks.
+
+### Metadata Privacy
+Maknoon files include a minimal header containing:
+1. Magic Bytes (Version detection)
+2. 32-byte Salt (Argon2id)
+3. 24-byte Base Nonce
+4. Encryption Flags (Compression/Archive status)
+
+No filenames or internal directory structures are leaked in the encrypted header; all metadata is contained within the encrypted payload.
 
 ---
 
@@ -93,24 +113,11 @@ Securely store and retrieve credentials in a quantum-resistant database.
 Maknoon is designed for headless environments. You can bypass interactive prompts using flags or environment variables.
 
 ```bash
+# Set passphrase for automation
 export MAKNOON_PASSPHRASE="your-secret-key"
-./maknoon encrypt ./deploy_artifacts --compress
-```
 
----
-
-## 🏗 Architecture & Security
-
-### AEAD Streaming
-Each 64KB chunk is encrypted with a unique nonce derived from a per-file random base and a 64-bit counter. This prevents nonce-reuse while allowing for bit-perfect restoration of multi-terabyte files.
-
-### "Carefully Preserved" RAM
-Sensitive data is never left to the garbage collector. Maknoon uses `defer` blocks to explicitly overwrite byte slices containing passphrases and raw keys with zeros as soon as the cryptographic operations are finished.
-
-### Verified Integrity
-The project includes a robust integration test suite verifying symmetric, asymmetric, compression, signing, and directory-based round-trips.
-```bash
-go test -v ./...
+# Encrypt a directory with compression for CI/CD artifacts
+./maknoon encrypt ./deploy_artifacts --compress --output build.makn
 ```
 
 ---
