@@ -1,4 +1,4 @@
-.TH MAKNOON 1 "April 2026" "1.0.0" "Maknoon Manual"
+.TH MAKNOON 1 "April 2026" "1.1.4" "Maknoon Manual"
 .SH NAME
 maknoon \- Versatile, ultra-efficient Post-Quantum CLI encryption tool.
 .SH SYNOPSIS
@@ -6,29 +6,31 @@ maknoon \- Versatile, ultra-efficient Post-Quantum CLI encryption tool.
 [\fIcommand\fR] [\fIflags\fR]
 .SH DESCRIPTION
 Maknoon (مكنون) is a high-performance encryption tool designed for a post-quantum world. 
-It utilizes ML-KEM (Kyber) for encryption, ML-DSA (Dilithium) for signatures, and XChaCha20-Poly1305 for streaming data integrity.
+It utilizes ML-KEM (Kyber1024) for encryption, ML-DSA (Dilithium87) for signatures, and XChaCha20-Poly1305 for streaming data integrity.
+.PP
+The tool is built with a 64KB chunk-based streaming architecture, ensuring a constant memory footprint regardless of file size. It strictly adheres to memory hygiene by explicitly zeroing out sensitive data immediately after use.
 .SH COMMANDS
 .TP
 .B keygen
-Generate a full Post-Quantum identity (Encryption + Signing keys).
+Generate a full Post-Quantum identity (Encryption + Signing keys). Keys are protected by an Argon2id-derived master key.
 .TP
 .B encrypt [file/dir]
-Encrypt a file or directory. Supports --compress and --public-key.
+Encrypt a file or directory. If a directory is provided, it is streamed through a TAR encoder and encrypted on-the-fly. Supports \-\-compress (Zstd) and \-\-public-key (ML-KEM).
 .TP
 .B decrypt [file]
-Decrypt and restore data. Automatically detects archive and compression status.
+Decrypt and restore data. Automatically detects archive and compression status from the encrypted header.
 .TP
 .B sign [file]
-Generate a detached Post-Quantum signature for a file.
+Generate a detached Post-Quantum (ML-DSA-87) signature for a file.
 .TP
 .B verify [file]
-Cryptographically verify a file's integrity and origin.
+Cryptographically verify a file's integrity and origin using a public ML-DSA key.
 .TP
 .B vault
-Manage a secure, encrypted password database.
+Manage a secure, encrypted password database (bbolt) protected by Argon2id.
 .TP
 .B gen
-Generate high-entropy secure passwords or passphrases.
+Generate high-entropy secure passwords or passphrases using a cryptographically secure RNG.
 .SH OPTIONS
 .TP
 .B \-p, \-\-public-key
@@ -42,6 +44,19 @@ Provide a passphrase non-interactively.
 .TP
 .B \-c, \-\-compress
 Enable Zstd compression before encryption.
+.TP
+.B \-o, \-\-output
+Specify the output file path or directory.
+.SH SECURITY RATIONALE
+.TP
+.B XChaCha20-Poly1305
+Chosen for superior software performance and resistance to nonce-misuse via its 192-bit nonce.
+.TP
+.B Argon2id
+The gold standard for key derivation, providing robust protection against GPU-based brute-force attacks.
+.TP
+.B Constant Memory
+By processing data in 64KB chunks, Maknoon prevents memory exhaustion and side-channel leakage associated with large memory allocations.
 .SH FILES
 .TP
 .I ~/.maknoon/keys/
