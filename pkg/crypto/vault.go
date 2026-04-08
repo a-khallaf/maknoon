@@ -25,13 +25,6 @@ type VaultEntry struct {
 
 // SealEntry encrypts a VaultEntry into a ciphertext blob using the master key.
 func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
-	// Zero out master key on exit to protect memory
-	defer func() {
-		for i := range masterKey {
-			masterKey[i] = 0
-		}
-	}()
-
 	plaintext, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
@@ -53,13 +46,6 @@ func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
 
 // OpenEntry decrypts a ciphertext blob into a VaultEntry.
 func OpenEntry(ciphertext []byte, masterKey []byte) (*VaultEntry, error) {
-	// Zero out master key on exit to protect memory
-	defer func() {
-		for i := range masterKey {
-			masterKey[i] = 0
-		}
-	}()
-
 	aead, err := chacha20poly1305.NewX(masterKey)
 	if err != nil {
 		return nil, err
