@@ -4,7 +4,6 @@ go 1.26.1
 
 require (
 	github.com/cloudflare/circl v1.6.3
-	github.com/computerex/dlgo v0.0.0-20260401165446-8383c977f6aa
 	github.com/klauspost/compress v1.18.5
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/spf13/cobra v1.10.2
@@ -20,5 +19,3 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 )
-
-replace github.com/computerex/dlgo => ./third_party/dlgo
