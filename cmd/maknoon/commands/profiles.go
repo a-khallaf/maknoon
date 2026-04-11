@@ -21,7 +21,7 @@ func ProfilesCmd() *cobra.Command {
 			fmt.Println("\n🛠️  Custom Profile Construction (JSON Schema)")
 			fmt.Println("  {")
 			fmt.Println("    \"id\": 3-255,")
-			fmt.Println("    \"cipher\": <0 or 1>,")
+			fmt.Println("    \"cipher\": <0, 1, or 2>,")
 			fmt.Println("    \"kdf\": 0,")
 			fmt.Println("    \"kdf_iterations\": <min 1>,")
 			fmt.Println("    \"kdf_memory\": <min 1024 KB>,")
@@ -34,6 +34,7 @@ func ProfilesCmd() *cobra.Command {
 			fmt.Println("  Ciphers:")
 			fmt.Printf("    %d: XChaCha20-Poly1305 (nonce_size: 24)\n", crypto.AlgoXChaCha20Poly1305)
 			fmt.Printf("    %d: AES-256-GCM         (nonce_size: 12)\n", crypto.AlgoAES256GCM)
+			fmt.Printf("    %d: AES-256-GCM-SIV     (nonce_size: 12)\n", crypto.AlgoAES256GCMSIV)
 			fmt.Println("  KDFs:")
 			fmt.Printf("    %d: Argon2id\n", crypto.KdfArgon2id)
 

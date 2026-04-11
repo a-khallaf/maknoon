@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 
+	"github.com/secure-io/siv-go"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -13,6 +14,7 @@ import (
 const (
 	AlgoXChaCha20Poly1305 = byte(0)
 	AlgoAES256GCM         = byte(1)
+	AlgoAES256GCMSIV      = byte(2)
 
 	KdfArgon2id = byte(0)
 )
@@ -56,14 +58,16 @@ func (p *DynamicProfile) NewAEAD(key []byte) (cipher.AEAD, error) {
 			return nil, err
 		}
 		return cipher.NewGCM(block)
+	case AlgoAES256GCMSIV:
+		return siv.NewGCM(key)
 	default:
-		return nil, fmt.Errorf("unsupported cipher type: %d (only 0:XChaCha20, 1:AES-GCM supported)", p.CipherType)
+		return nil, fmt.Errorf("unsupported cipher type: %d (only 0:XChaCha20, 1:AES-GCM, 2:AES-GCM-SIV supported)", p.CipherType)
 	}
 }
 
 // Validate checks if the profile uses supported algorithms and sensible security parameters.
 func (p *DynamicProfile) Validate() error {
-	if p.CipherType > 1 {
+	if p.CipherType > 2 {
 		return fmt.Errorf("unsupported cipher type: %d", p.CipherType)
 	}
 	if p.KdfType != KdfArgon2id {
@@ -79,8 +83,8 @@ func (p *DynamicProfile) Validate() error {
 		return fmt.Errorf("invalid salt size: %d (min 8)", p.CustomSalt)
 	}
 	// Check nonce size compatibility
-	if p.CipherType == AlgoAES256GCM && p.CustomNonc != 12 {
-		return fmt.Errorf("AES-GCM requires exactly 12-byte nonce (got %d)", p.CustomNonc)
+	if (p.CipherType == AlgoAES256GCM || p.CipherType == AlgoAES256GCMSIV) && p.CustomNonc != 12 {
+		return fmt.Errorf("AES-GCM families require exactly 12-byte nonce (got %d)", p.CustomNonc)
 	}
 	if p.CipherType == AlgoXChaCha20Poly1305 && p.CustomNonc != 24 {
 		return fmt.Errorf("XChaCha20-Poly1305 requires exactly 24-byte nonce (got %d)", p.CustomNonc)

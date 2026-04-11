@@ -237,6 +237,51 @@ func TestIntegrationSignVerify(t *testing.T) {
 		t.Fatalf("Verification failed: %v", err)
 	}
 }
+func TestIntegrationGCMSIVProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	profileFile := filepath.Join(tmpDir, "siv_profile.json")
+	// Profile ID 150 (Portable), AES-GCM-SIV (2), 1 iteration Argon2
+	profileJSON := `{
+		"id": 150,
+		"cipher": 2,
+		"kdf": 0,
+		"kdf_iterations": 1,
+		"kdf_memory": 16384,
+		"kdf_threads": 4,
+		"salt_size": 16,
+		"nonce_size": 12
+	}`
+	os.WriteFile(profileFile, []byte(profileJSON), 0644)
+
+	inputFile := filepath.Join(tmpDir, "siv_test.txt")
+	content := []byte("AES-GCM-SIV Nonce-Misuse Resistance Test")
+	os.WriteFile(inputFile, content, 0644)
+
+	encryptedFile := inputFile + ".makn"
+	passphrase := "siv-pass"
+
+	// 1. Encrypt
+	encCmd := commands.EncryptCmd()
+	encCmd.SetArgs([]string{inputFile, "-o", encryptedFile, "-s", passphrase, "--profile-file", profileFile, "--quiet"})
+	if err := encCmd.Execute(); err != nil {
+		t.Fatalf("SIV profile encryption failed: %v", err)
+	}
+
+	// 2. Decrypt (Auto-detect from header)
+	decryptedFile := filepath.Join(tmpDir, "siv_restored.txt")
+	decCmd := commands.DecryptCmd()
+	decCmd.SetArgs([]string{encryptedFile, "-o", decryptedFile, "-s", passphrase, "--quiet"})
+	if err := decCmd.Execute(); err != nil {
+		t.Fatalf("SIV profile decryption failed: %v", err)
+	}
+
+	// 3. Verify
+	restored, _ := os.ReadFile(decryptedFile)
+	if !bytes.Equal(content, restored) {
+		t.Fatalf("SIV restored content mismatch")
+	}
+}
 
 func TestIntegrationSelfContainedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
