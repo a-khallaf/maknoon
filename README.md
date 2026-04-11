@@ -24,30 +24,31 @@ Maknoon is a versatile, ultra-efficient CLI encryption tool designed for a post-
 
 ## 🏗 Modular Architecture (Profiles)
 
-Maknoon uses a **Suite/Profile** architecture. The first byte of every encrypted file (after the magic bytes) identifies the `ProfileID`.
+Maknoon uses a **Suite/Profile** architecture. The first byte of every encrypted file identifies the `ProfileID`, allowing the tool to adapt its cryptographic logic on-the-fly.
 
-- **Built-in Profiles:**
-  - `ID 1`: NIST PQC (Kyber1024 + Dilithium87) with XChaCha20-Poly1305.
-  - `ID 2`: NIST PQC with AES-256-GCM.
-- **Secret Profiles (IDs 3-127):** Only the ID is stored in the header. The recipient **must** possess a matching JSON profile file to decrypt.
-- **Portable Profiles (IDs 128-255):** The profile parameters (Cipher, KDF settings) are packed directly into the file header. No extra configuration is needed for decryption.
+### 1. Built-in Profiles
+*   **ID 1 (Default):** XChaCha20-Poly1305 + NIST PQC (Kyber1024 + Dilithium87).
+*   **ID 2:** AES-256-GCM + NIST PQC. Optimized for hardware acceleration.
 
-### Using Custom Profiles
-You can define your own profile in a JSON file:
-```json
-{
-  "id": 100,
-  "cipher": 1,
-  "kdf": 0,
-  "kdf_iterations": 5,
-  "kdf_memory": 131072,
-  "kdf_threads": 4,
-  "salt_size": 32,
-  "nonce_size": 12
-}
+### 2. Secret Profiles (IDs 3-127)
+In this mode, only the ID is stored in the file header. This acts as a **mandatory second factor**: to decrypt the file, you must possess the matching JSON profile definition.
+*   **Storage:** Maknoon automatically looks for profiles in `~/.maknoon/profiles/[ID].json`.
+*   **Value:** Even with the correct passphrase, an attacker cannot decrypt the data without knowing the exact algorithm and KDF parameters defined in your secret JSON file.
+
+### 3. Portable Profiles (IDs 128-255)
+In this mode, the full profile parameters (Cipher type, Argon2 memory, iterations, etc.) are **packed into the file header**.
+*   **Value:** Allows for extreme customization (e.g., "I want 2GB of Argon2 RAM for this specific file") while keeping the file self-contained and decryptable on any machine without extra configuration.
+
+### 🛠 Custom Profile Construction
+Generate a random secure profile:
+```bash
+./maknoon profiles --generate --secret > ~/.maknoon/profiles/my_suite.json
 ```
-Encrypt using:
-`./maknoon encrypt secret.txt --profile-file custom.json -s mypass`
+
+Encrypt using a custom profile:
+```bash
+./maknoon encrypt secret.txt --profile-file my_suite.json
+```
 
 ---
 

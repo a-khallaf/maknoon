@@ -179,6 +179,55 @@ func TestIntegrationSignVerify(t *testing.T) {
 	}
 }
 
+func TestIntegrationSecretProfileAutoDiscovery(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	profDir := filepath.Join(home, ".maknoon", "profiles")
+	os.MkdirAll(profDir, 0700)
+	
+	// 1. Create a "Secret" Profile in the standard location
+	profileID := 99
+	profileFile := filepath.Join(profDir, fmt.Sprintf("%d.json", profileID))
+	profileJSON := fmt.Sprintf(`{
+		"id": %d,
+		"cipher": 0,
+		"kdf": 0,
+		"kdf_iterations": 1,
+		"kdf_memory": 16384,
+		"kdf_threads": 4,
+		"salt_size": 16,
+		"nonce_size": 24
+	}`, profileID)
+	os.WriteFile(profileFile, []byte(profileJSON), 0644)
+	defer os.Remove(profileFile)
+
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "auto_test.txt")
+	content := []byte("Auto-discovery test content")
+	os.WriteFile(inputFile, content, 0644)
+	
+	encryptedFile := inputFile + ".makn"
+	passphrase := "auto-pass"
+
+	// 2. Encrypt using the profile file
+	encCmd := commands.EncryptCmd()
+	encCmd.SetArgs([]string{inputFile, "-o", encryptedFile, "-s", passphrase, "--profile-file", profileFile, "--quiet"})
+	encCmd.Execute()
+
+	// 3. Decrypt WITHOUT --profile-file (Should auto-discover from ~/.maknoon/profiles/)
+	decryptedFile := filepath.Join(tmpDir, "auto_restored.txt")
+	decCmd := commands.DecryptCmd()
+	decCmd.SetArgs([]string{encryptedFile, "-o", decryptedFile, "-s", passphrase, "--quiet"})
+	if err := decCmd.Execute(); err != nil {
+		t.Fatalf("Auto-discovery decryption failed: %v", err)
+	}
+
+	// 4. Verify
+	restored, _ := os.ReadFile(decryptedFile)
+	if !bytes.Equal(content, restored) {
+		t.Fatalf("Auto-discovery restored content mismatch")
+	}
+}
+
 func TestIntegrationKeygenCustomProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	

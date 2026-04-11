@@ -12,6 +12,8 @@ const (
 	KeysDir = "keys"
 	// VaultsDir is the subdirectory for storing vaults.
 	VaultsDir = "vaults"
+	// ProfilesDir is the subdirectory for custom profiles.
+	ProfilesDir = "profiles"
 )
 
 // ResolveKeyPath checks if a key exists locally, in ~/.maknoon/keys/, or in environment variables.
@@ -49,7 +51,7 @@ func GetDefaultVaultPath() string {
 	return filepath.Join(home, MaknoonDir, VaultsDir, "default.db")
 }
 
-// EnsureMaknoonDirs creates the necessary directory structure for keys and vaults.
+// EnsureMaknoonDirs creates the necessary directory structure for keys, vaults, and profiles.
 func EnsureMaknoonDirs() error {
 	home, _ := os.UserHomeDir()
 	base := filepath.Join(home, MaknoonDir)
@@ -57,6 +59,7 @@ func EnsureMaknoonDirs() error {
 	dirs := []string{
 		filepath.Join(base, KeysDir),
 		filepath.Join(base, VaultsDir),
+		filepath.Join(base, ProfilesDir),
 	}
 
 	for _, dir := range dirs {

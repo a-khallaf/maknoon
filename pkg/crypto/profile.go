@@ -2,8 +2,11 @@ package crypto
 
 import (
 	"crypto/cipher"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -44,13 +47,33 @@ func RegisterProfile(p CryptoProfile) {
 }
 
 // GetProfile retrieves a cryptographic profile by its ID.
-// If ID >= 128 and not registered, it reads the next 7 bytes from r to unpack a dynamic profile.
+// 1. Checks memory registry.
+// 2. If ID < 128, attempts to auto-load from ~/.maknoon/profiles/ID.json.
+// 3. If ID >= 128, reads 7 packed bytes from r to unpack a dynamic profile.
 func GetProfile(id byte, r io.Reader) (CryptoProfile, error) {
 	mu.RLock()
 	p, ok := profiles[id]
 	mu.RUnlock()
 	if ok {
 		return p, nil
+	}
+
+	// Automatic Discovery for Secret Profiles (3-127)
+	if id > 2 && id < 128 {
+		home, _ := os.UserHomeDir()
+		profilePath := filepath.Join(home, MaknoonDir, ProfilesDir, fmt.Sprintf("%d.json", id))
+		if _, err := os.Stat(profilePath); err == nil {
+			raw, err := os.ReadFile(profilePath)
+			if err == nil {
+				var dp DynamicProfile
+				if err := json.Unmarshal(raw, &dp); err == nil {
+					if err := dp.Validate(); err == nil {
+						RegisterProfile(&dp)
+						return &dp, nil
+					}
+				}
+			}
+		}
 	}
 
 	if id >= 128 {
