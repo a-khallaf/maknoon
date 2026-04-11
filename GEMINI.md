@@ -49,8 +49,9 @@ Before every release or major push, the following steps **must** be completed:
 ## 📖 Development Conventions
 
 - **Memory Hygiene**: Always use `crypto.SafeClear` to zero out sensitive data (keys, passphrases) in memory immediately after use.
-- **Streaming First**: Avoid loading entire files into memory. Use the 64KB chunk-based streaming architecture provided in `pkg/crypto`.
-- **Error Handling**: Use wrapped errors (`fmt.Errorf("...: %w", err)`) for better context in CLI output.
+- **Streaming & Pipes**: Prefer `io.Reader` and `io.Writer` over file paths in command logic. All new encryption/decryption features MUST support standard I/O (stdin/stdout via `-`).
+- **Automation First**: New flags and commands should support a `--quiet` mode to suppress progress bars and informational output for CI/CD and scripts.
+- **Environment Integration**: Sensitive or repetitive inputs (keys, passphrases) should be resolvable via standard environment variables (`MAKNOON_*`).
 - **CGO Avoidance**: Prefer pure-Go implementations to maintain easy cross-compilation and portability.
 - **Documentation**: All exported functions and constants should have comments following the standard Go convention (`// Name ...`).
 - **Post-Quantum Only**: NEVER fallback to classical algorithms (RSA/ECC) for primary protection. Any new asymmetric logic must use NIST-standardized Post-Quantum primitives.
