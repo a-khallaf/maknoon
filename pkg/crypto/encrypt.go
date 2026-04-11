@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"runtime"
+	"sync"
 
 	"github.com/cloudflare/circl/kem/kyber/kyber1024"
 	"golang.org/x/crypto/argon2"
@@ -13,7 +15,7 @@ import (
 )
 
 // EncryptStream symmetrically encrypts data from r to w using a passphrase.
-func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte) error {
+func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int) error {
 	// 1. Generate random Salt for Argon2id
 	salt := make([]byte, SaltSize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -53,11 +55,11 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte) error 
 	}
 
 	// 5. Stream Encrypt Chunks
-	return streamEncrypt(r, w, aead, baseNonce)
+	return streamEncrypt(r, w, aead, baseNonce, concurrency)
 }
 
 // EncryptStreamWithPublicKey encrypts data from r to w using a Post-Quantum Public Key (Kyber1024).
-func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, flags byte) error {
+func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, flags byte, concurrency int) error {
 	// 1. Unpack Public Key
 	scheme := kyber1024.Scheme()
 	pubKey, err := scheme.UnmarshalBinaryPublicKey(pubKeyBytes)
@@ -101,11 +103,126 @@ func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, fl
 	}
 
 	// 5. Stream Encrypt Chunks
-	return streamEncrypt(r, w, aead, baseNonce)
+	return streamEncrypt(r, w, aead, baseNonce, concurrency)
+}
+
+type encryptJob struct {
+	index uint64
+	data  []byte
+}
+
+type encryptResult struct {
+	index uint64
+	data  []byte
+	err   error
 }
 
 // Internal helper to avoid code duplication
-func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {
+func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int) error {
+	if concurrency <= 0 {
+		concurrency = runtime.NumCPU()
+	}
+
+	// If concurrency is 1, use the sequential path for simplicity
+	if concurrency == 1 {
+		return streamEncryptSequential(r, w, aead, baseNonce)
+	}
+
+	jobs := make(chan encryptJob, concurrency*2)
+	results := make(chan encryptResult, concurrency*2)
+	var wg sync.WaitGroup
+
+	// Workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				nonce := make([]byte, aead.NonceSize())
+				copy(nonce, baseNonce)
+				counterBytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(counterBytes, job.index)
+				for i := 0; i < 8; i++ {
+					nonce[16+i] ^= counterBytes[i]
+				}
+
+				ciphertext := aead.Seal(nil, nonce, job.data, nil)
+				results <- encryptResult{index: job.index, data: ciphertext}
+			}
+		}()
+	}
+
+	// Closer
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Reader
+	errChan := make(chan error, 1)
+	go func() {
+		defer close(jobs)
+		chunkIndex := uint64(0)
+		for {
+			buf := make([]byte, ChunkSize)
+			n, err := r.Read(buf)
+			if n > 0 {
+				jobs <- encryptJob{index: chunkIndex, data: buf[:n]}
+				chunkIndex++
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Writer (Sequencer)
+	nextIndex := uint64(0)
+	pending := make(map[uint64][]byte)
+	for {
+		select {
+		case err := <-errChan:
+			return err
+		case res, ok := <-results:
+			if !ok {
+				if len(pending) > 0 {
+					return fmt.Errorf("encryption pipeline failed: missing chunks")
+				}
+				return nil
+			}
+			if res.err != nil {
+				return res.err
+			}
+
+			pending[res.index] = res.data
+
+			for {
+				data, exists := pending[nextIndex]
+				if !exists {
+					break
+				}
+
+				lenBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(lenBuf, uint32(len(data)))
+				if _, err := w.Write(lenBuf); err != nil {
+					return err
+				}
+				if _, err := w.Write(data); err != nil {
+					return err
+				}
+
+				delete(pending, nextIndex)
+				nextIndex++
+			}
+		}
+	}
+}
+
+func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {
 	buf := make([]byte, ChunkSize)
 	chunkIndex := uint64(0)
 	nonce := make([]byte, aead.NonceSize())

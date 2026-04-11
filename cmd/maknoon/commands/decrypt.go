@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,8 @@ func DecryptCmd() *cobra.Command {
 	var output string
 	var keyPath string
 	var passphrase string
+	var concurrency int
+	var useFido2 bool
 
 	cmd := &cobra.Command{
 		Use:   "decrypt [file]",
@@ -54,7 +57,12 @@ func DecryptCmd() *cobra.Command {
 
 			var finalKey []byte
 			if magic == crypto.MagicHeader {
-				// Symmetric: ensure we have the file password
+				// Symmetric: handle FIDO2 if requested or metadata exists
+				// (For now, we only support FIDO2 for vaults and private keys)
+				if useFido2 {
+					return fmt.Errorf("FIDO2-backed symmetric encryption is currently only supported via the 'vault' command")
+				}
+
 				if len(password) == 0 {
 					fmt.Print("Enter passphrase: ")
 					p, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -70,6 +78,23 @@ func DecryptCmd() *cobra.Command {
 				if err != nil { return fmt.Errorf("failed to read private key: %w", err) }
 
 				if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
+					// Check for companion FIDO2 file
+					// The key is usually id_name.kem.key, and fido2 is id_name.fido2
+					fido2Path := strings.TrimSuffix(resolvedPath, ".key")
+					fido2Path = strings.TrimSuffix(fido2Path, ".kem")
+					fido2Path = strings.TrimSuffix(fido2Path, ".sig")
+					fido2Path += ".fido2"
+
+					if _, err := os.Stat(fido2Path); err == nil {
+						raw, _ := os.ReadFile(fido2Path)
+						var meta crypto.Fido2Metadata
+						json.Unmarshal(raw, &meta)
+						
+						secret, err := crypto.Fido2Derive(meta.RPID, meta.CredentialID)
+						if err != nil { return err }
+						password = secret
+					}
+
 					// Unlock private key
 					if len(password) == 0 {
 						fmt.Print("Enter passphrase to unlock your private key: ")
@@ -79,7 +104,8 @@ func DecryptCmd() *cobra.Command {
 						password = p
 					}
 					var unlockedKey bytes.Buffer
-					if _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password); err != nil {
+					// Use sequential decryption for private key unlocking as it's small and nested
+					if _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password, 1); err != nil {
 						return fmt.Errorf("failed to unlock private key: %w", err)
 					}
 					finalKey = unlockedKey.Bytes()
@@ -106,9 +132,9 @@ func DecryptCmd() *cobra.Command {
 			go func() {
 				var dErr error
 				if magic == crypto.MagicHeader {
-					_, dErr = crypto.DecryptStream(proxyIn, pw, finalKey)
+					_, dErr = crypto.DecryptStream(proxyIn, pw, finalKey, concurrency)
 				} else {
-					_, dErr = crypto.DecryptStreamWithPrivateKey(proxyIn, pw, finalKey)
+					_, dErr = crypto.DecryptStreamWithPrivateKey(proxyIn, pw, finalKey, concurrency)
 				}
 				pw.CloseWithError(dErr)
 			}()
@@ -120,6 +146,8 @@ func DecryptCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path or directory")
 	cmd.Flags().StringVarP(&keyPath, "private-key", "k", "", "Path to your private key")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for decryption")
+	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
+	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
 	return cmd
 }
 

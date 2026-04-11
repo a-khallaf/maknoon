@@ -2,9 +2,11 @@ package crypto
 
 import (
 	"archive/tar"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -15,6 +17,7 @@ type Options struct {
 	PublicKey      []byte
 	Compress       bool
 	IsArchive      bool
+	Concurrency    int       // 0 for auto (NumCPU), 1 for sequential
 	ProgressReader io.Reader // Optional reader to track progress
 }
 
@@ -79,23 +82,30 @@ func Protect(inputPath string, w io.Writer, opts Options) error {
 	}
 
 	if len(opts.PublicKey) > 0 {
-		return EncryptStreamWithPublicKey(sourceReader, w, opts.PublicKey, flags)
+		return EncryptStreamWithPublicKey(sourceReader, w, opts.PublicKey, flags, opts.Concurrency)
 	}
-	return EncryptStream(sourceReader, w, opts.Passphrase, flags)
+	return EncryptStream(sourceReader, w, opts.Passphrase, flags, opts.Concurrency)
 }
 
 // ExtractArchive takes a decrypted tar stream and extracts it to the target directory.
 func ExtractArchive(r io.Reader, outputDir string) error {
+	absOutputDir, err := filepath.Abs(outputDir)
+	if err != nil { return err }
+
 	if outputDir != "" {
-		if err := os.MkdirAll(outputDir, 0755); err != nil { return err }
+		if err := os.MkdirAll(absOutputDir, 0755); err != nil { return err }
 	}
 	tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()
 		if err == io.EOF { break }
 		if err != nil { return err }
-		target := h.Name
-		if outputDir != "" { target = filepath.Join(outputDir, h.Name) }
+
+		// Path Traversal Mitigation (Zip Slip)
+		target := filepath.Join(absOutputDir, h.Name)
+		if !strings.HasPrefix(target, filepath.Clean(absOutputDir)) {
+			return fmt.Errorf("illegal file path in archive: %s", h.Name)
+		}
 		
 		switch h.Typeflag {
 		case tar.TypeDir:

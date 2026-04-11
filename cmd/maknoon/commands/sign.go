@@ -47,7 +47,7 @@ func SignCmd() *cobra.Command {
 				}
 
 				var unlockedKey bytes.Buffer
-				if _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password); err != nil {
+				if _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password, 1); err != nil {
 					return fmt.Errorf("failed to unlock signing key: %w", err)
 				}
 				keyBytes = unlockedKey.Bytes()

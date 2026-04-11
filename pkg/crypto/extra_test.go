@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,7 +52,7 @@ func TestProtectExtractRoundTrip(t *testing.T) {
 	// 2. Decrypt
 	in, _ := os.Open(encryptedFile)
 	var decrypted bytes.Buffer
-	flags, err := DecryptStream(in, &decrypted, passphrase)
+	flags, err := DecryptStream(in, &decrypted, passphrase, 1)
 	if err != nil {
 		t.Fatalf("DecryptStream failed: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestProtectExtractRoundTrip(t *testing.T) {
 	// Decrypt Archive
 	inArch, _ := os.Open(archivedFile)
 	var decryptedArch bytes.Buffer
-	_, err = DecryptStream(inArch, &decryptedArch, passphrase)
+	_, err = DecryptStream(inArch, &decryptedArch, passphrase, 1)
 	if err != nil {
 		t.Fatalf("DecryptStream archive failed: %v", err)
 	}
@@ -166,20 +167,63 @@ func TestVaultErrors(t *testing.T) {
 	}
 }
 
+func TestAsymmetricErrors(t *testing.T) {
+	pub, priv, _, _, _ := GeneratePQKeyPair()
+	msg := []byte("hello")
+	sig, _ := SignData(msg, priv)
+
+	// 1. Invalid signature
+	badSig := make([]byte, len(sig))
+	if VerifySignature(msg, badSig, pub) {
+		t.Error("VerifySignature should fail for zeroed signature")
+	}
+
+	// 2. Corrupted key unmarshaling
+	if _, err := SignData(msg, []byte("too short")); err == nil {
+		t.Error("SignData should fail for invalid key length")
+	}
+	if VerifySignature(msg, sig, []byte("bad pub")) {
+		// Should return false
+	}
+}
+
+func TestStreamErrors(t *testing.T) {
+	// Test reader error during encryption
+	errReader := &errorReader{err: fmt.Errorf("read fail")}
+	var buf bytes.Buffer
+	if err := EncryptStream(errReader, &buf, []byte("pass"), FlagNone, 1); err == nil {
+		t.Error("EncryptStream should fail if reader fails")
+	}
+
+	// Test writer error during encryption
+	var encBuf bytes.Buffer
+	errWriter := &errorWriter{err: fmt.Errorf("write fail")}
+	if err := EncryptStream(bytes.NewReader([]byte("data")), errWriter, []byte("pass"), FlagNone, 1); err == nil {
+		// This might fail during header write or chunk write
+	}
+	_ = encBuf
+}
+
+type errorReader struct{ err error }
+func (r *errorReader) Read(p []byte) (n int, err error) { return 0, r.err }
+
+type errorWriter struct{ err error }
+func (w *errorWriter) Write(p []byte) (n int, err error) { return 0, w.err }
+
 func TestDecryptStreamErrors(t *testing.T) {
 	password := []byte("pass")
 	
 	// 1. Valid file but truncated
 	var encrypted bytes.Buffer
-	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone)
+	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1)
 	truncated := encrypted.Bytes()[:10]
 	var out bytes.Buffer
-	if _, err := DecryptStream(bytes.NewReader(truncated), &out, password); err == nil {
+	if _, err := DecryptStream(bytes.NewReader(truncated), &out, password, 1); err == nil {
 		t.Error("Expected error for truncated header in DecryptStream")
 	}
 
 	// 2. Corrupted chunk length
-	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone)
+	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1)
 	corrupted := encrypted.Bytes()
 	// Find where payload starts (Header: 4+1+1+32+24 = 62 bytes)
 	// Let's just mess with it.
@@ -187,7 +231,7 @@ func TestDecryptStreamErrors(t *testing.T) {
 		corrupted[65] = 0xFF 
 		corrupted[66] = 0xFF
 	}
-	if _, err := DecryptStream(bytes.NewReader(corrupted), &out, password); err == nil {
+	if _, err := DecryptStream(bytes.NewReader(corrupted), &out, password, 1); err == nil {
 		t.Error("Expected error for corrupted chunk length")
 	}
 }

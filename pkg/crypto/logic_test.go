@@ -47,7 +47,7 @@ func TestCorruptedHeader(t *testing.T) {
 	data := []byte("NOT-A-MAKN-FILE-AT-ALL")
 	var out bytes.Buffer
 
-	_, err := DecryptStream(bytes.NewReader(data), &out, []byte("pass"))
+	_, err := DecryptStream(bytes.NewReader(data), &out, []byte("pass"), 1)
 	if err == nil {
 		t.Fatal("Expected error for invalid magic header, but got nil")
 	}
@@ -60,7 +60,7 @@ func TestUnsupportedVersion(t *testing.T) {
 	data = append(data, make([]byte, 100)...)
 
 	var out bytes.Buffer
-	_, err := DecryptStream(bytes.NewReader(data), &out, []byte("pass"))
+	_, err := DecryptStream(bytes.NewReader(data), &out, []byte("pass"), 1)
 	if err == nil {
 		t.Fatal("Expected error for unsupported version, but got nil")
 	}

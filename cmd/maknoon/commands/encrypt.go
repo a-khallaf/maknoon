@@ -15,6 +15,7 @@ func EncryptCmd() *cobra.Command {
 	var pubKeyPath string
 	var passphrase string
 	var compress bool
+	var concurrency int
 
 	cmd := &cobra.Command{
 		Use:   "encrypt [file/dir]",
@@ -39,8 +40,9 @@ func EncryptCmd() *cobra.Command {
 			defer out.Close()
 
 			opts := crypto.Options{
-				Compress:  compress,
-				IsArchive: stat.IsDir(),
+				Compress:    compress,
+				IsArchive:   stat.IsDir(),
+				Concurrency: concurrency,
 			}
 
 			// Resolve Public Key if provided
@@ -92,5 +94,6 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&pubKeyPath, "public-key", "p", "", "Path to the recipient's public key")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for symmetric encryption")
 	cmd.Flags().BoolVarP(&compress, "compress", "c", false, "Enable Zstd compression")
+	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	return cmd
 }

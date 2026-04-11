@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,10 +20,12 @@ const (
 	vaultBucket = "secrets"
 	metaBucket  = "metadata"
 	saltKey     = "salt"
+	fido2Key    = "fido2"
 )
 
 var vaultName string
 var vaultPassphrase string
+var useFido2 bool
 
 func VaultCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,6 +35,7 @@ func VaultCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(&vaultName, "vault", "v", "default", "Name or full path of the vault to use")
 	cmd.PersistentFlags().StringVarP(&vaultPassphrase, "passphrase", "s", "", "Master passphrase for the vault")
+	cmd.PersistentFlags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
 
 	cmd.AddCommand(vaultSetCmd())
 	cmd.AddCommand(vaultGetCmd())
@@ -55,7 +59,10 @@ func openVault() (*bbolt.DB, []byte, error) {
 	}
 
 	var salt []byte
-	db.Update(func(tx *bbolt.Tx) error {
+	var fido2Raw []byte
+	var fido2Secret []byte
+
+	err = db.Update(func(tx *bbolt.Tx) error {
 		b, _ := tx.CreateBucketIfNotExists([]byte(metaBucket))
 		tx.CreateBucketIfNotExists([]byte(vaultBucket))
 		salt = b.Get([]byte(saltKey))
@@ -64,11 +71,40 @@ func openVault() (*bbolt.DB, []byte, error) {
 			rand.Read(salt)
 			b.Put([]byte(saltKey), salt)
 		}
+		fido2Raw = b.Get([]byte(fido2Key))
+
+		// Enrollment if requested and not yet enrolled
+		if useFido2 && fido2Raw == nil {
+			meta, secret, err := crypto.Fido2Enroll("maknoon.io", "vault-user")
+			if err != nil {
+				return err
+			}
+			raw, _ := json.Marshal(meta)
+			b.Put([]byte(fido2Key), raw)
+			fido2Raw = raw
+			fido2Secret = secret
+		}
 		return nil
 	})
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
 
 	var passphrase []byte
-	if vaultPassphrase != "" {
+	if len(fido2Secret) > 0 {
+		passphrase = fido2Secret
+	} else if fido2Raw != nil {
+		// If vault has FIDO2 metadata, we MUST use it
+		var meta crypto.Fido2Metadata
+		json.Unmarshal(fido2Raw, &meta)
+		secret, err := crypto.Fido2Derive(meta.RPID, meta.CredentialID)
+		if err != nil {
+			db.Close()
+			return nil, nil, err
+		}
+		passphrase = secret
+	} else if vaultPassphrase != "" {
 		passphrase = []byte(vaultPassphrase)
 	} else if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
 		passphrase = []byte(env)

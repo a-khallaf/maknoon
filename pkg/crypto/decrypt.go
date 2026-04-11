@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
+	"sync"
 
 	"github.com/cloudflare/circl/kem/kyber/kyber1024"
 	"golang.org/x/crypto/argon2"
@@ -13,7 +15,7 @@ import (
 )
 
 // DecryptStream decrypts data from r to w using a passphrase.
-func DecryptStream(r io.Reader, w io.Writer, password []byte) (byte, error) {
+func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int) (byte, error) {
 	// 1. Read Header
 	header := make([]byte, 4+1+1+SaltSize+24)
 	if _, err := io.ReadFull(r, header); err != nil {
@@ -46,11 +48,11 @@ func DecryptStream(r io.Reader, w io.Writer, password []byte) (byte, error) {
 	}
 
 	// 4. Stream Decrypt Chunks
-	return flags, streamDecrypt(r, w, aead, baseNonce)
+	return flags, streamDecrypt(r, w, aead, baseNonce, concurrency)
 }
 
 // DecryptStreamWithPrivateKey decrypts data from r to w using a Post-Quantum Private Key (Kyber1024).
-func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte) (byte, error) {
+func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, concurrency int) (byte, error) {
 	// 1. Read Header (Fixed part)
 	fixedHeader := make([]byte, 4+1+1)
 	if _, err := io.ReadFull(r, fixedHeader); err != nil {
@@ -100,10 +102,133 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte) 
 	}
 
 	// 6. Stream Decrypt Chunks
-	return flags, streamDecrypt(r, w, aead, baseNonce)
+	return flags, streamDecrypt(r, w, aead, baseNonce, concurrency)
 }
 
-func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {
+type decryptJob struct {
+	index uint64
+	data  []byte
+}
+
+type decryptResult struct {
+	index uint64
+	data  []byte
+	err   error
+}
+
+func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int) error {
+	if concurrency <= 0 {
+		concurrency = runtime.NumCPU()
+	}
+
+	if concurrency == 1 {
+		return streamDecryptSequential(r, w, aead, baseNonce)
+	}
+
+	jobs := make(chan decryptJob, concurrency*2)
+	results := make(chan decryptResult, concurrency*2)
+	var wg sync.WaitGroup
+
+	// Workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				nonce := make([]byte, aead.NonceSize())
+				copy(nonce, baseNonce)
+				counterBytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(counterBytes, job.index)
+				for i := 0; i < 8; i++ {
+					nonce[16+i] ^= counterBytes[i]
+				}
+
+				plaintext, err := aead.Open(nil, nonce, job.data, nil)
+				if err != nil {
+					results <- decryptResult{err: errors.New("authentication failed: incorrect key or corrupted data")}
+					return
+				}
+				results <- decryptResult{index: job.index, data: plaintext}
+			}
+		}()
+	}
+
+	// Closer
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Reader
+	errChan := make(chan error, 1)
+	go func() {
+		defer close(jobs)
+		chunkIndex := uint64(0)
+		lenBuf := make([]byte, 4)
+		for {
+			if _, err := io.ReadFull(r, lenBuf); err != nil {
+				if err == io.EOF {
+					break
+				}
+				errChan <- err
+				return
+			}
+
+			chunkLen := binary.LittleEndian.Uint32(lenBuf)
+			if chunkLen > uint32(ChunkSize+16) {
+				errChan <- errors.New("corrupted payload: chunk size exceeds maximum")
+				return
+			}
+
+			ciphertext := make([]byte, chunkLen)
+			if _, err := io.ReadFull(r, ciphertext); err != nil {
+				errChan <- err
+				return
+			}
+
+			jobs <- decryptJob{index: chunkIndex, data: ciphertext}
+			chunkIndex++
+		}
+	}()
+
+	// Writer (Sequencer)
+	nextIndex := uint64(0)
+	pending := make(map[uint64][]byte)
+	for {
+		select {
+		case err := <-errChan:
+			return err
+		case res, ok := <-results:
+			if !ok {
+				if len(pending) > 0 {
+					return fmt.Errorf("decryption pipeline failed: missing chunks")
+				}
+				return nil
+			}
+			if res.err != nil {
+				return res.err
+			}
+
+			pending[res.index] = res.data
+
+			for {
+				data, exists := pending[nextIndex]
+				if !exists {
+					break
+				}
+
+				if _, err := w.Write(data); err != nil {
+					return err
+				}
+
+				delete(pending, nextIndex)
+				nextIndex++
+			}
+		}
+	}
+}
+
+func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {
 	chunkIndex := uint64(0)
 	nonce := make([]byte, aead.NonceSize())
 	lenBuf := make([]byte, 4)

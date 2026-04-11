@@ -16,14 +16,14 @@ func TestSymmetricRoundTrip(t *testing.T) {
 
 	// 1. Encrypt
 	var encrypted bytes.Buffer
-	err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone)
+	err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, 1)
 	if err != nil {
 		t.Fatalf("Encryption failed: %v", err)
 	}
 
 	// 2. Decrypt
 	var decrypted bytes.Buffer
-	flags, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password)
+	flags, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password, 1)
 	if err != nil {
 		t.Fatalf("Decryption failed: %v", err)
 	}
@@ -49,14 +49,14 @@ func TestAsymmetricRoundTrip(t *testing.T) {
 
 	// 2. Encrypt with Public Key
 	var encrypted bytes.Buffer
-	err = EncryptStreamWithPublicKey(bytes.NewReader(originalData), &encrypted, pub, FlagNone)
+	err = EncryptStreamWithPublicKey(bytes.NewReader(originalData), &encrypted, pub, FlagNone, 1)
 	if err != nil {
 		t.Fatalf("Asymmetric encryption failed: %v", err)
 	}
 
 	// 3. Decrypt with Private Key
 	var decrypted bytes.Buffer
-	flags, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv)
+	flags, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 1)
 	if err != nil {
 		t.Fatalf("Asymmetric decryption failed: %v", err)
 	}
@@ -76,12 +76,12 @@ func TestEmptyFile(t *testing.T) {
 	originalData := []byte("")
 
 	var encrypted bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone); err != nil {
+	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, 1); err != nil {
 		t.Fatal(err)
 	}
 
 	var decrypted bytes.Buffer
-	if _, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password); err != nil {
+	if _, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,10 +96,10 @@ func TestInvalidPassword(t *testing.T) {
 	data := []byte("sensitive info")
 
 	var encrypted bytes.Buffer
-	EncryptStream(bytes.NewReader(data), &encrypted, password, FlagNone)
+	EncryptStream(bytes.NewReader(data), &encrypted, password, FlagNone, 1)
 
 	var decrypted bytes.Buffer
-	_, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, wrongPassword)
+	_, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, wrongPassword, 1)
 	if err == nil {
 		t.Fatal("Expected error when decrypting with wrong password, but got nil")
 	}

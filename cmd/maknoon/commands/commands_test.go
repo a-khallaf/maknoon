@@ -173,6 +173,34 @@ func TestVaultList(t *testing.T) {
 	}
 }
 
+func TestDecryptFailures(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	t.Run("File not found", func(t *testing.T) {
+		cmd := DecryptCmd()
+		cmd.SetArgs([]string{filepath.Join(tmpDir, "non-existent.makn")})
+		if err := cmd.Execute(); err == nil {
+			t.Error("Expected error for non-existent file")
+		}
+	})
+
+	t.Run("Wrong passphrase", func(t *testing.T) {
+		inputFile := filepath.Join(tmpDir, "secret.txt")
+		encFile := inputFile + ".makn"
+		os.WriteFile(inputFile, []byte("data"), 0644)
+		
+		enc := EncryptCmd()
+		enc.SetArgs([]string{inputFile, "-o", encFile, "-s", "correct"})
+		enc.Execute()
+
+		dec := DecryptCmd()
+		dec.SetArgs([]string{encFile, "-s", "wrong"})
+		if err := dec.Execute(); err == nil {
+			t.Error("Expected error for wrong passphrase")
+		}
+	})
+}
+
 func TestEncryptDecryptSymmetric(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "input.txt")
