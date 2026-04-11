@@ -19,13 +19,13 @@ type ProfileV2 struct {
 
 func (p *ProfileV2) ID() byte { return 2 }
 
-func (p *ProfileV2) SaltSize() int { return 16 } // Smaller salt for faster KDF
+func (p *ProfileV2) SaltSize() int { return 32 } // High-security salt
 
 func (p *ProfileV2) NonceSize() int { return 12 } // AES-GCM standard nonce
 
 func (p *ProfileV2) DeriveKey(passphrase, salt []byte) []byte {
-	// Faster Argon2 settings (1 iteration, 16MB)
-	return argon2.IDKey(passphrase, salt, 1, 16*1024, 4, 32)
+	// Standard high-security Argon2 settings (matching Profile 1)
+	return argon2.IDKey(passphrase, salt, 3, 64*1024, 4, 32)
 }
 
 func (p *ProfileV2) NewAEAD(key []byte) (cipher.AEAD, error) {
