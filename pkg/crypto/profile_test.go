@@ -65,6 +65,35 @@ func TestProfileV2RoundTrip(t *testing.T) {
 	}
 }
 
+func TestProfileAsymmetricRoundTrip(t *testing.T) {
+	profile := DefaultProfile()
+	
+	// 1. Generate keys through profile
+	pub, priv, err := profile.GenerateKEMKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate KEM keys: %v", err)
+	}
+
+	data := []byte("Asymmetric agility test")
+	
+	// 2. Encrypt
+	var encrypted bytes.Buffer
+	if err := EncryptStreamWithPublicKey(bytes.NewReader(data), &encrypted, pub, FlagNone, 1); err != nil {
+		t.Fatalf("EncryptStreamWithPublicKey failed: %v", err)
+	}
+
+	// 3. Decrypt
+	var decrypted bytes.Buffer
+	_, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 1)
+	if err != nil {
+		t.Fatalf("DecryptStreamWithPrivateKey failed: %v", err)
+	}
+
+	if !bytes.Equal(data, decrypted.Bytes()) {
+		t.Errorf("Data mismatch. Got %s, want %s", decrypted.String(), string(data))
+	}
+}
+
 func TestProfileRegistry(t *testing.T) {
 	RegisterProfile(&MockProfileV2{})
 

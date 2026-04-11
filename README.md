@@ -18,6 +18,16 @@ Maknoon is a versatile, ultra-efficient CLI encryption tool designed for a post-
 6.  **High-Speed Compression:** Optional **Zstd** integration provides industry-leading compression ratios and speeds, perfectly suited for the streaming nature of the tool.
 7.  **Multi-Core Parallelism:** Maknoon can parallelize chunk encryption and decryption across all available CPU cores using a high-performance worker pool, significantly reducing processing time for massive files without compromising data order.
 8.  **Hardware-Backed Security (CGO-Free):** Maknoon supports FIDO2 security keys (like YubiKey) for hardware-backed master keys. Our implementation is **100% Pure Go**, ensuring seamless portability without external C dependencies.
+9.  **Cryptographic Agility (Profile Architecture):** The tool is built on a modular "Profile" system. This allows for seamless migration to new cryptographic standards (like a future "v2" suite) without breaking backward compatibility or requiring monolithic code refactors.
+
+---
+
+## 🏗 Modular Architecture (Profiles)
+
+Maknoon uses a **Suite/Profile** architecture. The first byte of every encrypted file (after the magic bytes) identifies the `ProfileID`.
+
+- **Profile v1 (Current):** NIST-standardized PQC (Kyber1024 + Dilithium87) with XChaCha20-Poly1305.
+- **Future-Proofing:** The pipeline is agnostic to nonce sizes, salt sizes, and specific KDF parameters, allowing power users or future versions to register new profiles easily.
 
 ---
 
