@@ -78,7 +78,7 @@ func TestProfileAsymmetricRoundTrip(t *testing.T) {
 	
 	// 2. Encrypt
 	var encrypted bytes.Buffer
-	if err := EncryptStreamWithPublicKey(bytes.NewReader(data), &encrypted, pub, FlagNone, 1); err != nil {
+	if err := EncryptStreamWithPublicKey(bytes.NewReader(data), &encrypted, pub, FlagNone, 1, 0); err != nil {
 		t.Fatalf("EncryptStreamWithPublicKey failed: %v", err)
 	}
 

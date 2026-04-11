@@ -191,14 +191,14 @@ func TestStreamErrors(t *testing.T) {
 	// Test reader error during encryption
 	errReader := &errorReader{err: fmt.Errorf("read fail")}
 	var buf bytes.Buffer
-	if err := EncryptStream(errReader, &buf, []byte("pass"), FlagNone, 1); err == nil {
+	if err := EncryptStream(errReader, &buf, []byte("pass"), FlagNone, 1, 0); err == nil {
 		t.Error("EncryptStream should fail if reader fails")
 	}
 
 	// Test writer error during encryption
 	var encBuf bytes.Buffer
 	errWriter := &errorWriter{err: fmt.Errorf("write fail")}
-	if err := EncryptStream(bytes.NewReader([]byte("data")), errWriter, []byte("pass"), FlagNone, 1); err == nil {
+	if err := EncryptStream(bytes.NewReader([]byte("data")), errWriter, []byte("pass"), FlagNone, 1, 0); err == nil {
 		// This might fail during header write or chunk write
 	}
 	_ = encBuf
@@ -217,7 +217,7 @@ func TestDecryptStreamErrors(t *testing.T) {
 
 	// 1. Valid file but truncated
 	var encrypted bytes.Buffer
-	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1)
+	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1, 0)
 	truncated := encrypted.Bytes()[:10]
 	var out bytes.Buffer
 	if _, err := DecryptStream(bytes.NewReader(truncated), &out, password, 1); err == nil {
@@ -225,7 +225,7 @@ func TestDecryptStreamErrors(t *testing.T) {
 	}
 
 	// 2. Corrupted chunk length
-	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1)
+	EncryptStream(bytes.NewReader([]byte("some data")), &encrypted, password, FlagNone, 1, 0)
 	corrupted := encrypted.Bytes()
 	// Find where payload starts (Header: 4+1+1+32+24 = 62 bytes)
 	// Let's just mess with it.

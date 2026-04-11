@@ -18,7 +18,7 @@ func TestParallelEquivalence(t *testing.T) {
 
 	// 1. Encrypt Parallel (concurrency = 0 -> auto)
 	var encryptedPar bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(originalData), &encryptedPar, password, FlagNone, 0); err != nil {
+	if err := EncryptStream(bytes.NewReader(originalData), &encryptedPar, password, FlagNone, 0, 0); err != nil {
 		t.Fatalf("Parallel encryption failed: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestResequencingChaos(t *testing.T) {
 	concurrency := 16
 
 	var encrypted bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, concurrency); err != nil {
+	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, concurrency, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,7 +91,7 @@ func TestConcurrencyEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var enc, dec bytes.Buffer
-			if err := EncryptStream(bytes.NewReader(data), &enc, password, FlagNone, tt.concurrency); err != nil {
+			if err := EncryptStream(bytes.NewReader(data), &enc, password, FlagNone, tt.concurrency, 0); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := DecryptStream(bytes.NewReader(enc.Bytes()), &dec, password, tt.concurrency); err != nil {
@@ -117,7 +117,7 @@ func BenchmarkEncryption(b *testing.B) {
 			b.SetBytes(int64(dataSize))
 			for i := 0; i < b.N; i++ {
 				var out bytes.Buffer
-				EncryptStream(bytes.NewReader(data), &out, password, FlagNone, c)
+				EncryptStream(bytes.NewReader(data), &out, password, FlagNone, c, 0)
 			}
 		})
 	}

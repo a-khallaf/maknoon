@@ -238,6 +238,37 @@ func TestIntegrationSignVerify(t *testing.T) {
 	}
 }
 
+func TestIntegrationProfileV2(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "v2_test.txt")
+	content := []byte("AES-GCM Profile Agility Test Content")
+	os.WriteFile(inputFile, content, 0644)
+	
+	encryptedFile := inputFile + ".makn"
+	decryptedFile := filepath.Join(tmpDir, "v2_restored.txt")
+	passphrase := "profile-v2-secret"
+
+	// 1. Encrypt with Profile 2 (AES-GCM)
+	encCmd := commands.EncryptCmd()
+	encCmd.SetArgs([]string{inputFile, "-o", encryptedFile, "-s", passphrase, "--profile", "2", "--quiet"})
+	if err := encCmd.Execute(); err != nil {
+		t.Fatalf("Profile 2 encryption failed: %v", err)
+	}
+
+	// 2. Decrypt (Should auto-detect Profile 2)
+	decCmd := commands.DecryptCmd()
+	decCmd.SetArgs([]string{encryptedFile, "-o", decryptedFile, "-s", passphrase, "--quiet"})
+	if err := decCmd.Execute(); err != nil {
+		t.Fatalf("Profile 2 decryption failed: %v", err)
+	}
+
+	// 3. Verify
+	restored, _ := os.ReadFile(decryptedFile)
+	if !bytes.Equal(content, restored) {
+		t.Fatalf("Profile 2 restored content mismatch")
+	}
+}
+
 func TestIntegrationPipesAndEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 	content := "Pipe integration test data"

@@ -10,9 +10,16 @@ import (
 	"sync"
 )
 
-// EncryptStream symmetrically encrypts data from r to w using a passphrase.
-func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int) error {
+// EncryptStream symmetrically encrypts data from r to w using a passphrase and specified profile.
+func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte) error {
 	profile := DefaultProfile()
+	if profileID != 0 {
+		var err error
+		profile, err = GetProfile(profileID)
+		if err != nil {
+			return err
+		}
+	}
 
 	// 1. Generate random Salt for KDF
 	salt := make([]byte, profile.SaltSize())
@@ -56,9 +63,16 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concur
 	return streamEncrypt(r, w, aead, baseNonce, concurrency)
 }
 
-// EncryptStreamWithPublicKey encrypts data from r to w using a Post-Quantum Public Key.
-func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, flags byte, concurrency int) error {
+// EncryptStreamWithPublicKey encrypts data from r to w using a Post-Quantum Public Key and specified profile.
+func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, flags byte, concurrency int, profileID byte) error {
 	profile := DefaultProfile()
+	if profileID != 0 {
+		var err error
+		profile, err = GetProfile(profileID)
+		if err != nil {
+			return err
+		}
+	}
 
 	// 1. Encapsulate Shared Secret
 	ct, ss, err := profile.KEMEncapsulate(pubKeyBytes)

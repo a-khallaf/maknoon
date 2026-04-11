@@ -130,7 +130,7 @@ func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPr
 		finalData := data
 		if isPrivate && len(password) > 0 {
 			var b bytes.Buffer
-			if err := crypto.EncryptStream(bytes.NewReader(data), &b, password, crypto.FlagNone, 1); err != nil {
+			if err := crypto.EncryptStream(bytes.NewReader(data), &b, password, crypto.FlagNone, 1, 0); err != nil {
 				return err
 			}
 			finalData = b.Bytes()

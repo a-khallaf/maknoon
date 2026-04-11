@@ -19,6 +19,7 @@ func EncryptCmd() *cobra.Command {
 	var compress bool
 	var concurrency int
 	var quiet bool
+	var profile int
 
 	cmd := &cobra.Command{
 		Use:   "encrypt [file/dir]",
@@ -73,6 +74,7 @@ func EncryptCmd() *cobra.Command {
 				Compress:    compress,
 				IsArchive:   isDir,
 				Concurrency: concurrency,
+				ProfileID:   byte(profile),
 			}
 
 			// Resolve Public Key if provided or in env
@@ -139,5 +141,6 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&compress, "compress", "c", false, "Enable Zstd compression")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress bars and informational messages")
+	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID (1: NIST PQC, 2: AES-GCM)")
 	return cmd
 }
