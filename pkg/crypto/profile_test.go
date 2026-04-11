@@ -93,6 +93,17 @@ func TestProfileAsymmetricRoundTrip(t *testing.T) {
 		t.Errorf("Data mismatch. Got %s, want %s", decrypted.String(), string(data))
 	}
 }
+func TestGenerateRandomProfile(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		dp := GenerateRandomProfile(byte(128 + i))
+		if err := dp.Validate(); err != nil {
+			t.Errorf("Generated invalid profile: %v", err)
+		}
+		if dp.CustomID < 128 {
+			t.Errorf("Expected ID >= 128, got %d", dp.CustomID)
+		}
+	}
+}
 
 func TestProfileValidation(t *testing.T) {
 	tests := []struct {

@@ -1,18 +1,34 @@
 package commands
 
 import (
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/a-khallaf/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
 )
 
-// ProfilesCmd returns the cobra command for listing available cryptographic profiles.
+// ProfilesCmd returns the cobra command for listing or generating cryptographic profiles.
 func ProfilesCmd() *cobra.Command {
-	return &cobra.Command{
+	var generate bool
+
+	cmd := &cobra.Command{
 		Use:   "profiles",
-		Short: "List built-in profiles and supported algorithms for custom profiles",
+		Short: "List built-in profiles or generate a random custom profile",
 		Run: func(_ *cobra.Command, _ []string) {
+			if generate {
+				// Random ID between 128 and 255 for portability by default
+				r, _ := rand.Int(rand.Reader, big.NewInt(128))
+				id := 128 + byte(r.Uint64())
+
+				dp := crypto.GenerateRandomProfile(id)
+				raw, _ := json.MarshalIndent(dp, "", "  ")
+				fmt.Println(string(raw))
+				return
+			}
+
 			fmt.Println("🛡️  Maknoon Cryptographic Profiles")
 			fmt.Println("\nBuilt-in Profiles:")
 			fmt.Println("  ID 1: NIST PQC (Kyber1024 + Dilithium87) + XChaCha20-Poly1305 (Default)")
@@ -41,6 +57,10 @@ func ProfilesCmd() *cobra.Command {
 			fmt.Println("\nStorage Modes:")
 			fmt.Println("  IDs 3-127:   'Secret' mode (profile file required for decryption)")
 			fmt.Println("  IDs 128-255: 'Portable' mode (profile parameters stored in file header)")
+			fmt.Println("\nUse --generate to create a random custom profile.")
 		},
 	}
+
+	cmd.Flags().BoolVarP(&generate, "generate", "g", false, "Generate a random secure custom profile JSON")
+	return cmd
 }

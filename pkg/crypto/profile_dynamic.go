@@ -3,7 +3,9 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 
 	"github.com/secure-io/siv-go"
 	"golang.org/x/crypto/argon2"
@@ -120,4 +122,45 @@ func UnpackDynamicProfile(id byte, b []byte) (*DynamicProfile, error) {
 		CustomSalt: int(b[5]),
 		CustomNonc: int(b[6]),
 	}, nil
+}
+
+// GenerateRandomProfile creates a technically sound and secure profile with random parameters.
+func GenerateRandomProfile(id byte) *DynamicProfile {
+	// 1. Random Cipher (0, 1, or 2)
+	c, _ := rand.Int(rand.Reader, big.NewInt(3))
+	cipherType := byte(c.Uint64())
+
+	// 2. Determine Nonce Size based on Cipher
+	nonceSize := 24
+	if cipherType == AlgoAES256GCM || cipherType == AlgoAES256GCMSIV {
+		nonceSize = 12
+	}
+
+	// 3. Random Salt Size (16 to 64 bytes)
+	s, _ := rand.Int(rand.Reader, big.NewInt(49))
+	saltSize := 16 + int(s.Uint64())
+
+	// 4. Random Argon2 Settings (Realistic but varying)
+	// Iterations: 1 to 10
+	it, _ := rand.Int(rand.Reader, big.NewInt(10))
+	iterations := uint32(1 + it.Uint64())
+
+	// Memory: 16MB to 512MB (in KB steps of 16MB)
+	memSteps, _ := rand.Int(rand.Reader, big.NewInt(32))
+	memory := uint32(16384 + (memSteps.Uint64() * 16384))
+
+	// Threads: 1 to 8
+	th, _ := rand.Int(rand.Reader, big.NewInt(8))
+	threads := uint8(1 + th.Uint64())
+
+	return &DynamicProfile{
+		CustomID:   id,
+		CipherType: cipherType,
+		KdfType:    KdfArgon2id,
+		ArgonTime:  iterations,
+		ArgonMem:   memory,
+		ArgonThrd:  threads,
+		CustomSalt: saltSize,
+		CustomNonc: nonceSize,
+	}
 }
