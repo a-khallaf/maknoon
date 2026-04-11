@@ -4,15 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-
-	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// DeriveVaultKey derives a 32-byte master key from a password and salt using Argon2id.
+// DeriveVaultKey derives a 32-byte master key from a password and salt using the default profile.
 func DeriveVaultKey(password, salt []byte) []byte {
-	key := argon2.IDKey(password, salt, 3, 64*1024, 4, 32)
-	return key
+	return DefaultProfile().DeriveKey(password, salt)
 }
 
 // VaultEntry represents a single secret stored in the vault.
@@ -23,40 +19,58 @@ type VaultEntry struct {
 	Note     string `json:"note"`
 }
 
-// SealEntry encrypts a VaultEntry into a ciphertext blob using the master key.
+// SealEntry encrypts a VaultEntry into a ciphertext blob using the master key and the default profile.
 func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
 	plaintext, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
 	}
 
-	aead, err := chacha20poly1305.NewX(masterKey)
+	profile := DefaultProfile()
+	aead, err := profile.NewAEAD(masterKey)
 	if err != nil {
 		return nil, err
 	}
 
-	nonce := make([]byte, aead.NonceSize())
+	nonceSize := aead.NonceSize()
+	// Header (1 byte for ProfileID) | Nonce | Ciphertext
+	result := make([]byte, 1+nonceSize+len(plaintext)+16) // 16 for poly1305 tag
+	result[0] = profile.ID()
+	nonce := result[1 : 1+nonceSize]
+
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
 
-	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
-	return ciphertext, nil
+	ciphertext := aead.Seal(nil, nonce, plaintext, nil)
+	copy(result[1+nonceSize:], ciphertext)
+
+	return result, nil
 }
 
 // OpenEntry decrypts a ciphertext blob into a VaultEntry.
-func OpenEntry(ciphertext []byte, masterKey []byte) (*VaultEntry, error) {
-	aead, err := chacha20poly1305.NewX(masterKey)
+func OpenEntry(data []byte, masterKey []byte) (*VaultEntry, error) {
+	if len(data) < 1 {
+		return nil, fmt.Errorf("invalid ciphertext")
+	}
+
+	profile, err := GetProfile(data[0])
 	if err != nil {
 		return nil, err
 	}
 
-	if len(ciphertext) < aead.NonceSize() {
+	aead, err := profile.NewAEAD(masterKey)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := aead.NonceSize()
+	if len(data) < 1+nonceSize {
 		return nil, fmt.Errorf("invalid ciphertext")
 	}
 
-	nonce := ciphertext[:aead.NonceSize()]
-	actualCiphertext := ciphertext[aead.NonceSize():]
+	nonce := data[1 : 1+nonceSize]
+	actualCiphertext := data[1+nonceSize:]
 
 	plaintext, err := aead.Open(nil, nonce, actualCiphertext, nil)
 	if err != nil {

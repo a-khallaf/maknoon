@@ -7,10 +7,6 @@ const (
 	MagicHeader = "MAKN" // Symmetrical (Password)
 	// MagicHeaderAsym is the magic string for asymmetric encryption.
 	MagicHeaderAsym = "MAKA" // Asymmetrical (Public Key)
-	// Version is the current version of the Maknoon file format.
-	Version = byte(1)
-	// SaltSize is the size of the salt used for key derivation.
-	SaltSize = 32
 
 	// FlagNone represents no flags set.
 	FlagNone = byte(0)

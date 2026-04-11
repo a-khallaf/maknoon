@@ -1,5 +1,4 @@
 package crypto
-
 import (
 	"crypto/cipher"
 	"encoding/binary"
@@ -9,52 +8,60 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/cloudflare/circl/kem/kyber/kyber1024"
-	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
+
 // DecryptStream decrypts data from r to w using a passphrase.
 func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int) (byte, error) {
-	// 1. Read Header
-	header := make([]byte, 4+1+1+SaltSize+24)
-	if _, err := io.ReadFull(r, header); err != nil {
+	// 1. Read Fixed Header (Magic, Version, Flags)
+	fixedHeader := make([]byte, 6)
+	if _, err := io.ReadFull(r, fixedHeader); err != nil {
 		return 0, err
 	}
 
-	if string(header[:4]) != MagicHeader {
+	if string(fixedHeader[:4]) != MagicHeader {
 		return 0, errors.New("invalid file format: missing MAKN magic header")
 	}
-	if header[4] != Version {
-		return 0, errors.New("unsupported maknoon version")
+
+	profile, err := GetProfile(fixedHeader[4])
+	if err != nil {
+		return 0, err
 	}
-	flags := header[5]
+	flags := fixedHeader[5]
 
-	salt := header[6 : 6+SaltSize]
-	baseNonce := header[6+SaltSize:]
+	// 2. Read Salt & Base Nonce
+	salt := make([]byte, profile.SaltSize())
+	if _, err := io.ReadFull(r, salt); err != nil {
+		return 0, err
+	}
+	baseNonce := make([]byte, chacha20poly1305.NonceSizeX)
+	if _, err := io.ReadFull(r, baseNonce); err != nil {
+		return 0, err
+	}
 
-	// 2. Derive Key
-	key := argon2.IDKey(password, salt, 3, 64*1024, 4, chacha20poly1305.KeySize)
+	// 3. Derive Key
+	key := profile.DeriveKey(password, salt)
 	defer func() {
 		for i := range key {
 			key[i] = 0
 		}
 	}()
 
-	// 3. Setup AEAD
-	aead, err := chacha20poly1305.NewX(key)
+	// 4. Setup AEAD
+	aead, err := profile.NewAEAD(key)
 	if err != nil {
 		return 0, err
 	}
 
-	// 4. Stream Decrypt Chunks
+	// 5. Stream Decrypt Chunks
 	return flags, streamDecrypt(r, w, aead, baseNonce, concurrency)
 }
 
-// DecryptStreamWithPrivateKey decrypts data from r to w using a Post-Quantum Private Key (Kyber1024).
+// DecryptStreamWithPrivateKey decrypts data from r to w using a Post-Quantum Private Key.
 func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, concurrency int) (byte, error) {
-	// 1. Read Header (Fixed part)
-	fixedHeader := make([]byte, 4+1+1)
+	// 1. Read Fixed Header (Magic, Version, Flags)
+	fixedHeader := make([]byte, 6)
 	if _, err := io.ReadFull(r, fixedHeader); err != nil {
 		return 0, err
 	}
@@ -62,14 +69,15 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 	if string(fixedHeader[:4]) != MagicHeaderAsym {
 		return 0, errors.New("invalid file format: missing MAKA magic header")
 	}
-	if fixedHeader[4] != Version {
-		return 0, errors.New("unsupported maknoon version")
+
+	profile, err := GetProfile(fixedHeader[4])
+	if err != nil {
+		return 0, err
 	}
 	flags := fixedHeader[5]
 
 	// 2. Read KEM Ciphertext
-	scheme := kyber1024.Scheme()
-	ct := make([]byte, scheme.CiphertextSize())
+	ct := make([]byte, profile.KEMCiphertextSize())
 	if _, err := io.ReadFull(r, ct); err != nil {
 		return 0, err
 	}
@@ -81,11 +89,7 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 	}
 
 	// 4. Decapsulate Shared Secret
-	privKey, err := scheme.UnmarshalBinaryPrivateKey(privKeyBytes)
-	if err != nil {
-		return 0, fmt.Errorf("invalid private key: %w", err)
-	}
-	ss, err := scheme.Decapsulate(privKey, ct)
+	ss, err := profile.KEMDecapsulate(privKeyBytes, ct)
 	if err != nil {
 		return 0, fmt.Errorf("decapsulation failed: %w", err)
 	}
@@ -96,7 +100,7 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 	}()
 
 	// 5. Setup AEAD
-	aead, err := chacha20poly1305.NewX(ss)
+	aead, err := profile.NewAEAD(ss)
 	if err != nil {
 		return 0, err
 	}

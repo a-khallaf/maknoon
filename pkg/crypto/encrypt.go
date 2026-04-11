@@ -8,30 +8,28 @@ import (
 	"io"
 	"runtime"
 	"sync"
-
-	"github.com/cloudflare/circl/kem/kyber/kyber1024"
-	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // EncryptStream symmetrically encrypts data from r to w using a passphrase.
 func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int) error {
-	// 1. Generate random Salt for Argon2id
-	salt := make([]byte, SaltSize)
+	profile := DefaultProfile()
+
+	// 1. Generate random Salt for KDF
+	salt := make([]byte, profile.SaltSize())
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return err
 	}
 
-	// 2. Derive Key: Argon2id (Time: 3, Mem: 64MB, Threads: 4)
-	key := argon2.IDKey(password, salt, 3, 64*1024, 4, chacha20poly1305.KeySize)
+	// 2. Derive Key
+	key := profile.DeriveKey(password, salt)
 	defer func() {
 		for i := range key {
 			key[i] = 0
 		}
 	}()
 
-	// 3. Setup XChaCha20-Poly1305 & Random Base Nonce
-	aead, err := chacha20poly1305.NewX(key)
+	// 3. Setup AEAD & Random Base Nonce
+	aead, err := profile.NewAEAD(key)
 	if err != nil {
 		return err
 	}
@@ -40,11 +38,11 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concur
 		return err
 	}
 
-	// 4. Write Header: Magic (4) | Version (1) | Flags (1) | Salt (32) | BaseNonce (24)
+	// 4. Write Header: Magic (4) | Version/ProfileID (1) | Flags (1) | Salt (N) | BaseNonce (24)
 	if _, err := w.Write([]byte(MagicHeader)); err != nil {
 		return err
 	}
-	if _, err := w.Write([]byte{Version, flags}); err != nil {
+	if _, err := w.Write([]byte{profile.ID(), flags}); err != nil {
 		return err
 	}
 	if _, err := w.Write(salt); err != nil {
@@ -58,17 +56,12 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concur
 	return streamEncrypt(r, w, aead, baseNonce, concurrency)
 }
 
-// EncryptStreamWithPublicKey encrypts data from r to w using a Post-Quantum Public Key (Kyber1024).
+// EncryptStreamWithPublicKey encrypts data from r to w using a Post-Quantum Public Key.
 func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, flags byte, concurrency int) error {
-	// 1. Unpack Public Key
-	scheme := kyber1024.Scheme()
-	pubKey, err := scheme.UnmarshalBinaryPublicKey(pubKeyBytes)
-	if err != nil {
-		return fmt.Errorf("invalid public key: %w", err)
-	}
+	profile := DefaultProfile()
 
-	// 2. Encapsulate Shared Secret
-	ct, ss, err := scheme.Encapsulate(pubKey)
+	// 1. Encapsulate Shared Secret
+	ct, ss, err := profile.KEMEncapsulate(pubKeyBytes)
 	if err != nil {
 		return fmt.Errorf("failed to encapsulate: %w", err)
 	}
@@ -78,8 +71,8 @@ func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, fl
 		}
 	}()
 
-	// 3. Setup AEAD with Shared Secret (32 bytes)
-	aead, err := chacha20poly1305.NewX(ss)
+	// 2. Setup AEAD with Shared Secret
+	aead, err := profile.NewAEAD(ss)
 	if err != nil {
 		return err
 	}
@@ -88,11 +81,11 @@ func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, fl
 		return err
 	}
 
-	// 4. Write Header: Magic (4) | Version (1) | Flags (1) | KEM Ciphertext (1568) | BaseNonce (24)
+	// 3. Write Header: Magic (4) | Version/ProfileID (1) | Flags (1) | KEM Ciphertext (M) | BaseNonce (24)
 	if _, err := w.Write([]byte(MagicHeaderAsym)); err != nil {
 		return err
 	}
-	if _, err := w.Write([]byte{Version, flags}); err != nil {
+	if _, err := w.Write([]byte{profile.ID(), flags}); err != nil {
 		return err
 	}
 	if _, err := w.Write(ct); err != nil {
@@ -102,7 +95,7 @@ func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, fl
 		return err
 	}
 
-	// 5. Stream Encrypt Chunks
+	// 4. Stream Encrypt Chunks
 	return streamEncrypt(r, w, aead, baseNonce, concurrency)
 }
 
