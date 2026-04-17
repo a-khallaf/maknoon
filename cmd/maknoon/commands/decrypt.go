@@ -32,41 +32,18 @@ func DecryptCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			inputFile := args[0]
-			var in io.Reader
-			var inputName string
-			var totalSize int64 = -1
-
-			if inputFile == "-" {
-				in = os.Stdin
-				inputName = "stdin"
-			} else {
-				f, err := os.Open(inputFile)
-				if err != nil {
-					return fmt.Errorf("failed to open input file: %w", err)
-				}
+			in, inputName, totalSize, err := resolveDecryptInput(inputFile)
+			if err != nil {
+				return err
+			}
+			if f, ok := in.(*os.File); ok {
 				defer func() { _ = f.Close() }()
-				info, err := f.Stat()
-				if err != nil {
-					return err
-				}
-				totalSize = info.Size()
-				in = f
-				inputName = inputFile
 			}
 
 			if profileFile != "" {
-				raw, err := os.ReadFile(profileFile)
-				if err != nil {
-					return fmt.Errorf("failed to read profile file: %w", err)
+				if err := loadCustomProfile(profileFile, nil); err != nil {
+					return err
 				}
-				var dp crypto.DynamicProfile
-				if err := json.Unmarshal(raw, &dp); err != nil {
-					return fmt.Errorf("invalid profile format: %w", err)
-				}
-				if err := dp.Validate(); err != nil {
-					return fmt.Errorf("invalid profile parameters: %w", err)
-				}
-				crypto.RegisterProfile(&dp)
 			}
 
 			// 1. Peek at the header to determine encryption type and flags
@@ -142,6 +119,22 @@ func DecryptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite existing files")
 	return cmd
+}
+
+func resolveDecryptInput(path string) (io.Reader, string, int64, error) {
+	if path == "-" {
+		return os.Stdin, "stdin", -1, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("failed to open input file: %w", err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, "", 0, err
+	}
+	return f, path, info.Size(), nil
 }
 
 func resolveDecryptionOutputPath(output, inputFile string, flags byte) (string, error) {
@@ -271,14 +264,17 @@ func finalizeDecryption(pr io.Reader, flags byte, outPath string) error {
 	if flags&crypto.FlagCompress != 0 {
 		zr, err := zstd.NewReader(pr)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to initialize zstd reader: %w", err)
 		}
 		defer zr.Close()
 		decryptedReader = zr
 	}
 
 	if flags&crypto.FlagArchive != 0 {
-		return crypto.ExtractArchive(decryptedReader, outPath)
+		if err := crypto.ExtractArchive(decryptedReader, outPath); err != nil {
+			return fmt.Errorf("failed to extract archive: %w", err)
+		}
+		return nil
 	}
 
 	var out io.Writer
@@ -287,12 +283,14 @@ func finalizeDecryption(pr io.Reader, flags byte, outPath string) error {
 	} else {
 		f, err := os.Create(outPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create output file: %w", err)
 		}
 		defer func() { _ = f.Close() }()
 		out = f
 	}
 
-	_, err := io.Copy(out, decryptedReader)
-	return err
+	if _, err := io.Copy(out, decryptedReader); err != nil {
+		return fmt.Errorf("failed to write decrypted data: %w", err)
+	}
+	return nil
 }

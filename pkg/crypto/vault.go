@@ -32,14 +32,14 @@ func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	nonceSize := aead.NonceSize()
+	nonceSize := profile.NonceSize()
 	// Header (1 byte for ProfileID) | Nonce | Ciphertext
-	result := make([]byte, 1+nonceSize+len(plaintext)+16) // 16 for poly1305 tag
+	result := make([]byte, 1+nonceSize+len(plaintext)+aead.Overhead())
 	result[0] = profile.ID()
 	nonce := result[1 : 1+nonceSize]
 
 	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("entropy failure: %w", err)
 	}
 
 	ciphertext := aead.Seal(nil, nonce, plaintext, nil)

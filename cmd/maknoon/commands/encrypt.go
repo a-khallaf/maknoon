@@ -175,7 +175,9 @@ func loadCustomProfile(path string, profileID *int) error {
 		return err
 	}
 	crypto.RegisterProfile(&dp)
-	*profileID = int(dp.ID())
+	if profileID != nil {
+		*profileID = int(dp.ID())
+	}
 	return nil
 }
 

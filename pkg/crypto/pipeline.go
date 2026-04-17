@@ -32,10 +32,16 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 		pr, pw := io.Pipe()
 		sourceReader = pr
 		go func() {
+			var walkErr error
+			defer func() {
+				_ = pw.CloseWithError(walkErr)
+			}()
+
 			tw := tar.NewWriter(pw)
-			// For archives, we still need to walk the inputName if it's a directory
+			defer func() { _ = tw.Close() }()
+
 			baseDir := filepath.Dir(filepath.Clean(inputName))
-			err := filepath.Walk(inputName, func(path string, info os.FileInfo, err error) error {
+			walkErr = filepath.Walk(inputName, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -62,13 +68,11 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 				}
 				return nil
 			})
-			_ = tw.Close()
-			_ = pw.CloseWithError(err)
 		}()
 	} else if sourceReader == nil {
 		f, err := os.Open(inputName)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open input file: %w", err)
 		}
 		defer func() { _ = f.Close() }()
 		sourceReader = f
@@ -76,10 +80,9 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 
 	// Wrap the source with progress tracking BEFORE compression/encryption
 	if opts.ProgressReader != nil {
-		// The caller provides a reader that wraps 'sourceReader' (e.g. via TeeReader)
-		// But since we swapped sourceReader above, we need to be careful.
-		// Better approach: wrap the specific reader we are using.
-		sourceReader = io.TeeReader(sourceReader, opts.ProgressReader.(io.Writer))
+		if wr, ok := opts.ProgressReader.(io.Writer); ok {
+			sourceReader = io.TeeReader(sourceReader, wr)
+		}
 	}
 
 	if opts.Compress {
@@ -88,10 +91,13 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 		oldReader := sourceReader
 		sourceReader = pr
 		go func() {
+			var zErr error
+			defer func() {
+				_ = pw.CloseWithError(zErr)
+			}()
 			zw, _ := zstd.NewWriter(pw)
-			_, err := io.Copy(zw, oldReader)
-			_ = zw.Close()
-			_ = pw.CloseWithError(err)
+			defer func() { _ = zw.Close() }()
+			_, zErr = io.Copy(zw, oldReader)
 		}()
 	}
 
@@ -105,12 +111,12 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 func ExtractArchive(r io.Reader, outputDir string) error {
 	absOutputDir, err := filepath.Abs(outputDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid output directory: %w", err)
 	}
 
 	if outputDir != "" {
 		if err := os.MkdirAll(absOutputDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 	}
 	tr := tar.NewReader(r)
@@ -120,34 +126,35 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Path Traversal Mitigation (Zip Slip)
+		// Robust Path Traversal Mitigation (Zip Slip)
 		target := filepath.Join(absOutputDir, h.Name)
-		if !strings.HasPrefix(target, filepath.Clean(absOutputDir)) {
+		rel, err := filepath.Rel(absOutputDir, target)
+		if err != nil || strings.HasPrefix(rel, "..") {
 			return fmt.Errorf("illegal file path in archive: %s", h.Name)
 		}
 
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
+				return fmt.Errorf("failed to create directory in archive: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
+				return fmt.Errorf("failed to create parent directory for file: %w", err)
 			}
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(h.Mode))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to create file in archive: %w", err)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
 				_ = f.Close()
-				return err
+				return fmt.Errorf("failed to copy file data from archive: %w", err)
 			}
 			if err := f.Close(); err != nil {
-				return err
+				return fmt.Errorf("failed to close file in archive: %w", err)
 			}
 		}
 	}
