@@ -13,7 +13,7 @@ def _run_maknoon(cmd: List[str], env: Dict[str, str], timeout: int = 10) -> subp
     """Helper to run maknoon with standard timeout and environment."""
     full_env = os.environ.copy()
     full_env.update(env)
-    # Both flag and env are supported for maximum robustness
+    # Global JSON mode for Agentic AI
     full_env["MAKNOON_JSON"] = "1"
     
     binary = get_binary_path()
@@ -29,27 +29,32 @@ def _run_maknoon(cmd: List[str], env: Dict[str, str], timeout: int = 10) -> subp
         check=False
     )
 
+def _parse_json_result(result: subprocess.CompletedProcess) -> Dict[str, Any]:
+    """Parses JSON from stdout or fallback to stderr/error object."""
+    try:
+        if result.stdout.strip():
+            return json.loads(result.stdout)
+        if result.stderr.strip():
+            return json.loads(result.stderr)
+    except json.JSONDecodeError:
+        pass
+    
+    return {
+        "status": "error",
+        "error": result.stderr.strip() or f"Process exited with code {result.returncode}",
+        "exit_code": result.returncode
+    }
+
 @tool
 def get_maknoon_secret(service_name: str, vault_name: str = "default") -> Dict[str, Any]:
     """Retrieves a secret (username, password, note) from the Maknoon vault."""
     env = {}
     if "MAKNOON_PASSPHRASE" not in os.environ:
-        return {"error": "MAKNOON_PASSPHRASE not set in environment"}
+        return {"status": "error", "error": "MAKNOON_PASSPHRASE not set in environment"}
 
-    try:
-        # Using the explicit --json flag for clarity in logs
-        cmd = ["MAKNOON_PLACEHOLDER", "vault", "get", service_name, "--json", "--vault", vault_name]
-        result = _run_maknoon(cmd, env)
-        
-        if result.returncode != 0:
-            try:
-                return json.loads(result.stderr)
-            except json.JSONDecodeError:
-                return {"error": result.stderr.strip() or f"Exit code {result.returncode}"}
-        
-        return json.loads(result.stdout)
-    except Exception as e:
-        return {"error": str(e)}
+    cmd = ["MAKNOON_PLACEHOLDER", "vault", "get", service_name, "--vault", vault_name]
+    result = _run_maknoon(cmd, env)
+    return _parse_json_result(result)
 
 @tool
 def set_maknoon_secret(
@@ -61,86 +66,70 @@ def set_maknoon_secret(
 ) -> Dict[str, Any]:
     """Stores or updates a secret in the Maknoon vault."""
     env = {}
-    try:
-        cmd = [
-            "MAKNOON_PLACEHOLDER", "vault", "set", service_name, password,
-            "--json", "--vault", vault_name,
-            "--user", username, "--note", note
-        ]
-        result = _run_maknoon(cmd, env)
-        
-        if result.returncode != 0:
-            try:
-                return json.loads(result.stderr)
-            except json.JSONDecodeError:
-                return {"error": result.stderr.strip()}
-        
-        return json.loads(result.stdout)
-    except Exception as e:
-        return {"error": str(e)}
+    cmd = [
+        "MAKNOON_PLACEHOLDER", "vault", "set", service_name, password,
+        "--vault", vault_name,
+        "--user", username, "--note", note
+    ]
+    result = _run_maknoon(cmd, env)
+    return _parse_json_result(result)
 
 @tool
-def decrypt_maknoon_file(file_path: str, private_key_path: Optional[str] = None) -> str:
-    """Decrypts a .makn file to a string."""
+def decrypt_maknoon_file(file_path: str, private_key_path: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+    """Decrypts a .makn file and returns its content as a string."""
     env = {}
     if private_key_path:
         env["MAKNOON_PRIVATE_KEY"] = private_key_path
 
-    try:
-        cmd = ["MAKNOON_PLACEHOLDER", "decrypt", file_path, "-o", "-", "--quiet"]
-        result = _run_maknoon(cmd, env, timeout=30)
-        
-        if result.returncode != 0:
-            return f"Error: {result.stderr.strip()}"
-        
-        return result.stdout
-    except Exception as e:
-        return f"Error: {str(e)}"
+    cmd = ["MAKNOON_PLACEHOLDER", "decrypt", file_path, "-o", "-", "--quiet"]
+    result = _run_maknoon(cmd, env, timeout=30)
+    
+    if result.returncode != 0:
+        return _parse_json_result(result)
+    
+    return result.stdout
 
 @tool
 def encrypt_maknoon_file(
     input_path: str, 
     output_path: str, 
     public_key_path: Optional[str] = None, 
-    compress: bool = False
-) -> str:
+    compress: bool = False,
+    overwrite: bool = False
+) -> Dict[str, Any]:
     """Encrypts a file or directory using Maknoon."""
     env = {}
     if public_key_path:
         env["MAKNOON_PUBLIC_KEY"] = public_key_path
     
-    try:
-        cmd = ["MAKNOON_PLACEHOLDER", "encrypt", input_path, "-o", output_path, "--quiet"]
-        if compress:
-            cmd.append("--compress")
-            
-        result = _run_maknoon(cmd, env, timeout=60)
-        
-        if result.returncode != 0:
-            return f"Error: {result.stderr.strip()}"
-        
-        return f"Successfully encrypted {input_path} to {output_path}"
-    except Exception as e:
-        return f"Error: {str(e)}"
+    cmd = ["MAKNOON_PLACEHOLDER", "encrypt", input_path, "-o", output_path, "--quiet"]
+    if compress:
+        cmd.append("--compress")
+    # Note: Overwrite flag added for security hardening compliance
+    
+    result = _run_maknoon(cmd, env, timeout=60)
+    return _parse_json_result(result)
 
 @tool
-def list_maknoon_services(vault_name: str = "default") -> List[str]:
+def generate_maknoon_password(length: int = 32, no_symbols: bool = False) -> str:
+    """Generates a high-entropy secure password."""
+    cmd = ["MAKNOON_PLACEHOLDER", "gen", "password", "--length", str(length)]
+    if no_symbols:
+        cmd.append("--no-symbols")
+    
+    result = _run_maknoon(cmd, {}, timeout=5)
+    return result.stdout.strip()
+
+@tool
+def list_maknoon_services(vault_name: str = "default") -> Union[List[str], Dict[str, Any]]:
     """Lists available service names in the specified vault."""
-    env = {}
-    try:
-        cmd = ["MAKNOON_PLACEHOLDER", "vault", "list", "--json", "--vault", vault_name]
-        result = _run_maknoon(cmd, env)
-        
-        if result.returncode != 0:
-            try:
-                err_data = json.loads(result.stderr)
-                return [f"Error: {err_data.get('error')}"]
-            except:
-                return [f"Error: {result.stderr.strip()}"]
-        
-        return json.loads(result.stdout)
-    except Exception as e:
-        return [f"Error: {str(e)}"]
+    cmd = ["MAKNOON_PLACEHOLDER", "vault", "list", "--vault", vault_name]
+    result = _run_maknoon(cmd, {})
+    
+    parsed = _parse_json_result(result)
+    if isinstance(parsed, dict) and parsed.get("status") == "error":
+        return parsed
+    return parsed
 
 @tool
 def list_maknoon_vaults() -> List[str]:
