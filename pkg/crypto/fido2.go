@@ -234,11 +234,11 @@ func fido2DeriveInternal(dev Authenticator, token []byte, rpID string, credentia
 		if err != nil {
 			return nil, fmt.Errorf("failed to get FIDO2 assertion: %w", err)
 		}
-		
+
 		if res.ExtensionOutputs == nil || res.ExtensionOutputs.GetHMACSecretOutputs == nil {
 			return nil, fmt.Errorf("FIDO2 key did not return an hmac-secret extension output")
 		}
-		
+
 		return res.ExtensionOutputs.GetHMACSecretOutputs.HMACGetSecret.Output1, nil
 	}
 

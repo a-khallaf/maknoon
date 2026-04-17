@@ -336,7 +336,7 @@ func TestVaultJSON(t *testing.T) {
 		os.Setenv("MAKNOON_JSON", "1")
 		getCmdErr := VaultCmd()
 		getCmdErr.SetArgs([]string{"--vault", vaultPath, "--passphrase", passphrase, "get", "nonexistent"})
-		
+
 		oldStderr := os.Stderr
 		r, w, _ := os.Pipe()
 		os.Stderr = w
@@ -345,7 +345,7 @@ func TestVaultJSON(t *testing.T) {
 		os.Stderr = oldStderr
 		var errBuf bytes.Buffer
 		io.Copy(&errBuf, r)
-		
+
 		if !strings.Contains(errBuf.String(), `{"error":"service not found"}`) {
 			t.Errorf("Error JSON formatting failed. Output: %s", errBuf.String())
 		}

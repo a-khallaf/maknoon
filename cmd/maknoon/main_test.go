@@ -183,7 +183,7 @@ func TestIntegrationSecretProfileAutoDiscovery(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	profDir := filepath.Join(home, ".maknoon", "profiles")
 	os.MkdirAll(profDir, 0700)
-	
+
 	// 1. Create a "Secret" Profile in the standard location
 	profileID := 99
 	profileFile := filepath.Join(profDir, fmt.Sprintf("%d.json", profileID))
@@ -204,7 +204,7 @@ func TestIntegrationSecretProfileAutoDiscovery(t *testing.T) {
 	inputFile := filepath.Join(tmpDir, "auto_test.txt")
 	content := []byte("Auto-discovery test content")
 	os.WriteFile(inputFile, content, 0644)
-	
+
 	encryptedFile := inputFile + ".makn"
 	passphrase := "auto-pass"
 
@@ -230,7 +230,7 @@ func TestIntegrationSecretProfileAutoDiscovery(t *testing.T) {
 
 func TestIntegrationKeygenCustomProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Create a Custom Profile for Key Protection
 	profileFile := filepath.Join(tmpDir, "key_prof.json")
 	// ID 110, AES-GCM, high iterations
@@ -259,7 +259,7 @@ func TestIntegrationKeygenCustomProfile(t *testing.T) {
 	// 3. Use the protected key to encrypt a file
 	inputFile := filepath.Join(tmpDir, "data.txt")
 	os.WriteFile(inputFile, []byte("Encrypted with custom-profile-protected key"), 0644)
-	
+
 	encryptedFile := inputFile + ".makn"
 	encCmd := commands.EncryptCmd()
 	encCmd.SetArgs([]string{inputFile, "-o", encryptedFile, "--public-key", keyBase + ".kem.pub", "--quiet"})
@@ -271,11 +271,11 @@ func TestIntegrationKeygenCustomProfile(t *testing.T) {
 	// IMPORTANT: To decrypt the PRIVATE KEY, we need the profile file!
 	decCmd := commands.DecryptCmd()
 	decCmd.SetArgs([]string{encryptedFile, "-o", "-", "--private-key", keyBase + ".kem.key", "-s", passphrase, "--profile-file", profileFile, "--quiet"})
-	
+
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	
+
 	if err := decCmd.Execute(); err != nil {
 		w.Close()
 		os.Stdout = oldStdout
@@ -302,22 +302,22 @@ func TestIntegrationRandomProfileStress(t *testing.T) {
 		// 1. Generate a random profile via CLI
 		profileFile := filepath.Join(tmpDir, fmt.Sprintf("random_%d.json", i))
 		profCmd := commands.ProfilesCmd()
-		
+
 		// Capture stdout to save the JSON
 		oldStdout := os.Stdout
 		r, w, _ := os.Pipe()
 		os.Stdout = w
-		
+
 		profCmd.SetArgs([]string{"--generate"})
 		if err := profCmd.Execute(); err != nil {
 			w.Close()
 			os.Stdout = oldStdout
 			t.Fatalf("Failed to generate random profile: %v", err)
 		}
-		
+
 		w.Close()
 		os.Stdout = oldStdout
-		
+
 		var jsonBuf bytes.Buffer
 		io.Copy(&jsonBuf, r)
 		os.WriteFile(profileFile, jsonBuf.Bytes(), 0644)
@@ -335,12 +335,12 @@ func TestIntegrationRandomProfileStress(t *testing.T) {
 		decCmd := commands.DecryptCmd()
 		var dp crypto.DynamicProfile
 		json.Unmarshal(jsonBuf.Bytes(), &dp)
-		
+
 		args := []string{encryptedFile, "-o", decryptedFile, "-s", passphrase, "--quiet"}
 		if dp.ID() < 128 {
 			args = append(args, "--profile-file", profileFile)
 		}
-		
+
 		decCmd.SetArgs(args)
 		if err := decCmd.Execute(); err != nil {
 			t.Fatalf("Decryption failed with random profile %d (ID: %d): %v", i, dp.ID(), err)
@@ -402,7 +402,7 @@ func TestIntegrationGCMSIVProfile(t *testing.T) {
 
 func TestIntegrationSelfContainedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Create a "Portable" Profile JSON (ID >= 128)
 	profileFile := filepath.Join(tmpDir, "portable_profile.json")
 	// Profile ID 200, AES-GCM, 1 iteration Argon2
@@ -421,7 +421,7 @@ func TestIntegrationSelfContainedProfile(t *testing.T) {
 	inputFile := filepath.Join(tmpDir, "portable_test.txt")
 	content := []byte("Portable Profile Content (Packed in Header)")
 	os.WriteFile(inputFile, content, 0644)
-	
+
 	encryptedFile := inputFile + ".makn"
 	passphrase := "portable-pass"
 
@@ -450,7 +450,7 @@ func TestIntegrationSelfContainedProfile(t *testing.T) {
 
 func TestIntegrationSecretProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Create a "Secret" Profile JSON
 	profileFile := filepath.Join(tmpDir, "secret_profile.json")
 	// Profile ID 100, AES-GCM, 1 iteration Argon2
@@ -469,7 +469,7 @@ func TestIntegrationSecretProfile(t *testing.T) {
 	inputFile := filepath.Join(tmpDir, "secret_test.txt")
 	content := []byte("Secret Profile Content")
 	os.WriteFile(inputFile, content, 0644)
-	
+
 	encryptedFile := inputFile + ".makn"
 	passphrase := "secret-profile-pass"
 
@@ -500,7 +500,7 @@ func TestIntegrationProfileV2(t *testing.T) {
 	inputFile := filepath.Join(tmpDir, "v2_test.txt")
 	content := []byte("AES-GCM Profile Agility Test Content")
 	os.WriteFile(inputFile, content, 0644)
-	
+
 	encryptedFile := inputFile + ".makn"
 	decryptedFile := filepath.Join(tmpDir, "v2_restored.txt")
 	passphrase := "profile-v2-secret"

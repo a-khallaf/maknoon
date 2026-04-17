@@ -43,7 +43,7 @@ func TestProfileV2RoundTrip(t *testing.T) {
 	encrypted.Write([]byte{profile.ID(), FlagNone})
 	encrypted.Write(salt)
 	encrypted.Write(baseNonce)
-	
+
 	headerSize := encrypted.Len()
 
 	if err := streamEncrypt(bytes.NewReader(data), &encrypted, aead, baseNonce, 1); err != nil {
@@ -67,7 +67,7 @@ func TestProfileV2RoundTrip(t *testing.T) {
 
 func TestProfileAsymmetricRoundTrip(t *testing.T) {
 	profile := DefaultProfile()
-	
+
 	// 1. Generate keys through profile
 	pub, priv, err := profile.GenerateKEMKeyPair()
 	if err != nil {
@@ -75,7 +75,7 @@ func TestProfileAsymmetricRoundTrip(t *testing.T) {
 	}
 
 	data := []byte("Asymmetric agility test")
-	
+
 	// 2. Encrypt
 	var encrypted bytes.Buffer
 	if err := EncryptStreamWithPublicKey(bytes.NewReader(data), &encrypted, pub, FlagNone, 1, 0); err != nil {

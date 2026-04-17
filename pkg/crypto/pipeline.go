@@ -15,7 +15,7 @@ import (
 type Options struct {
 	Passphrase     []byte
 	PublicKey      []byte
-	ProfileID      byte      // 0 for default
+	ProfileID      byte // 0 for default
 	Compress       bool
 	IsArchive      bool
 	Concurrency    int       // 0 for auto (NumCPU), 1 for sequential

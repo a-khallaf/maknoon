@@ -1,4 +1,5 @@
 package crypto
+
 import (
 	"crypto/cipher"
 	"encoding/binary"
@@ -8,7 +9,6 @@ import (
 	"runtime"
 	"sync"
 )
-
 
 // DecryptStream decrypts data from r to w using a passphrase.
 func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int) (byte, error) {
@@ -158,7 +158,7 @@ func decryptionWorker(wg *sync.WaitGroup, jobs <-chan decryptJob, results chan<-
 		copy(nonce, baseNonce)
 		counterBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(counterBytes, job.index)
-		
+
 		// XOR counter into the last 8 bytes of the nonce
 		offset := len(nonce) - 8
 		for i := 0; i < 8; i++ {

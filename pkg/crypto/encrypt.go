@@ -265,7 +265,7 @@ func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 			copy(nonce, baseNonce)
 			counterBytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(counterBytes, chunkIndex)
-			
+
 			// XOR counter into the last 8 bytes of the nonce
 			offset := len(nonce) - 8
 			for i := 0; i < 8; i++ {
