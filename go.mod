@@ -1,4 +1,4 @@
-module github.com/a-khallaf/maknoon
+module github.com/al-Zamakhshari/maknoon
 
 go 1.26.1
 

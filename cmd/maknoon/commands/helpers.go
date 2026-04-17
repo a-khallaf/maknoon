@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"github.com/a-khallaf/maknoon/pkg/crypto"
+	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 )
 
 // resolveKeyPath checks if a key exists locally, in ~/.maknoon/keys/, or in environment variables.

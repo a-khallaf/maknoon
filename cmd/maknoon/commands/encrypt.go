@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/a-khallaf/maknoon/pkg/crypto"
+	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"

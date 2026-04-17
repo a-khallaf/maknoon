@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/a-khallaf/maknoon/cmd/maknoon/commands"
+	"github.com/al-Zamakhshari/maknoon/cmd/maknoon/commands"
 	"github.com/spf13/cobra"
 )
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/a-khallaf/maknoon/pkg/crypto"
+	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 )
 
 func TestIntegrationSecurityScenarios(t *testing.T) {

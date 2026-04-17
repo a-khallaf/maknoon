@@ -1,8 +1,8 @@
 # Maknoon (مكنون) 🛡️
 
-[![Release](https://img.shields.io/github/v/release/a-khallaf/maknoon)](https://github.com/a-khallaf/maknoon/releases)
+[![Release](https://img.shields.io/github/v/release/al-Zamakhshari/maknoon)](https://github.com/al-Zamakhshari/maknoon/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Report Card](https://goreportcard.com/badge/github.com/a-khallaf/maknoon)](https://goreportcard.com/report/github.com/a-khallaf/maknoon)
+[![Go Report Card](https://goreportcard.com/badge/github.com/al-Zamakhshari/maknoon)](https://goreportcard.com/report/github.com/al-Zamakhshari/maknoon)
 
 **Maknoon** (Arabic: مكنون) translates to *the hidden*, *the concealed*, or *that which is carefully preserved*. 
 
@@ -71,13 +71,14 @@ Encrypt using a custom profile:
 
 **Using Homebrew (macOS/Linux):**
 ```bash
-brew install a-khallaf/tap/maknoon
+brew tap al-Zamakhshari/tap
+brew install maknoon
 ```
 
 **From Source:**
 Requires Go 1.21+
 ```bash
-git clone https://github.com/a-khallaf/maknoon.git
+git clone https://github.com/al-Zamakhshari/maknoon.git
 cd maknoon
 go build -o maknoon ./cmd/maknoon
 ```

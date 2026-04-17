@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/a-khallaf/maknoon/cmd/maknoon/commands"
+	"github.com/al-Zamakhshari/maknoon/cmd/maknoon/commands"
 )
 
 func TestIntegrationBasicSymmetric(t *testing.T) {

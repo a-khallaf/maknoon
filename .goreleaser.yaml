@@ -50,10 +50,10 @@ changelog:
 brews:
   - name: maknoon
     repository:
-      owner: a-khallaf
+      owner: al-Zamakhshari
       name: homebrew-tap
     directory: Formula
-    homepage: "https://github.com/a-khallaf/maknoon"
+    homepage: "https://github.com/al-Zamakhshari/maknoon"
     description: "Versatile, ultra-efficient Post-Quantum CLI encryption tool with streaming directory support and memory hygiene."
     license: "MIT"
     test: |

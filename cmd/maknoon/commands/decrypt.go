@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/a-khallaf/maknoon/pkg/crypto"
+	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/klauspost/compress/zstd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
