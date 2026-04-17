@@ -12,8 +12,42 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    name: Quality & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Tidy
+        run: go mod tidy
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Check Formatting (gofmt)
+        run: |
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Install Staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run Staticcheck
+        run: staticcheck ./...
+
   test:
     name: Test
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

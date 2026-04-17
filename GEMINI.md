@@ -45,7 +45,7 @@ Before every release or major push, the following steps **must** be completed:
     *   Ensure 100% `gofmt` compliance.
     *   Check cyclomatic complexity (keep under 15).
     *   Run `go vet ./...`.
-    *   (Optional but recommended) Run `golangci-lint run` manually to verify static analysis rules.
+    *   Run `staticcheck ./...` to verify advanced logic and performance rules.
     *   Verify that the **CI/CD workflow** (.github/workflows/ci.yml) is passing.
 
 - **Cryptographic Agility**: NEVER hardcode cryptographic algorithms or parameters (nonce sizes, salt sizes, etc.) in the core pipeline. All primitives MUST be accessed through the `CryptoProfile` interface. Maknoon supports Hybrid Profiles:
