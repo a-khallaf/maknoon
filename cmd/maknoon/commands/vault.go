@@ -26,6 +26,7 @@ const (
 var vaultName string
 var vaultPassphrase string
 var useFido2 bool
+var JsonOutput bool
 
 // VaultCmd returns the cobra command for managing secure vaults.
 func VaultCmd() *cobra.Command {
@@ -37,6 +38,7 @@ func VaultCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&vaultName, "vault", "v", "default", "Name or full path of the vault to use")
 	cmd.PersistentFlags().StringVarP(&vaultPassphrase, "passphrase", "s", "", "Master passphrase for the vault")
 	cmd.PersistentFlags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
+	cmd.PersistentFlags().BoolVar(&JsonOutput, "json", false, "Output results in JSON format")
 
 	cmd.AddCommand(vaultSetCmd())
 	cmd.AddCommand(vaultGetCmd())
@@ -45,7 +47,28 @@ func VaultCmd() *cobra.Command {
 	return cmd
 }
 
+func checkJSONMode(cmd *cobra.Command) {
+	if JsonOutput || os.Getenv("MAKNOON_JSON") == "1" {
+		JsonOutput = true
+		if cmd != nil {
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+		}
+	}
+}
+
+func printJSON(v interface{}) {
+	raw, _ := json.Marshal(v)
+	fmt.Println(string(raw))
+}
+
+func printErrorJSON(err error) {
+	raw, _ := json.Marshal(map[string]string{"error": err.Error()})
+	fmt.Fprintln(os.Stderr, string(raw))
+}
+
 func openVault() (*bbolt.DB, []byte, error) {
+	checkJSONMode(nil)
 	crypto.EnsureMaknoonDirs()
 
 	dbPath := vaultName
@@ -109,6 +132,9 @@ func openVault() (*bbolt.DB, []byte, error) {
 		passphrase = []byte(vaultPassphrase)
 	} else if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
 		passphrase = []byte(env)
+	} else if JsonOutput {
+		db.Close()
+		return nil, nil, fmt.Errorf("master passphrase required via MAKNOON_PASSPHRASE or -s")
 	} else {
 		fmt.Print("Enter Vault Master Passphrase: ")
 		p, _ := term.ReadPassword(int(os.Stdin.Fd()))
@@ -132,6 +158,10 @@ func vaultSetCmd() *cobra.Command {
 			var password string
 			if len(args) > 1 {
 				password = args[1]
+			} else if JsonOutput {
+				err := fmt.Errorf("password required as argument when using --json")
+				printErrorJSON(err)
+				return nil
 			} else {
 				fmt.Print("Enter password for ", service, ": ")
 				p, _ := term.ReadPassword(int(os.Stdin.Fd()))
@@ -141,6 +171,10 @@ func vaultSetCmd() *cobra.Command {
 
 			db, key, err := openVault()
 			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 			defer db.Close()
@@ -150,9 +184,21 @@ func vaultSetCmd() *cobra.Command {
 			ciphertext, _ := crypto.SealEntry(entry, key)
 
 			h := sha256.Sum256([]byte(strings.ToLower(service)))
-			return db.Update(func(tx *bbolt.Tx) error {
+			err = db.Update(func(tx *bbolt.Tx) error {
 				return tx.Bucket([]byte(vaultBucket)).Put([]byte(hex.EncodeToString(h[:])), ciphertext)
 			})
+			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
+			}
+
+			if JsonOutput {
+				printJSON(map[string]string{"status": "success", "service": service})
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&user, "user", "u", "", "Username")
@@ -161,13 +207,18 @@ func vaultSetCmd() *cobra.Command {
 }
 
 func vaultGetCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:  "get [service]",
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			service := args[0]
 			db, key, err := openVault()
 			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 			defer db.Close()
@@ -181,39 +232,76 @@ func vaultGetCmd() *cobra.Command {
 			})
 
 			if ciphertext == nil {
-				return fmt.Errorf("service not found")
+				err := fmt.Errorf("service not found")
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
 			}
 			entry, err := crypto.OpenEntry(ciphertext, key)
 			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 
-			fmt.Printf("Service:  %s\nUsername: %s\nPassword: %s\n", entry.Service, entry.Username, entry.Password)
+			if JsonOutput {
+				printJSON(entry)
+			} else {
+				fmt.Printf("Service:  %s\nUsername: %s\nPassword: %s\n", entry.Service, entry.Username, entry.Password)
+			}
 			return nil
 		},
 	}
+	return cmd
 }
 
 func vaultListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use: "list",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			db, key, err := openVault()
 			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 			defer db.Close()
 			defer crypto.SafeClear(key)
 
-			return db.View(func(tx *bbolt.Tx) error {
+			var services []string
+			err = db.View(func(tx *bbolt.Tx) error {
 				return tx.Bucket([]byte(vaultBucket)).ForEach(func(_ []byte, v []byte) error {
 					entry, err := crypto.OpenEntry(v, key)
 					if err == nil {
-						fmt.Printf(" - %s (%s)\n", entry.Service, entry.Username)
+						if JsonOutput {
+							services = append(services, entry.Service)
+						} else {
+							fmt.Printf(" - %s (%s)\n", entry.Service, entry.Username)
+						}
 					}
 					return nil
 				})
 			})
+
+			if err != nil {
+				if JsonOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
+			}
+
+			if JsonOutput {
+				printJSON(services)
+			}
+			return nil
 		},
 	}
+	return cmd
 }

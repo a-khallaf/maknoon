@@ -55,7 +55,8 @@ Before every release or major push, the following steps **must** be completed:
 - **Environment Integration**: Sensitive or repetitive inputs (keys, passphrases) should be resolvable via standard environment variables (`MAKNOON_*`).
 - **CGO Avoidance**: Prefer pure-Go implementations to maintain easy cross-compilation and portability.
 - **Documentation**: All exported functions and constants should have comments following the standard Go convention (`// Name ...`).
-- **Post-Quantum Only**: NEVER fallback to classical algorithms (RSA/ECC) for primary protection. Any new asymmetric logic must use NIST-standardized Post-Quantum primitives.
+- **Agentic AI Integration**: Maintain a strict `--json` output mode and `MAKNOON_JSON=1` environment trigger for all `vault` subcommands. Ensure that when JSON mode is active, all interactive prompts are suppressed and errors are returned as JSON on `stderr`.
+- **Python Tooling**: Keep `maknoon_agent_tool.py` updated as the reference implementation for LangChain/LangGraph integrations.
 
 ## 🧪 Testing Practices
 

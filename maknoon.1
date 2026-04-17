@@ -54,6 +54,9 @@ Specify the output file path or directory. Use "-" as the output path to write t
 .B \-q, \-\-quiet
 Suppress progress bars and informational messages.
 .TP
+.B \-\-json
+Output command results (especially vault operations) in strict JSON format. Suppresses interactive prompts and returns errors as JSON on stderr.
+.TP
 .B \-\-profile [id]
 Specify a built-in cryptographic profile ID (1: XChaCha20, 2: AES-GCM).
 .TP
@@ -86,6 +89,9 @@ Default directory for password databases.
 .TP
 .B MAKNOON_PASSPHRASE
 A passphrase used to unlock keys and vaults non-interactively.
+.TP
+.B MAKNOON_JSON
+Set to "1" to enable global JSON output mode and suppress interactive prompts.
 .TP
 .B MAKNOON_PUBLIC_KEY
 Default path to a recipient's public key.

@@ -291,6 +291,67 @@ func TestKeygenWithEnvPassphrase(t *testing.T) {
 	// But just executing it increases coverage of the env var branch.
 }
 
+func TestVaultJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	vaultPath := filepath.Join(tmpDir, "testvault_json.db")
+	passphrase := "testpass"
+
+	resetVaultGlobals := func() {
+		vaultName = ""
+		vaultPassphrase = ""
+		JsonOutput = false
+		os.Unsetenv("MAKNOON_JSON")
+	}
+
+	// 1. Test triggering via ENVIRONMENT VARIABLE
+	t.Run("Trigger via MAKNOON_JSON=1", func(t *testing.T) {
+		resetVaultGlobals()
+		os.Setenv("MAKNOON_JSON", "1")
+		setCmd := VaultCmd()
+		setCmd.SetArgs([]string{"--vault", vaultPath, "--passphrase", passphrase, "set", "service_env", "pass1"})
+		output := captureOutput(func() {
+			setCmd.Execute()
+		})
+		if !strings.Contains(output, `{"service":"service_env","status":"success"}`) {
+			t.Errorf("Env var trigger failed. Output: %s", output)
+		}
+	})
+
+	// 2. Test triggering via FLAG
+	t.Run("Trigger via --json flag", func(t *testing.T) {
+		resetVaultGlobals()
+		getCmd := VaultCmd()
+		getCmd.SetArgs([]string{"--vault", vaultPath, "--passphrase", passphrase, "--json", "get", "service_env"})
+		output := captureOutput(func() {
+			getCmd.Execute()
+		})
+		if !strings.Contains(output, `"service":"service_env"`) {
+			t.Errorf("Flag trigger failed. Output: %s", output)
+		}
+	})
+
+	// 3. Test Error Output in JSON mode
+	t.Run("JSON Error formatting", func(t *testing.T) {
+		resetVaultGlobals()
+		os.Setenv("MAKNOON_JSON", "1")
+		getCmdErr := VaultCmd()
+		getCmdErr.SetArgs([]string{"--vault", vaultPath, "--passphrase", passphrase, "get", "nonexistent"})
+		
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		getCmdErr.Execute()
+		w.Close()
+		os.Stderr = oldStderr
+		var errBuf bytes.Buffer
+		io.Copy(&errBuf, r)
+		
+		if !strings.Contains(errBuf.String(), `{"error":"service not found"}`) {
+			t.Errorf("Error JSON formatting failed. Output: %s", errBuf.String())
+		}
+	})
+}
+
 func TestSignVerify(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyBase := filepath.Join(tmpDir, "sig_test")

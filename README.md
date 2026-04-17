@@ -168,5 +168,33 @@ echo "Secret data" | ./maknoon encrypt - -o secret.makn --quiet
 
 ---
 
+## 🤖 Agentic AI Integration
+
+Maknoon serves as a high-security tool for AI agents (LangChain, LangGraph, etc.). Its non-interactive JSON mode allows LLMs to retrieve secrets or decrypt context files dynamically.
+
+### Key Features:
+- **`--json` Flag**: Explicitly triggers structured output and suppresses all prompts.
+- **`MAKNOON_JSON=1`**: Environment variable fallback for persistent "headless" sessions.
+- **Python Tool Wrapper**: See `maknoon_agent_tool.py` for a complete implementation using the `@tool` decorator.
+
+### Example (CLI):
+```bash
+export MAKNOON_PASSPHRASE="your_master_key"
+maknoon vault get github --json
+```
+
+### Example (Python):
+```python
+from maknoon_agent_tool import get_maknoon_secret, set_maknoon_secret
+
+# Retrieve
+result = get_maknoon_secret("github")
+
+# Store
+set_maknoon_secret("new_api_key", "sk_live_123...")
+```
+
+---
+
 ## 📜 License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
