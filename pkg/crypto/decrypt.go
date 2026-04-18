@@ -146,6 +146,10 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		return 0, err
 	}
 	aead, err := profile.NewAEAD(fekBuf.Bytes())
+	if err != nil {
+		fekBuf.Destroy()
+		return 0, err
+	}
 
 	if flags&FlagSigned != 0 {
 		if senderPubKey == nil {
