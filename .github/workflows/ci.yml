@@ -94,6 +94,25 @@ jobs:
           WITH_V: true
           DEFAULT_BUMP: patch
 
+      - name: Sync Extension Manifest
+        id: sync_manifest
+        run: |
+          VERSION=$(git describe --tags --abbrev=0 | sed 's/v//')
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" extensions/maknoon-extension/gemini-extension.json
+          cp integrations/maknoon-skill/SKILL.md extensions/maknoon-extension/skills/maknoon/SKILL.md
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create PR for Extension Sync
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: sync extension manifest to ${{ steps.sync_manifest.outputs.version }}"
+          title: "chore: sync extension manifest to ${{ steps.sync_manifest.outputs.version }}"
+          body: "Automated update of the Gemini CLI extension manifest to match the latest release version."
+          branch: "sync-extension-${{ steps.sync_manifest.outputs.version }}"
+          base: main
+          delete-branch: true
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
