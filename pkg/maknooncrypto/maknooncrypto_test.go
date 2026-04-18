@@ -20,7 +20,7 @@ func TestHPKERoundTrip(t *testing.T) {
 	if _, err := rand.Read(originalFEK); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// We make a copy because memguard.NewBufferFromBytes zeroes the source
 	fekCopy := make([]byte, fekSize)
 	copy(fekCopy, originalFEK)
@@ -66,14 +66,14 @@ func TestHPKETamperDetection(t *testing.T) {
 	headerFlags := byte(0)
 	wrappedMaterial, _ := WrapEphemeralKey(pub, profileID, headerFlags, fekEnclave)
 
-	// Mutate the wrapped material. 
-	// Note: In ExportOnly mode, HPKE might not detect tamper UNLESS the KEM itself 
-	// fails decapsulation. ML-KEM is IND-CCA2 secure, so decapsulating a tampered 
-	// ciphertext SHOULD result in an error or a consistently different secret 
-	// that doesn't match a MAC. 
-	// However, since we are using Export() to create an OTP, a different secret 
+	// Mutate the wrapped material.
+	// Note: In ExportOnly mode, HPKE might not detect tamper UNLESS the KEM itself
+	// fails decapsulation. ML-KEM is IND-CCA2 secure, so decapsulating a tampered
+	// ciphertext SHOULD result in an error or a consistently different secret
+	// that doesn't match a MAC.
+	// However, since we are using Export() to create an OTP, a different secret
 	// just results in a different OTP, thus a different FEK.
-	
+
 	// If the tool expects a MAC-verified stream later, the chunk decryption will fail.
 	// For this unit test, we'll verify that at least one of the following is true:
 	// 1. Unwrap fails with an error.
@@ -87,12 +87,12 @@ func TestHPKETamperDetection(t *testing.T) {
 		// This is a success (error detected)
 		return
 	}
-	
+
 	recoveredBuf, _ := recoveredEnclave.Open()
 	defer recoveredBuf.Destroy()
-	
+
 	// If it didn't error, the data MUST be different (simulating decryption failure later)
-	// We need the original FEK again, but it was zeroed. 
+	// We need the original FEK again, but it was zeroed.
 	// Let's just assume if it returns a different value it's "tamper detected" at the logic level.
 }
 
@@ -104,7 +104,7 @@ func TestHPKEContextBinding(t *testing.T) {
 
 	originalFEK := make([]byte, fekSize)
 	rand.Read(originalFEK)
-	
+
 	fekCopy := make([]byte, fekSize)
 	copy(fekCopy, originalFEK)
 	fekEnclave := memguard.NewBufferFromBytes(fekCopy).Seal()
@@ -118,10 +118,10 @@ func TestHPKEContextBinding(t *testing.T) {
 	if err != nil {
 		return // Success
 	}
-	
+
 	recoveredBuf, _ := recoveredEnclave.Open()
 	defer recoveredBuf.Destroy()
-	
+
 	if bytes.Equal(originalFEK, recoveredBuf.Bytes()) {
 		t.Error("Security failure: unwrapped successfully with mismatched ProfileID context")
 	}
@@ -135,12 +135,12 @@ func TestMemoryEnclaveIntegrity(t *testing.T) {
 		go func() {
 			data := make([]byte, 32)
 			rand.Read(data)
-			
+
 			dataCopy := make([]byte, 32)
 			copy(dataCopy, data)
-			
+
 			enclave := memguard.NewBufferFromBytes(dataCopy).Seal()
-			
+
 			buf, err := enclave.Open()
 			if err != nil {
 				t.Errorf("Enclave open failed: %v", err)

@@ -2,7 +2,7 @@
 // logic for the Maknoon encryption tool. It mathematically guarantees memory safety
 // by defeating the Go garbage collector and preventing secrets from swapping to disk.
 //
-// By exporting the derived secret to key Maknoon's native XChaCha20-Poly1305 
+// By exporting the derived secret to key Maknoon's native XChaCha20-Poly1305
 // cipher, we maintain our 192-bit extended nonce architecture, which is critical
 // for safe, lock-free parallel chunk encryption across the multi-core worker pool.
 package maknooncrypto
@@ -30,12 +30,12 @@ func SafeClear(b []byte) {
 // GenerateKeys generates a new key pair for the hybrid ML-KEM-768 + X25519 KEM.
 func GenerateKeys() (hpke.PrivateKey, hpke.PublicKey, error) {
 	kem := hpke.MLKEM768X25519()
-	
+
 	priv, err := kem.GenerateKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate hybrid keys: %w", err)
 	}
-	
+
 	return priv, priv.PublicKey(), nil
 }
 
@@ -64,15 +64,15 @@ func WrapEphemeralKey(recipientPub hpke.PublicKey, profileID byte, headerFlags b
 	if err != nil {
 		return nil, fmt.Errorf("failed to export wrapping key material: %w", err)
 	}
-	
+
 	otpBuf := memguard.NewBufferFromBytes(rawOTP)
-	SafeClear(rawOTP) 
+	SafeClear(rawOTP)
 	defer otpBuf.Destroy()
 
 	wrappedKey := make([]byte, fekSize)
 	fekBytes := fekBuf.Bytes()
 	otpBytes := otpBuf.Bytes()
-	
+
 	for i := 0; i < fekSize; i++ {
 		wrappedKey[i] = fekBytes[i] ^ otpBytes[i]
 	}
@@ -88,7 +88,7 @@ func WrapEphemeralKey(recipientPub hpke.PublicKey, profileID byte, headerFlags b
 // UnwrapEphemeralKey decapsulates the key material and safely derives the FEK.
 func UnwrapEphemeralKey(recipientPriv hpke.PrivateKey, profileID byte, headerFlags byte, headerData []byte) (*memguard.Enclave, error) {
 	// For ML-KEM-768 (1088) + X25519 (32) = 1120 bytes.
-	const encSize = 1120 
+	const encSize = 1120
 
 	if len(headerData) < encSize+fekSize {
 		return nil, errors.New("invalid header data length: insufficient encapsulated material")

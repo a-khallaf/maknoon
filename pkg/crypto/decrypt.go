@@ -94,7 +94,7 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		return 0, fmt.Errorf("invalid private key: %w", err)
 	}
 
-	var fekEnclave *memguard.Enclave 
+	var fekEnclave *memguard.Enclave
 
 	// Search for our recipient block
 	found := false
@@ -146,7 +146,7 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		return 0, err
 	}
 	aead, err := profile.NewAEAD(fekBuf.Bytes())
-	
+
 	if flags&FlagSigned != 0 {
 		if senderPubKey == nil {
 			fekBuf.Destroy()
