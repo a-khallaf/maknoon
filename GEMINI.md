@@ -50,10 +50,13 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 - **Cryptographic Agility**: Use the `Profile` interface for all primitives. Support both Secret (3-127) and Portable (128-255) profiles.
 - **Memory Hygiene**: Use `crypto.SafeClear` immediately after sensitive data use. Sensitive fields in structs (like passwords) must be `[]byte`.
 - **Streaming & Pipes**: Prefer `io.Reader` and `io.Writer`. All commands MUST support standard I/O (stdin/stdout via `-`).
-- **Automation & AI**: Maintain a strict `--json` output mode. When `MAKNOON_JSON=1` is set:
-    - Suppress all interactive prompts.
-    - Strictly validate vault paths (restricted to `~/.maknoon/vaults`).
-    - Return errors as JSON on `stderr`.
+- **Automation & AI**: Maintain a strict `--json` output mode.
+    - **Agent-Handshake**: Automatic JSON mode switch when `MAKNOON_AGENT_MODE=1` is set and output is not a TTY.
+    - **Identity Discovery**: `maknoon identity active` outputs absolute paths of public keys in JSON format.
+    - **MCP Server**: Native Model Context Protocol (MCP) server in `integrations/mcp` for cross-platform agentic workflows (Claude, Gemini CLI, IDEs).
+    - **Interactive Suppression**: All interactive prompts are suppressed in JSON/Agent mode.
+    - **Vault Isolation**: Restricted vault paths to `~/.maknoon/vaults` in Agent mode.
+    - **Error Handling**: Return errors as JSON on `stderr`.
 - **CGO Avoidance**: Maintain a 100% Pure Go codebase for maximum portability.
 - **Python Tooling**: Keep `integrations/langchain/maknoon_agent_tool.py` updated with the latest CLI signature.
 

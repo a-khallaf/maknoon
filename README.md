@@ -28,12 +28,18 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It combines mod
 brew tap al-Zamakhshari/tap
 brew install maknoon
 ```
-
 **Gemini CLI Extension (for AI Agents):**
 ```bash
 gemini-cli extension install https://github.com/al-Zamakhshari/maknoon --path extensions/maknoon-extension
 ```
 
+**MCP Server (Model Context Protocol):**
+Maknoon includes a native Go-based MCP server for integration with Claude Desktop, IDE extensions, and other AI tools.
+```bash
+go run ./integrations/mcp
+```
+
+**From Source:**
 ### 1. Identity & Key Management
 ```bash
 # Generate a Post-Quantum identity
