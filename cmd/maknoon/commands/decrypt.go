@@ -19,6 +19,7 @@ import (
 func DecryptCmd() *cobra.Command {
 	var output string
 	var keyPath string
+	var senderKeyPath string
 	var passphrase string
 	var concurrency int
 	var useFido2 bool
@@ -62,6 +63,20 @@ func DecryptCmd() *cobra.Command {
 				return err
 			}
 
+			// 3. Resolve optional sender public key for integrated verification
+			var senderKey []byte
+			if flags&crypto.FlagSigned != 0 {
+				resolvedSenderPath := crypto.ResolveKeyPath(senderKeyPath, "MAKNOON_PUBLIC_KEY")
+				if resolvedSenderPath == "" {
+					return fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)")
+				}
+				sk, err := os.ReadFile(resolvedSenderPath)
+				if err != nil {
+					return fmt.Errorf("failed to read sender public key: %w", err)
+				}
+				senderKey = sk
+			}
+
 			// Clean RAM on exit
 			defer func() {
 				if len(password) > 0 {
@@ -72,7 +87,7 @@ func DecryptCmd() *cobra.Command {
 				}
 			}()
 
-			// 3. Prepare output path and check existence
+			// 4. Prepare output path and check existence
 			outPath, err := resolveDecryptionOutputPath(output, inputFile, flags)
 			if err != nil {
 				return err
@@ -84,7 +99,7 @@ func DecryptCmd() *cobra.Command {
 				}
 			}
 
-			// 4. Initialize the Progress Bar and Pipe
+			// 5. Initialize the Progress Bar and Pipe
 			if !quiet && outPath != "-" {
 				fmt.Printf("Decrypting '%s'...\n", inputName)
 			}
@@ -101,7 +116,7 @@ func DecryptCmd() *cobra.Command {
 				if magic == crypto.MagicHeader {
 					_, dErr = crypto.DecryptStream(proxyIn, pw, finalKey, concurrency)
 				} else {
-					_, dErr = crypto.DecryptStreamWithPrivateKey(proxyIn, pw, finalKey, concurrency)
+					_, dErr = crypto.DecryptStreamWithPrivateKeyAndVerifier(proxyIn, pw, finalKey, senderKey, concurrency)
 				}
 				_ = pw.CloseWithError(dErr)
 			}()
@@ -112,6 +127,7 @@ func DecryptCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path or directory (use - for stdout)")
 	cmd.Flags().StringVarP(&keyPath, "private-key", "k", "", "Path to your private key")
+	cmd.Flags().StringVar(&senderKeyPath, "sender-key", "", "Path to the sender's public key (required for signed files)")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for decryption")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
@@ -149,7 +165,7 @@ func resolveDecryptionOutputPath(output, inputFile string, flags byte) (string, 
 	}
 
 	if flags&crypto.FlagArchive != 0 {
-		return ".", nil // Default to current dir for archives
+		return ".", nil 
 	}
 
 	if strings.HasSuffix(inputFile, ".makn") {
@@ -207,7 +223,6 @@ func resolveAsymmetricKey(password []byte, keyPath string, isStdin bool) ([]byte
 	}
 
 	if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
-		// Handle FIDO2 or Passphrase unlocking
 		var err error
 		password, err = unlockPrivateKey(password, resolvedPath, isStdin)
 		if err != nil {
@@ -225,7 +240,6 @@ func resolveAsymmetricKey(password []byte, keyPath string, isStdin bool) ([]byte
 }
 
 func unlockPrivateKey(password []byte, resolvedPath string, isStdin bool) ([]byte, error) {
-	// Check for companion FIDO2 file
 	fido2Path := strings.TrimSuffix(resolvedPath, ".key")
 	fido2Path = strings.TrimSuffix(fido2Path, ".kem")
 	fido2Path = strings.TrimSuffix(fido2Path, ".sig")

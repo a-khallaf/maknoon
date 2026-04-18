@@ -14,4 +14,6 @@ const (
 	FlagArchive = 1 << 0 // 0x01
 	// FlagCompress indicates the file is Zstd compressed.
 	FlagCompress = 1 << 1 // 0x02
+	// FlagSigned indicates the file header includes an integrated signature.
+	FlagSigned = 1 << 2 // 0x04
 )

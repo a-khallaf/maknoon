@@ -787,6 +787,34 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 	}
 }
 
+func TestIntegrationSignThenEncrypt(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// 1. Generate identity
+	keyBase := filepath.Join(tmpDir, "sender")
+	runRootCmd("keygen", "-o", keyBase, "--no-password")
+
+	inputFile := filepath.Join(tmpDir, "signed_msg.txt")
+	content := []byte("Signed and encrypted message")
+	if err := os.WriteFile(inputFile, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	encryptedFile := inputFile + ".makn"
+
+	// 2. Encrypt with integrated signature
+	runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-p", keyBase+".kem.pub", "--sign-key", keyBase+".sig.key", "--quiet")
+
+	// 3. Verify and Decrypt
+	restoredFile := filepath.Join(tmpDir, "restored_signed.txt")
+	// Must provide --sender-key for verification
+	runRootCmd("decrypt", encryptedFile, "-o", restoredFile, "-k", keyBase+".kem.key", "--sender-key", keyBase+".sig.pub", "--quiet")
+	
+	res, _ := os.ReadFile(restoredFile)
+	if !bytes.Equal(res, content) {
+		t.Errorf("Integrated sign-then-encrypt failed")
+	}
+}
+
 func TestIntegrationFullFeatureStress(t *testing.T) {
 	tmpDir := t.TempDir()
 

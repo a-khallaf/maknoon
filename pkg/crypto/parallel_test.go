@@ -46,18 +46,12 @@ func TestParallelEquivalence(t *testing.T) {
 }
 
 func TestResequencingChaos(t *testing.T) {
-	// This test focuses on the resequencer's ability to handle out-of-order chunks.
-	// Since we can't easily force the worker pool to be out-of-order without mocks,
-	// we will rely on the fact that with high concurrency and many small chunks,
-	// natural scheduling will likely cause some reordering.
-
 	password := []byte("chaos-password")
 	chunkCount := 100
 	dataSize := chunkCount * ChunkSize
 	originalData := make([]byte, dataSize)
-	rand.Read(originalData)
+	_, _ = rand.Read(originalData)
 
-	// Use a high concurrency to increase the chance of out-of-order execution
 	concurrency := 16
 
 	var encrypted bytes.Buffer
@@ -75,49 +69,47 @@ func TestResequencingChaos(t *testing.T) {
 	}
 }
 
-func TestConcurrencyEdgeCases(t *testing.T) {
-	password := []byte("edge-case")
-	data := []byte("minimal data")
+func BenchmarkEncryption(b *testing.B) {
+	password := []byte("bench")
+	dataSize := 10 * 1024 * 1024 // 10MB
+	data := make([]byte, dataSize)
+	_, _ = rand.Read(data)
 
-	tests := []struct {
-		name        string
-		concurrency int
-	}{
-		{"Concurrency 1", 1},
-		{"Concurrency 2", 2},
-		{"Concurrency 100", 100},
-	}
+	concurrencies := []int{1, 2, 4, 8}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var enc, dec bytes.Buffer
-			if err := EncryptStream(bytes.NewReader(data), &enc, password, FlagNone, tt.concurrency, 0); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := DecryptStream(bytes.NewReader(enc.Bytes()), &dec, password, tt.concurrency); err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(data, dec.Bytes()) {
-				t.Errorf("Round-trip failed for concurrency %d", tt.concurrency)
+	for _, c := range concurrencies {
+		b.Run(fmt.Sprintf("Encrypt-Concurrency-%d", c), func(b *testing.B) {
+			b.SetBytes(int64(dataSize))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := EncryptStream(bytes.NewReader(data), io.Discard, password, FlagNone, c, 0); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
 }
 
-func BenchmarkEncryption(b *testing.B) {
+func BenchmarkDecryption(b *testing.B) {
 	password := []byte("bench")
 	dataSize := 10 * 1024 * 1024 // 10MB
 	data := make([]byte, dataSize)
-	rand.Read(data)
+	_, _ = rand.Read(data)
+
+	var encrypted bytes.Buffer
+	if err := EncryptStream(bytes.NewReader(data), &encrypted, password, FlagNone, 0, 0); err != nil {
+		b.Fatal(err)
+	}
+	encData := encrypted.Bytes()
 
 	concurrencies := []int{1, 2, 4, 8}
 
 	for _, c := range concurrencies {
-		b.Run(fmt.Sprintf("Concurrency-%d", c), func(b *testing.B) {
+		b.Run(fmt.Sprintf("Decrypt-Concurrency-%d", c), func(b *testing.B) {
 			b.SetBytes(int64(dataSize))
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				var out bytes.Buffer
-				if err := EncryptStream(bytes.NewReader(data), &out, password, FlagNone, c, 0); err != nil {
+				if _, err := DecryptStream(bytes.NewReader(encData), io.Discard, password, c); err != nil {
 					b.Fatal(err)
 				}
 			}

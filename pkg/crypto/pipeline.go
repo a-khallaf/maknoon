@@ -2,13 +2,16 @@ package crypto
 
 import (
 	"archive/tar"
+	"crypto/sha256"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // Options defines settings for the protection process.
@@ -16,19 +19,27 @@ type Options struct {
 	Passphrase     []byte
 	PublicKey      []byte   // Deprecated: use PublicKeys
 	PublicKeys     [][]byte // Supports multi-recipient encryption
+	SigningKey     []byte   // ML-DSA private key for integrated signing
 	ProfileID      byte     // 0 for default
 	Compress       bool
 	IsArchive      bool
 	Concurrency    int       // 0 for auto (NumCPU), 1 for sequential
 	ProgressReader io.Reader // Optional reader to track progress
+	Verbose        bool      // Enables internal slog tracing
 }
 
 // Protect handles the full encryption pipeline for a source (file, directory, or reader).
 func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
+	logger := slog.Default()
+	if !opts.Verbose {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
 	sourceReader := r
 	var flags byte
 
 	if opts.IsArchive {
+		logger.Info("archiving input directory", "path", inputName)
 		flags |= FlagArchive
 		pr, pw := io.Pipe()
 		sourceReader = pr
@@ -79,7 +90,6 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 		sourceReader = f
 	}
 
-	// Wrap the source with progress tracking BEFORE compression/encryption
 	if opts.ProgressReader != nil {
 		if wr, ok := opts.ProgressReader.(io.Writer); ok {
 			sourceReader = io.TeeReader(sourceReader, wr)
@@ -87,6 +97,7 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 	}
 
 	if opts.Compress {
+		logger.Info("enabling zstd compression")
 		flags |= FlagCompress
 		pr, pw := io.Pipe()
 		oldReader := sourceReader
@@ -102,15 +113,16 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 		}()
 	}
 
-	// Handle Public Key(s)
 	allPublicKeys := opts.PublicKeys
 	if len(opts.PublicKey) > 0 {
 		allPublicKeys = append(allPublicKeys, opts.PublicKey)
 	}
 
 	if len(allPublicKeys) > 0 {
-		return EncryptStreamWithPublicKeys(sourceReader, w, allPublicKeys, flags, opts.Concurrency, opts.ProfileID)
+		logger.Info("starting asymmetric encryption", "recipients", len(allPublicKeys))
+		return EncryptStreamWithPublicKeysAndSigner(sourceReader, w, allPublicKeys, opts.SigningKey, flags, opts.Concurrency, opts.ProfileID)
 	}
+	logger.Info("starting symmetric encryption")
 	return EncryptStream(sourceReader, w, opts.Passphrase, flags, opts.Concurrency, opts.ProfileID)
 }
 
@@ -136,7 +148,6 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Robust Path Traversal Mitigation (Zip Slip)
 		target := filepath.Join(absOutputDir, h.Name)
 		rel, err := filepath.Rel(absOutputDir, target)
 		if err != nil || strings.HasPrefix(rel, "..") {
@@ -166,4 +177,28 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 		}
 	}
 	return nil
+}
+
+func wrapFEK(ss, fek []byte) ([]byte, error) {
+	block, err := chacha20poly1305.NewX(ss)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, block.NonceSize())
+	return block.Seal(nil, nonce, fek, nil), nil
+}
+
+func unwrapFEK(ss, wrapped []byte) ([]byte, error) {
+	block, err := chacha20poly1305.NewX(ss)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, block.NonceSize())
+	return block.Open(nil, nonce, wrapped, nil)
+}
+
+func sha256Sum(data []byte) []byte {
+	h := sha256.New()
+	h.Write(data)
+	return h.Sum(nil)
 }

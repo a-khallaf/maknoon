@@ -10,6 +10,13 @@ import (
 	"sync"
 )
 
+// bufferPool reuses 64KB buffers to reduce GC pressure.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, ChunkSize)
+	},
+}
+
 // EncryptStream symmetrically encrypts data from r to w using a passphrase and specified profile.
 func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte) error {
 	profile := DefaultProfile()
@@ -61,6 +68,11 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concur
 
 // EncryptStreamWithPublicKeys encrypts data from r to w for one or more recipients.
 func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, flags byte, concurrency int, profileID byte) error {
+	return EncryptStreamWithPublicKeysAndSigner(r, w, pubKeys, nil, flags, concurrency, profileID)
+}
+
+// EncryptStreamWithPublicKeysAndSigner is the internal implementation supporting optional integrated signing.
+func EncryptStreamWithPublicKeysAndSigner(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte) error {
 	profile := DefaultProfile()
 	if profileID != 0 {
 		var err error
@@ -117,6 +129,22 @@ func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, fla
 		return err
 	}
 
+	// Integrated Signing: If signingKey is provided, sign the FEK + metadata commitment
+	var signature []byte
+	if len(signingKey) > 0 {
+		commitment := append([]byte(MagicHeaderAsym), profile.ID(), flags)
+		commitment = append(commitment, fek...)
+		commitment = append(commitment, baseNonce...)
+		
+		sig, err := profile.Sign(commitment, signingKey)
+		if err != nil {
+			return fmt.Errorf("failed to generate integrated signature: %w", err)
+		}
+		signature = sig
+		flags |= FlagSigned // Mark that this file has an integrated signature
+	}
+
+	// 4. Write Header: Magic (4) | ProfileID (1) | Flags (1) | RecipientCount (1) | [PackedProfile (7) if ID >= 128] | [Signature if FlagSigned] | RecipientBlock... | BaseNonce (N)
 	if _, err := w.Write([]byte(MagicHeaderAsym)); err != nil {
 		return err
 	}
@@ -129,6 +157,12 @@ func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, fla
 			if _, err := w.Write(dp.Pack()); err != nil {
 				return err
 			}
+		}
+	}
+	
+	if len(signature) > 0 {
+		if _, err := w.Write(signature); err != nil {
+			return err
 		}
 	}
 
@@ -153,6 +187,8 @@ func EncryptStreamWithPublicKey(r io.Reader, w io.Writer, pubKeyBytes []byte, fl
 	return EncryptStreamWithPublicKeys(r, w, [][]byte{pubKeyBytes}, flags, concurrency, profileID)
 }
 
+// ... rest of parallel streaming logic ...
+
 type encryptJob struct {
 	index uint64
 	data  []byte
@@ -173,6 +209,7 @@ func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 		return streamEncryptSequential(r, w, aead, baseNonce)
 	}
 
+	sem := make(chan struct{}, concurrency*2)
 	jobs := make(chan encryptJob, concurrency*2)
 	results := make(chan encryptResult, concurrency*2)
 	var wg sync.WaitGroup
@@ -188,9 +225,9 @@ func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 	}()
 
 	errChan := make(chan error, 1)
-	go encryptionReader(r, jobs, errChan)
+	go encryptionReader(r, jobs, errChan, sem)
 
-	return encryptionSequencer(w, results, errChan)
+	return encryptionSequencer(w, results, errChan, sem)
 }
 
 func encryptionWorker(wg *sync.WaitGroup, jobs <-chan encryptJob, results chan<- encryptResult, aead cipher.AEAD, baseNonce []byte) {
@@ -206,20 +243,31 @@ func encryptionWorker(wg *sync.WaitGroup, jobs <-chan encryptJob, results chan<-
 		}
 
 		ciphertext := aead.Seal(nil, nonce, job.data, nil)
+		
+		SafeClear(job.data)
+		bufferPool.Put(job.data)
+
 		results <- encryptResult{index: job.index, data: ciphertext}
 	}
 }
 
-func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error) {
+func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error, sem chan struct{}) {
 	defer close(jobs)
 	chunkIndex := uint64(0)
 	for {
-		buf := make([]byte, ChunkSize)
+		sem <- struct{}{}
+
+		buf := bufferPool.Get().([]byte)
 		n, err := r.Read(buf)
 		if n > 0 {
-			jobs <- encryptJob{index: chunkIndex, data: buf[:n]}
+			payload := buf[:n]
+			jobs <- encryptJob{index: chunkIndex, data: payload}
 			chunkIndex++
+		} else {
+			<-sem
+			bufferPool.Put(buf)
 		}
+
 		if err == io.EOF {
 			break
 		}
@@ -230,7 +278,7 @@ func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error)
 	}
 }
 
-func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error) error {
+func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error, sem chan struct{}) error {
 	nextIndex := uint64(0)
 	pending := make(map[uint64][]byte)
 	for {
@@ -260,6 +308,7 @@ func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-ch
 					return err
 				}
 
+				<-sem
 				delete(pending, nextIndex)
 				nextIndex++
 			}
@@ -280,7 +329,9 @@ func writeChunk(w io.Writer, data []byte) error {
 }
 
 func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {
-	buf := make([]byte, ChunkSize)
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+	
 	chunkIndex := uint64(0)
 	nonce := make([]byte, aead.NonceSize())
 

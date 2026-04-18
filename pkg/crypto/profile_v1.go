@@ -12,11 +12,19 @@ import (
 )
 
 func init() {
-	RegisterProfile(&ProfileV1{})
+	RegisterProfile(&ProfileV1{
+		ArgonTime: 3,
+		ArgonMem:  64 * 1024,
+		ArgonThrd: 4,
+	})
 }
 
 // ProfileV1 implements the standard NIST PQC suite (Maknoon v1).
-type ProfileV1 struct{}
+type ProfileV1 struct {
+	ArgonTime uint32
+	ArgonMem  uint32
+	ArgonThrd uint8
+}
 
 // ID returns the profile identifier (1).
 func (p *ProfileV1) ID() byte { return 1 }
@@ -27,9 +35,9 @@ func (p *ProfileV1) SaltSize() int { return 32 }
 // NonceSize returns the nonce size in bytes (24 for XChaCha20).
 func (p *ProfileV1) NonceSize() int { return 24 }
 
-// DeriveKey derives a symmetric key using Argon2id.
+// DeriveKey derives a symmetric key using Argon2id with profile-defined parameters.
 func (p *ProfileV1) DeriveKey(passphrase, salt []byte) []byte {
-	return argon2.IDKey(passphrase, salt, 3, 64*1024, 4, chacha20poly1305.KeySize)
+	return argon2.IDKey(passphrase, salt, p.ArgonTime, p.ArgonMem, p.ArgonThrd, chacha20poly1305.KeySize)
 }
 
 // NewAEAD returns a new XChaCha20-Poly1305 AEAD.
