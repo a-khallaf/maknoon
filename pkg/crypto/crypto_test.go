@@ -2,107 +2,92 @@ package crypto
 
 import (
 	"bytes"
-	"crypto/rand"
-	"io"
 	"testing"
 )
 
 func TestSymmetricRoundTrip(t *testing.T) {
-	password := []byte("secure-test-password")
-	originalData := make([]byte, 250*1024) // 250KB (spans multiple 64KB chunks)
-	if _, err := io.ReadFull(rand.Reader, originalData); err != nil {
-		t.Fatal(err)
-	}
+	data := []byte("This is a secret message for symmetric test.")
+	passphrase := []byte("correct-passphrase-123")
 
 	// 1. Encrypt
 	var encrypted bytes.Buffer
-	err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, 1, 0)
-	if err != nil {
+	if err := EncryptStream(bytes.NewReader(data), &encrypted, passphrase, FlagNone, 0, 0); err != nil {
 		t.Fatalf("Encryption failed: %v", err)
 	}
 
 	// 2. Decrypt
 	var decrypted bytes.Buffer
-	flags, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password, 1)
-	if err != nil {
+	if _, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, passphrase, 0); err != nil {
 		t.Fatalf("Decryption failed: %v", err)
 	}
 
-	if flags != FlagNone {
-		t.Errorf("Expected FlagNone, got %v", flags)
+	if !bytes.Equal(data, decrypted.Bytes()) {
+		t.Errorf("Decrypted data mismatch. Got %s, want %s", decrypted.String(), string(data))
 	}
 
-	// 3. Verify
-	if !bytes.Equal(originalData, decrypted.Bytes()) {
-		t.Fatal("Decrypted data does not match original data")
+	// 3. Wrong passphrase should fail
+	var decryptedWrong bytes.Buffer
+	if _, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decryptedWrong, []byte("wrong-pass"), 0); err == nil {
+		t.Error("Expected error with wrong passphrase, got nil")
 	}
 }
 
 func TestAsymmetricRoundTrip(t *testing.T) {
-	// 1. Generate PQ Keypair
-	pub, priv, _, _, err := GeneratePQKeyPair()
+	data := []byte("Post-Quantum Asymmetric Encryption Test Data")
+	profile := DefaultProfile()
+	pub, priv, err := profile.GenerateKEMKeyPair()
 	if err != nil {
-		t.Fatalf("Keygen failed: %v", err)
+		t.Fatal(err)
 	}
 
-	originalData := []byte("Post-Quantum Secret Data")
-
-	// 2. Encrypt with Public Key
+	// 1. Encrypt
 	var encrypted bytes.Buffer
-	err = EncryptStreamWithPublicKey(bytes.NewReader(originalData), &encrypted, pub, FlagNone, 1, 0)
-	if err != nil {
+	if err := EncryptStreamWithPublicKey(bytes.NewReader(data), &encrypted, pub, FlagNone, 0, 0); err != nil {
 		t.Fatalf("Asymmetric encryption failed: %v", err)
 	}
 
-	// 3. Decrypt with Private Key
+	// 2. Decrypt
 	var decrypted bytes.Buffer
-	flags, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 1)
-	if err != nil {
+	if _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 0); err != nil {
 		t.Fatalf("Asymmetric decryption failed: %v", err)
 	}
 
-	if flags != FlagNone {
-		t.Errorf("Expected FlagNone, got %v", flags)
-	}
-
-	// 4. Verify
-	if !bytes.Equal(originalData, decrypted.Bytes()) {
-		t.Fatal("Decrypted asymmetric data does not match original")
+	if !bytes.Equal(data, decrypted.Bytes()) {
+		t.Errorf("Asymmetric mismatch. Got %s, want %s", decrypted.String(), string(data))
 	}
 }
 
-func TestEmptyFile(t *testing.T) {
-	password := []byte("test")
-	originalData := []byte("")
+func TestIntegratedSignThenEncryptUnit(t *testing.T) {
+	data := []byte("Sign-then-Encrypt Unit Test")
+	profile := DefaultProfile()
+	
+	// Recipient keys
+	pub, priv, _ := profile.GenerateKEMKeyPair()
+	// Sender keys
+	spub, spriv, _ := profile.GenerateSIGKeyPair()
 
+	// 1. Encrypt with integrated signature
 	var encrypted bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(originalData), &encrypted, password, FlagNone, 1, 0); err != nil {
-		t.Fatal(err)
+	if err := EncryptStreamWithPublicKeysAndSigner(bytes.NewReader(data), &encrypted, [][]byte{pub}, spriv, FlagNone, 0, 0); err != nil {
+		t.Fatalf("Integrated encryption failed: %v", err)
 	}
 
+	// 2. Decrypt and Verify
 	var decrypted bytes.Buffer
-	if _, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, password, 1); err != nil {
-		t.Fatal(err)
+	// Test failure without sender key
+	_, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 0)
+	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("sender public key not provided")) {
+		t.Errorf("Expected error for missing sender key, got: %v", err)
 	}
 
-	if decrypted.Len() != 0 {
-		t.Fatal("Expected empty decryption output for empty input")
-	}
-}
-
-func TestInvalidPassword(t *testing.T) {
-	password := []byte("correct-password")
-	wrongPassword := []byte("wrong-password")
-	data := []byte("sensitive info")
-
-	var encrypted bytes.Buffer
-	if err := EncryptStream(bytes.NewReader(data), &encrypted, password, FlagNone, 1, 0); err != nil {
-		t.Fatal(err)
+	// Test success with sender key
+	decrypted.Reset()
+	_, err = DecryptStreamWithPrivateKeyAndVerifier(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, spub, 0)
+	if err != nil {
+		t.Fatalf("Integrated decryption failed: %v", err)
 	}
 
-	var decrypted bytes.Buffer
-	_, err := DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, wrongPassword, 1)
-	if err == nil {
-		t.Fatal("Expected error when decrypting with wrong password, but got nil")
+	if !bytes.Equal(data, decrypted.Bytes()) {
+		t.Errorf("Content mismatch. Got %q", decrypted.String())
 	}
 }

@@ -24,7 +24,7 @@ func EncryptCmd() *cobra.Command {
 	var verbose bool
 	var profile int
 	var profileFile string
-	
+
 	// KDF overrides
 	var argonTime uint32
 	var argonMem uint32
@@ -150,12 +150,12 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable internal pipeline tracing (slog)")
 	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID (1: NIST PQC, 2: AES-GCM)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
-	
+
 	// KDF Flags
 	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
 	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")
 	cmd.Flags().Uint8Var(&argonThrd, "argon-threads", 4, "Argon2id parallel threads")
-	
+
 	return cmd
 }
 

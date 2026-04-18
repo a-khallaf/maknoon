@@ -38,7 +38,7 @@ func InfoCmd() *cobra.Command {
 
 			fmt.Printf("File: %s\n", filePath)
 			fmt.Printf("----------------------------------------\n")
-			
+
 			switch magic {
 			case crypto.MagicHeader:
 				fmt.Println("Type:           Symmetric (Passphrase Protected)")
@@ -49,11 +49,11 @@ func InfoCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Profile ID:     %d\n", profileID)
-			
+
 			isCompressed := flags&crypto.FlagCompress != 0
 			isArchive := flags&crypto.FlagArchive != 0
 			isSigned := flags&crypto.FlagSigned != 0
-			
+
 			fmt.Printf("Compression:    %v\n", isCompressed)
 			fmt.Printf("Archive:        %v\n", isArchive)
 			fmt.Printf("Signed:         %v\n", isSigned)
@@ -62,7 +62,7 @@ func InfoCmd() *cobra.Command {
 			if err == nil {
 				fmt.Printf("KEM Algorithm:  %s\n", profile.KEMName())
 				fmt.Printf("SIG Algorithm:  %s\n", profile.SIGName())
-				
+
 				if v1, ok := profile.(*crypto.ProfileV1); ok {
 					fmt.Printf("KDF Algorithm:  Argon2id (t=%d, m=%d, p=%d)\n", v1.ArgonTime, v1.ArgonMem, v1.ArgonThrd)
 				}
@@ -76,12 +76,12 @@ func InfoCmd() *cobra.Command {
 
 func printInfoJSON(magic string, profileID byte, flags byte, path string) error {
 	type info struct {
-		Path        string `json:"path"`
-		Type        string `json:"type"`
-		ProfileID   byte   `json:"profile_id"`
-		Compressed  bool   `json:"compressed"`
-		IsArchive   bool   `json:"is_archive"`
-		IsSigned    bool   `json:"is_signed"`
+		Path       string `json:"path"`
+		Type       string `json:"type"`
+		ProfileID  byte   `json:"profile_id"`
+		Compressed bool   `json:"compressed"`
+		IsArchive  bool   `json:"is_archive"`
+		IsSigned   bool   `json:"is_signed"`
 	}
 
 	res := info{

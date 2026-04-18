@@ -54,6 +54,9 @@ func (p *DynamicProfile) DeriveKey(passphrase, salt []byte) []byte {
 	}
 }
 
+// SIGSize returns the size of the signature in bytes.
+func (p *DynamicProfile) SIGSize() int { return p.ProfileV1.SIGSize() }
+
 // NewAEAD returns a new AEAD instance based on the configured cipher type.
 func (p *DynamicProfile) NewAEAD(key []byte) (cipher.AEAD, error) {
 	switch p.CipherType {
@@ -146,8 +149,8 @@ func GenerateRandomProfile(id byte) *DynamicProfile {
 	saltSize := 16 + int(s.Uint64())
 
 	// 4. Random Argon2 Settings (Realistic but varying)
-	// Iterations: 1 to 10
-	it, _ := rand.Int(rand.Reader, big.NewInt(10))
+	// Iterations: 1 to 11
+	it, _ := rand.Int(rand.Reader, big.NewInt(11))
 	iterations := uint32(1 + it.Uint64())
 
 	// Memory: 16MB to 512MB (in KB steps of 16MB)

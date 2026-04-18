@@ -38,6 +38,8 @@ type Profile interface {
 
 	// SIGName returns the name of the digital signature algorithm.
 	SIGName() string
+	// SIGSize returns the size of the signature in bytes.
+	SIGSize() int
 	// GenerateSIGKeyPair generates a new digital signature key pair.
 	GenerateSIGKeyPair() (pub, priv []byte, err error)
 	// Sign signs the data using a private key.
@@ -61,7 +63,7 @@ func RegisterProfile(p Profile) {
 // GetProfile retrieves a cryptographic profile by its ID.
 // 1. Checks memory registry.
 // 2. If ID < 128, attempts to auto-load from ~/.maknoon/profiles/ID.json.
-// 3. If ID >= 128, reads 7 packed bytes from r to unpack a dynamic profile.
+// 3. If ID >= 128 and r is not nil, attempts to unpack from reader.
 func GetProfile(id byte, r io.Reader) (Profile, error) {
 	mu.RLock()
 	p, ok := profiles[id]
@@ -90,10 +92,8 @@ func GetProfile(id byte, r io.Reader) (Profile, error) {
 		}
 	}
 
-	if id >= 128 {
-		if r == nil {
-			return nil, fmt.Errorf("reader required for unknown dynamic profile ID: %d", id)
-		}
+	// Unpack from reader if ID >= 128 (Portable)
+	if id >= 128 && r != nil {
 		packed := make([]byte, 7)
 		if _, err := io.ReadFull(r, packed); err != nil {
 			return nil, fmt.Errorf("failed to read packed profile: %w", err)
@@ -105,10 +105,11 @@ func GetProfile(id byte, r io.Reader) (Profile, error) {
 		if err := dp.Validate(); err != nil {
 			return nil, fmt.Errorf("embedded profile validation failed: %w", err)
 		}
+		RegisterProfile(dp)
 		return dp, nil
 	}
 
-	return nil, fmt.Errorf("unsupported cryptographic profile ID: %d", id)
+	return nil, fmt.Errorf("unsupported or unregistered cryptographic profile ID: %d", id)
 }
 
 // DefaultProfile returns the standard NIST PQC profile (v1).

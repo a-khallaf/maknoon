@@ -15,7 +15,7 @@ import (
 // runRootCmd helper to run the full CLI with global flags and capture combined output
 func runRootCmd(args ...string) string {
 	rootCmd := &cobra.Command{
-		Use:   "maknoon",
+		Use: "maknoon",
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if commands.JSONOutput || os.Getenv("MAKNOON_JSON") == "1" {
 				commands.JSONOutput = true
@@ -47,7 +47,7 @@ func runRootCmd(args ...string) string {
 	os.Stderr = w
 
 	_ = rootCmd.Execute()
-	
+
 	w.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
@@ -720,7 +720,7 @@ func TestIntegrationIdentity(t *testing.T) {
 	// 3. Rename identity
 	newBase := "renamed_id"
 	runRootCmd("identity", "rename", keyBase, newBase)
-	
+
 	outputNew := runRootCmd("identity", "list")
 	if !strings.Contains(outputNew, newBase) || strings.Contains(outputNew, keyBase) {
 		t.Errorf("Identity rename failed. List output: %s", outputNew)
@@ -729,7 +729,7 @@ func TestIntegrationIdentity(t *testing.T) {
 
 func TestIntegrationMultiRecipient(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Generate two identities
 	key1 := filepath.Join(tmpDir, "user1")
 	key2 := filepath.Join(tmpDir, "user2")
@@ -791,7 +791,7 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 	// 4. Delete vault
 	// We use JSON mode to skip interactive confirmation
 	runRootCmd("--json", "vault", "delete", newName)
-	
+
 	home, _ := os.UserHomeDir()
 	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".db")
 	if _, err := os.Stat(dbPath); err == nil {
@@ -801,7 +801,7 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 
 func TestIntegrationSignThenEncrypt(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Generate identity
 	keyBase := filepath.Join(tmpDir, "sender")
 	runRootCmd("keygen", "-o", keyBase, "--no-password")
@@ -814,29 +814,37 @@ func TestIntegrationSignThenEncrypt(t *testing.T) {
 	encryptedFile := inputFile + ".makn"
 
 	// 2. Encrypt with integrated signature
-	runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-p", keyBase+".kem.pub", "--sign-key", keyBase+".sig.key", "--quiet")
+	encOut := runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-p", keyBase+".kem.pub", "--sign-key", keyBase+".sig.key", "--quiet")
+	if strings.Contains(encOut, `"error":`) {
+		t.Fatalf("Encryption failed: %s", encOut)
+	}
 
 	// 3. Verify and Decrypt
 	restoredFile := filepath.Join(tmpDir, "restored_signed.txt")
 	// Must provide --sender-key for verification
-	runRootCmd("decrypt", encryptedFile, "-o", restoredFile, "-k", keyBase+".kem.key", "--sender-key", keyBase+".sig.pub", "--quiet")
-	
-	res, _ := os.ReadFile(restoredFile)
-	if !bytes.Equal(res, content) {
-		t.Errorf("Integrated sign-then-encrypt failed")
+	decOut := runRootCmd("decrypt", encryptedFile, "-o", restoredFile, "-k", keyBase+".kem.key", "--sender-key", keyBase+".sig.pub", "--quiet")
+	if strings.Contains(decOut, `"error":`) {
+		t.Fatalf("Decryption failed: %s", decOut)
 	}
-}
 
+	res, err := os.ReadFile(restoredFile)
+	if err != nil {
+		t.Fatalf("Failed to read restored file: %v", err)
+	}
+	if !bytes.Equal(res, content) {
+		t.Errorf("Integrated sign-then-encrypt content mismatch. Got: %q, Want: %q", string(res), string(content))
+	}
+	}
 func TestIntegrationVerbose(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "verbose_test.txt")
 	os.WriteFile(inputFile, []byte("Verbose test data"), 0644)
 
 	encryptedFile := inputFile + ".makn"
-	
+
 	// Run with --verbose and check for slog output (contains keywords like "level=INFO" or "msg=")
 	output := runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-s", "pass", "--verbose")
-	
+
 	if !strings.Contains(output, "level=INFO") || !strings.Contains(output, "starting symmetric encryption") {
 		t.Errorf("Verbose output missing slog traces. Got: %s", output)
 	}

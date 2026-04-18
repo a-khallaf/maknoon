@@ -155,7 +155,7 @@ func KeygenCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key to protect the private keys")
 	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID to protect the keys")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file to protect the keys")
-	
+
 	// KDF Flags
 	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
 	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")

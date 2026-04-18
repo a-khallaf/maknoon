@@ -30,8 +30,11 @@ type Options struct {
 
 // Protect handles the full encryption pipeline for a source (file, directory, or reader).
 func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
-	logger := slog.Default()
-	if !opts.Verbose {
+	var logger *slog.Logger
+	if opts.Verbose {
+		// Use a handler that writes to Stdout so integration tests can capture it
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	} else {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 

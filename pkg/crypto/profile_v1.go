@@ -87,6 +87,9 @@ func (p *ProfileV1) KEMCiphertextSize() int {
 // SIGName returns the signature algorithm name.
 func (p *ProfileV1) SIGName() string { return "ML-DSA-87" }
 
+// SIGSize returns the size of the signature in bytes.
+func (p *ProfileV1) SIGSize() int { return mldsa87.SignatureSize }
+
 // GenerateSIGKeyPair generates a new ML-DSA-87 keypair.
 func (p *ProfileV1) GenerateSIGKeyPair() (pub, priv []byte, err error) {
 	pk, sk, err := mldsa87.GenerateKey(rand.Reader)

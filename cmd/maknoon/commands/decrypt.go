@@ -24,6 +24,7 @@ func DecryptCmd() *cobra.Command {
 	var concurrency int
 	var useFido2 bool
 	var quiet bool
+	var verbose bool
 	var profileFile string
 	var overwrite bool
 
@@ -35,6 +36,10 @@ func DecryptCmd() *cobra.Command {
 			inputFile := args[0]
 			in, inputName, totalSize, err := resolveDecryptInput(inputFile)
 			if err != nil {
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 			if f, ok := in.(*os.File); ok {
@@ -43,6 +48,10 @@ func DecryptCmd() *cobra.Command {
 
 			if profileFile != "" {
 				if err := loadCustomProfile(profileFile, nil); err != nil {
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
+					}
 					return err
 				}
 			}
@@ -50,16 +59,28 @@ func DecryptCmd() *cobra.Command {
 			// 1. Peek at the header to determine encryption type and flags
 			header := make([]byte, 6)
 			if _, err := io.ReadFull(in, header); err != nil {
-				return fmt.Errorf("failed to read file header: %w", err)
+				err := fmt.Errorf("failed to read file header: %w", err)
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
 			}
 			fullIn := io.MultiReader(bytes.NewReader(header), in)
 
 			magic := string(header[:4])
 			flags := header[5]
+			if verbose {
+				fmt.Printf("DEBUG: Magic=%s Flags=0x%02x\n", magic, flags)
+			}
 
 			// 2. Handle Passphrase/Identity logic
 			password, finalKey, err := resolveDecryptionKey(magic, passphrase, keyPath, useFido2, inputFile == "-")
 			if err != nil {
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 
@@ -68,11 +89,21 @@ func DecryptCmd() *cobra.Command {
 			if flags&crypto.FlagSigned != 0 {
 				resolvedSenderPath := crypto.ResolveKeyPath(senderKeyPath, "MAKNOON_PUBLIC_KEY")
 				if resolvedSenderPath == "" {
-					return fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)")
+					err := fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)")
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
+					}
+					return err
 				}
 				sk, err := os.ReadFile(resolvedSenderPath)
 				if err != nil {
-					return fmt.Errorf("failed to read sender public key: %w", err)
+					err := fmt.Errorf("failed to read sender public key: %w", err)
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
+					}
+					return err
 				}
 				senderKey = sk
 			}
@@ -90,12 +121,21 @@ func DecryptCmd() *cobra.Command {
 			// 4. Prepare output path and check existence
 			outPath, err := resolveDecryptionOutputPath(output, inputFile, flags)
 			if err != nil {
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
 				return err
 			}
 
 			if outPath != "-" && !overwrite {
 				if _, err := os.Stat(outPath); err == nil {
-					return fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath)
+					err := fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath)
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
+					}
+					return err
 				}
 			}
 
@@ -113,15 +153,24 @@ func DecryptCmd() *cobra.Command {
 
 			go func() {
 				var dErr error
+				var f byte
 				if magic == crypto.MagicHeader {
-					_, dErr = crypto.DecryptStream(proxyIn, pw, finalKey, concurrency)
+					f, dErr = crypto.DecryptStream(proxyIn, pw, finalKey, concurrency)
 				} else {
-					_, dErr = crypto.DecryptStreamWithPrivateKeyAndVerifier(proxyIn, pw, finalKey, senderKey, concurrency)
+					f, dErr = crypto.DecryptStreamWithPrivateKeyAndVerifier(proxyIn, pw, finalKey, senderKey, concurrency)
 				}
+				_ = f 
 				_ = pw.CloseWithError(dErr)
 			}()
 
-			return finalizeDecryption(pr, flags, outPath)
+			if err := finalizeDecryption(pr, flags, outPath); err != nil {
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
+			}
+			return nil
 		},
 	}
 
@@ -132,6 +181,7 @@ func DecryptCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress bars and informational messages")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable internal pipeline tracing (slog)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite existing files")
 	return cmd

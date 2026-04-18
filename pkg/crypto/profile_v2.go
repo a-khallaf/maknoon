@@ -8,7 +8,13 @@ import (
 )
 
 func init() {
-	RegisterProfile(&ProfileV2{})
+	RegisterProfile(&ProfileV2{
+		ProfileV1: ProfileV1{
+			ArgonTime: 3,
+			ArgonMem:  64 * 1024,
+			ArgonThrd: 4,
+		},
+	})
 }
 
 // ProfileV2 implements a "High-Compatibility" suite using AES-256-GCM and a faster KDF.
@@ -40,6 +46,9 @@ func (p *ProfileV2) NewAEAD(key []byte) (cipher.AEAD, error) {
 	}
 	return cipher.NewGCM(block)
 }
+
+// SIGSize returns the size of the signature in bytes.
+func (p *ProfileV2) SIGSize() int { return p.ProfileV1.SIGSize() }
 
 // GenerateKEMKeyPair generates a new KEM keypair (inherited from V1).
 func (p *ProfileV2) GenerateKEMKeyPair() (pub, priv []byte, err error) {
