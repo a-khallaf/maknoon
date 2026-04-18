@@ -154,12 +154,12 @@ func EncryptStreamWithPublicKeysAndSigner(r io.Reader, w io.Writer, pubKeys [][]
 		commitment := make([]byte, 0, 4+1+1+32+len(baseNonce))
 		commitment = append(commitment, []byte(MagicHeaderAsym)...)
 		commitment = append(commitment, profile.ID(), flags)
-		
+
 		// Re-open fek briefly for signature commitment
 		fb, _ := fekEnclave.Open()
 		commitment = append(commitment, fb.Bytes()...)
 		fb.Destroy()
-		
+
 		commitment = append(commitment, baseNonce...)
 
 		sig, err := profile.Sign(commitment, signingKey)
