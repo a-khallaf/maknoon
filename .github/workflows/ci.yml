@@ -1,5 +1,4 @@
 name: CI/CD
-# Triggering new run to verify updated PR permissions
 
 on:
   push:
@@ -110,7 +109,6 @@ jobs:
             git commit -m "chore: sync extension manifest to $VERSION" || echo "No changes"
             git push origin HEAD:${{ github.head_ref }}
           elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
-             # On main, we just update the file before GoReleaser or Tagging
              git commit -m "chore: sync extension manifest to $VERSION [skip ci]" || echo "No changes"
              git push origin main
           fi
