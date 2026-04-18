@@ -20,3 +20,18 @@ maknoon.pub
 # OS specific
 .DS_Store
 LargeFile
+
+# Editor & Temp
+.!*
+*.swp
+*.bak
+*~
+
+# Lint & Reports
+lint_report.json
+.gemini_security/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
