@@ -182,24 +182,6 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 	return nil
 }
 
-func wrapFEK(ss, fek []byte) ([]byte, error) {
-	block, err := chacha20poly1305.NewX(ss)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, block.NonceSize())
-	return block.Seal(nil, nonce, fek, nil), nil
-}
-
-func unwrapFEK(ss, wrapped []byte) ([]byte, error) {
-	block, err := chacha20poly1305.NewX(ss)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, block.NonceSize())
-	return block.Open(nil, nonce, wrapped, nil)
-}
-
 func sha256Sum(data []byte) []byte {
 	h := sha256.New()
 	h.Write(data)
