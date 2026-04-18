@@ -20,7 +20,7 @@ builds:
     binary: maknoon
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     # this name template makes the result look like maknoon_1.0.0_darwin_arm64.tar.gz
     name_template: >-
       {{ .ProjectName }}_
@@ -31,7 +31,7 @@ archives:
       - maknoon.1
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: 'checksums.txt'
@@ -47,7 +47,7 @@ changelog:
       - '^test:'
 
 # Homebrew Tap configuration
-brews:
+homebrews:
   - name: maknoon
     repository:
       owner: al-Zamakhshari
