@@ -22,9 +22,16 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It combines mod
 ## 🚀 Getting Started
 
 ### Installation
+
+**Using Homebrew (macOS/Linux):**
 ```bash
 brew tap al-Zamakhshari/tap
 brew install maknoon
+```
+
+**Gemini CLI Extension (for AI Agents):**
+```bash
+gemini-cli extension install https://github.com/al-Zamakhshari/maknoon --path extensions/maknoon-extension
 ```
 
 ### 1. Identity & Key Management
