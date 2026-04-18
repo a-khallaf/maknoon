@@ -64,13 +64,13 @@ func TestIntegrationSecurityScenarios(t *testing.T) {
 	t.Run("Vault Service Collision", func(t *testing.T) {
 		vaultPath := "collision_test"
 		pass := "pass"
-		
+
 		// Clean up previous test runs
 		home, _ := os.UserHomeDir()
 		dbPath := filepath.Join(home, crypto.MaknoonDir, crypto.VaultsDir, vaultPath+".db")
 		_ = os.Remove(dbPath)
 		defer os.Remove(dbPath)
-		
+
 		if err := os.Setenv("MAKNOON_PASSWORD", "secret1"); err != nil {
 			t.Fatal(err)
 		}

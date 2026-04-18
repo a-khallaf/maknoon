@@ -79,7 +79,7 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 	kemSize := profile.KEMCiphertextSize()
 	wrappedSize := 32 + 16 // FEK(32) + Poly1305 Tag(16)
 	blockSize := 4 + kemSize + wrappedSize
-	
+
 	blocks := make([]byte, int(recipientCount)*blockSize)
 	if _, err := io.ReadFull(r, blocks); err != nil {
 		return 0, fmt.Errorf("failed to read recipient blocks: %w", err)
@@ -97,12 +97,12 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 		offset := i * blockSize
 		ct := blocks[offset+4 : offset+4+kemSize]
 		wrappedFEK := blocks[offset+4+kemSize : offset+blockSize]
-		
+
 		ss, err := profile.KEMDecapsulate(privKeyBytes, ct)
 		if err != nil {
 			continue // Not for this key
 		}
-		
+
 		// Try to unwrap FEK
 		unwrapped, err := unwrapFEK(ss, wrappedFEK)
 		SafeClear(ss)

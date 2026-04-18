@@ -94,7 +94,7 @@ func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, fla
 		if err != nil {
 			return fmt.Errorf("failed to encapsulate for a recipient: %w", err)
 		}
-		
+
 		wrappedFEK, err := wrapFEK(ss, fek)
 		if err != nil {
 			return err

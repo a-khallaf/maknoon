@@ -2,9 +2,9 @@ package crypto
 
 import (
 	"bytes"
+	"github.com/klauspost/compress/zstd"
 	"io"
 	"testing"
-	"github.com/klauspost/compress/zstd"
 )
 
 func TestProtectFullFlow(t *testing.T) {
@@ -12,8 +12,8 @@ func TestProtectFullFlow(t *testing.T) {
 	passphrase := []byte("pipeline-pass")
 
 	opts := Options{
-		Passphrase: passphrase,
-		Compress:   true,
+		Passphrase:  passphrase,
+		Compress:    true,
 		Concurrency: 4,
 	}
 

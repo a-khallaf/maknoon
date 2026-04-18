@@ -39,7 +39,7 @@ func InfoCmd() *cobra.Command {
 
 			fmt.Printf("File: %s\n", filePath)
 			fmt.Printf("----------------------------------------\n")
-			
+
 			switch magic {
 			case crypto.MagicHeader:
 				fmt.Println("Type:           Symmetric (Passphrase Protected)")
@@ -50,11 +50,11 @@ func InfoCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Profile ID:     %d\n", profileID)
-			
+
 			// Flags
 			isCompressed := flags&crypto.FlagCompress != 0
 			isArchive := flags&crypto.FlagArchive != 0
-			
+
 			fmt.Printf("Compression:    %v\n", isCompressed)
 			fmt.Printf("Archive:        %v\n", isArchive)
 
@@ -73,11 +73,11 @@ func InfoCmd() *cobra.Command {
 
 func printInfoJSON(magic string, profileID byte, flags byte, path string) error {
 	type info struct {
-		Path        string `json:"path"`
-		Type        string `json:"type"`
-		ProfileID   byte   `json:"profile_id"`
-		Compressed  bool   `json:"compressed"`
-		IsArchive   bool   `json:"is_archive"`
+		Path       string `json:"path"`
+		Type       string `json:"type"`
+		ProfileID  byte   `json:"profile_id"`
+		Compressed bool   `json:"compressed"`
+		IsArchive  bool   `json:"is_archive"`
 	}
 
 	res := info{

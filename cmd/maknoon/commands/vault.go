@@ -359,7 +359,7 @@ func vaultListCmd() *cobra.Command {
 			err = db.View(func(tx *bbolt.Tx) error {
 				b := tx.Bucket([]byte(vaultBucket))
 				if b == nil {
-					return nil 
+					return nil
 				}
 				return b.ForEach(func(_ []byte, v []byte) error {
 					entry, err := crypto.OpenEntry(v, key)

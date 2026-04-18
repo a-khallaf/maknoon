@@ -31,7 +31,7 @@ func identityListCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			home, _ := os.UserHomeDir()
 			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
-			
+
 			files, err := os.ReadDir(keysDir)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -120,7 +120,7 @@ func identityRenameCmd() *cobra.Command {
 			oldName, newName := args[0], args[1]
 			home, _ := os.UserHomeDir()
 			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
-			
+
 			oldBase := filepath.Join(keysDir, oldName)
 			newBase := filepath.Join(keysDir, newName)
 

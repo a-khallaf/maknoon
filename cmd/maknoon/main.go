@@ -24,16 +24,52 @@ func main() {
 
 	rootCmd.PersistentFlags().BoolVar(&commands.JSONOutput, "json", false, "Output results in JSON format")
 
-	rootCmd.AddCommand(commands.EncryptCmd())
-	rootCmd.AddCommand(commands.DecryptCmd())
-	rootCmd.AddCommand(commands.InfoCmd())
-	rootCmd.AddCommand(commands.IdentityCmd())
-	rootCmd.AddCommand(commands.KeygenCmd())
-	rootCmd.AddCommand(commands.ProfilesCmd())
-	rootCmd.AddCommand(commands.GenCmd())
-	rootCmd.AddCommand(commands.VaultCmd())
-	rootCmd.AddCommand(commands.SignCmd())
-	rootCmd.AddCommand(commands.VerifyCmd())
+	// Define Command Groups
+	rootCmd.AddGroup(&cobra.Group{ID: "core", Title: "Core Commands:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "identity", Title: "Identity Management:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "security", Title: "Security & Integrity:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "utils", Title: "Utilities & Secrets:"})
+
+	// Assign Commands to Groups
+	encryptCmd := commands.EncryptCmd()
+	encryptCmd.GroupID = "core"
+	rootCmd.AddCommand(encryptCmd)
+
+	decryptCmd := commands.DecryptCmd()
+	decryptCmd.GroupID = "core"
+	rootCmd.AddCommand(decryptCmd)
+
+	infoCmd := commands.InfoCmd()
+	infoCmd.GroupID = "core"
+	rootCmd.AddCommand(infoCmd)
+
+	keygenCmd := commands.KeygenCmd()
+	keygenCmd.GroupID = "identity"
+	rootCmd.AddCommand(keygenCmd)
+
+	identityCmd := commands.IdentityCmd()
+	identityCmd.GroupID = "identity"
+	rootCmd.AddCommand(identityCmd)
+
+	signCmd := commands.SignCmd()
+	signCmd.GroupID = "security"
+	rootCmd.AddCommand(signCmd)
+
+	verifyCmd := commands.VerifyCmd()
+	verifyCmd.GroupID = "security"
+	rootCmd.AddCommand(verifyCmd)
+
+	vaultCmd := commands.VaultCmd()
+	vaultCmd.GroupID = "utils"
+	rootCmd.AddCommand(vaultCmd)
+
+	genCmd := commands.GenCmd()
+	genCmd.GroupID = "utils"
+	rootCmd.AddCommand(genCmd)
+
+	profilesCmd := commands.ProfilesCmd()
+	profilesCmd.GroupID = "utils"
+	rootCmd.AddCommand(profilesCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

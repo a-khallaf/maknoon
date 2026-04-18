@@ -15,7 +15,7 @@ import (
 // runRootCmd helper to run the full CLI with global flags
 func runRootCmd(args ...string) string {
 	rootCmd := &cobra.Command{
-		Use:   "maknoon",
+		Use: "maknoon",
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if commands.JSONOutput || os.Getenv("MAKNOON_JSON") == "1" {
 				commands.JSONOutput = true
@@ -708,7 +708,7 @@ func TestIntegrationIdentity(t *testing.T) {
 	// 3. Rename identity
 	newBase := "renamed_id"
 	runRootCmd("identity", "rename", keyBase, newBase)
-	
+
 	outputNew := runRootCmd("identity", "list")
 	if !strings.Contains(outputNew, newBase) || strings.Contains(outputNew, keyBase) {
 		t.Errorf("Identity rename failed. List output: %s", outputNew)
@@ -717,7 +717,7 @@ func TestIntegrationIdentity(t *testing.T) {
 
 func TestIntegrationMultiRecipient(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// 1. Generate two identities
 	key1 := filepath.Join(tmpDir, "user1")
 	key2 := filepath.Join(tmpDir, "user2")
@@ -779,7 +779,7 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 	// 4. Delete vault
 	// We use JSON mode to skip interactive confirmation
 	runRootCmd("--json", "vault", "delete", newName)
-	
+
 	home, _ := os.UserHomeDir()
 	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".db")
 	if _, err := os.Stat(dbPath); err == nil {

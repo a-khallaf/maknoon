@@ -297,12 +297,12 @@ func TestKeygenWithEnvPassphrase(t *testing.T) {
 
 func TestVaultJSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Set custom home to ensure we are in a "safe" default vaults directory
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
-	
+
 	// Create the vaults dir
 	vaultsDir := filepath.Join(tmpDir, ".maknoon", "vaults")
 	if err := os.MkdirAll(vaultsDir, 0700); err != nil {
