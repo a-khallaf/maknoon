@@ -28,6 +28,15 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 - **Run (Development)**: `go run ./cmd/maknoon`
 - **Quality Check**: `staticcheck ./... && go vet ./...`
 
+## 🚀 Development Workflow
+
+1.  **Mandatory Pull Requests**: ALL new changes and features MUST be submitted via a Pull Request. Direct pushes to `main` are restricted to emergency hotfixes or repository maintenance.
+2.  **PR Requirements**: Every Pull Request MUST satisfy the following before merging:
+    *   **Documentation**: Ensure `README.md` and the `maknoon.1` man page are updated to reflect all changes.
+    *   **Testing**: All new logic must be covered by Unit and/or Integration tests. The full test suite (`go test ./...`) must pass.
+    *   **Security Scan**: A fresh security scan must be performed. Use `/security:analyze` or manually verify that no new vulnerabilities (PII leaks, Zip Slip, etc.) have been introduced.
+    *   **Quality Check**: Ensure 100% `gofmt` compliance and passing `staticcheck`.
+
 ## 🚀 Pre-Release Checklist
 
 1.  **Documentation Update**: Sync `README.md` and `maknoon.1` with all new features and security changes.
