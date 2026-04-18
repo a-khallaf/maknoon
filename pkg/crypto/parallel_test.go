@@ -116,3 +116,45 @@ func BenchmarkDecryption(b *testing.B) {
 		})
 	}
 }
+
+// faultyReader simulates a stream that breaks unexpectedly (e.g. network drop)
+type faultyReader struct {
+	data      []byte
+	readCount int
+	failAfter int
+}
+
+func (f *faultyReader) Read(p []byte) (n int, err error) {
+	if f.readCount >= f.failAfter {
+		return 0, fmt.Errorf("simulated stream failure")
+	}
+	n = copy(p, f.data[f.readCount:])
+	f.readCount += n
+	return n, nil
+}
+
+func TestPipelineCancellation(t *testing.T) {
+	password := []byte("cancellation-test")
+
+	// Create 5MB of data
+	originalData := make([]byte, 5*1024*1024)
+	_, _ = rand.Read(originalData)
+
+	// Fail after reading exactly 2MB (forcing failure mid-stream)
+	reader := &faultyReader{
+		data:      originalData,
+		failAfter: 2 * 1024 * 1024,
+	}
+
+	var encrypted bytes.Buffer
+
+	// Use high concurrency to maximize the chance of race conditions during teardown
+	err := EncryptStream(reader, &encrypted, password, FlagNone, 16, 0)
+
+	if err == nil {
+		t.Fatal("Expected encryption to fail due to simulated stream interruption")
+	}
+	if err.Error() != "simulated stream failure" {
+		t.Fatalf("Expected 'simulated stream failure', got: %v", err)
+	}
+}

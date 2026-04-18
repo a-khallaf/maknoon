@@ -91,3 +91,47 @@ func TestIntegratedSignThenEncryptUnit(t *testing.T) {
 		t.Errorf("Content mismatch. Got %q", decrypted.String())
 	}
 }
+
+func TestDecryptEdgeCases(t *testing.T) {
+	passphrase := []byte("correct-passphrase-123")
+
+	tests := []struct {
+		name        string
+		input       []byte
+		expectError bool
+	}{
+		{"Empty Input", []byte{}, true},
+		{"Incomplete Header", []byte("MAK"), true},
+		{"Wrong Magic", []byte("BADN\x01\x00"), true},
+		{"Truncated Salt", []byte("MAKN\x01\x0012345"), true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var decrypted bytes.Buffer
+			_, err := DecryptStream(bytes.NewReader(tc.input), &decrypted, passphrase, 1)
+			if (err != nil) != tc.expectError {
+				t.Fatalf("Expected error: %v, got: %v", tc.expectError, err)
+			}
+		})
+	}
+}
+
+func TestEncryptEdgeCases(t *testing.T) {
+	// Zero-byte inputs
+	var encrypted bytes.Buffer
+	err := EncryptStream(bytes.NewReader([]byte{}), &encrypted, []byte("pass"), FlagNone, 1, 0)
+	if err != nil {
+		t.Fatalf("Zero-byte encryption failed: %v", err)
+	}
+
+	var decrypted bytes.Buffer
+	_, err = DecryptStream(bytes.NewReader(encrypted.Bytes()), &decrypted, []byte("pass"), 1)
+	if err != nil {
+		t.Fatalf("Zero-byte decryption failed: %v", err)
+	}
+
+	if len(decrypted.Bytes()) != 0 {
+		t.Fatalf("Expected empty output, got %d bytes", len(decrypted.Bytes()))
+	}
+}
