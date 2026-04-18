@@ -26,6 +26,8 @@ func main() {
 
 	rootCmd.AddCommand(commands.EncryptCmd())
 	rootCmd.AddCommand(commands.DecryptCmd())
+	rootCmd.AddCommand(commands.InfoCmd())
+	rootCmd.AddCommand(commands.IdentityCmd())
 	rootCmd.AddCommand(commands.KeygenCmd())
 	rootCmd.AddCommand(commands.ProfilesCmd())
 	rootCmd.AddCommand(commands.GenCmd())

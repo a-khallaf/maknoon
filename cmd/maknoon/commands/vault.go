@@ -45,6 +45,8 @@ func VaultCmd() *cobra.Command {
 	cmd.AddCommand(vaultSetCmd())
 	cmd.AddCommand(vaultGetCmd())
 	cmd.AddCommand(vaultListCmd())
+	cmd.AddCommand(vaultRenameCmd())
+	cmd.AddCommand(vaultDeleteCmd())
 
 	return cmd
 }
@@ -78,7 +80,6 @@ func resolveVaultPath(name string) (string, error) {
 
 	if strings.Contains(name, string(os.PathSeparator)) {
 		if JSONOutput {
-			// In Agent/JSON mode, we strictly prohibit arbitrary paths for security
 			absPath, _ := filepath.Abs(name)
 			if !strings.HasPrefix(absPath, defaultDir) {
 				return "", fmt.Errorf("security policy: arbitrary vault paths are prohibited in JSON mode")
@@ -129,7 +130,6 @@ func openVault() (*bbolt.DB, []byte, error) {
 		}
 		fido2Raw = b.Get([]byte(fido2Key))
 
-		// Enrollment if requested and not yet enrolled
 		if useFido2 && fido2Raw == nil {
 			meta, secret, err := crypto.Fido2Enroll("maknoon.io", "vault-user")
 			if err != nil {
@@ -156,7 +156,6 @@ func openVault() (*bbolt.DB, []byte, error) {
 	if len(fido2Secret) > 0 {
 		passphrase = fido2Secret
 	} else if fido2Raw != nil {
-		// If vault has FIDO2 metadata, we MUST use it
 		var meta crypto.Fido2Metadata
 		if err := json.Unmarshal(fido2Raw, &meta); err != nil {
 			_ = db.Close()
@@ -319,7 +318,6 @@ func vaultGetCmd() *cobra.Command {
 			defer crypto.SafeClear(entry.Password)
 
 			if JSONOutput {
-				// For JSON output, we convert []byte password to string for serialization
 				type jsonEntry struct {
 					Service  string `json:"service"`
 					Username string `json:"username"`
@@ -361,7 +359,7 @@ func vaultListCmd() *cobra.Command {
 			err = db.View(func(tx *bbolt.Tx) error {
 				b := tx.Bucket([]byte(vaultBucket))
 				if b == nil {
-					return nil // empty vault
+					return nil 
 				}
 				return b.ForEach(func(_ []byte, v []byte) error {
 					entry, err := crypto.OpenEntry(v, key)
@@ -387,6 +385,82 @@ func vaultListCmd() *cobra.Command {
 
 			if JSONOutput {
 				printJSON(services)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func vaultRenameCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rename [old_name] [new_name]",
+		Short: "Rename a local vault file",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			oldPath, err := resolveVaultPath(args[0])
+			if err != nil {
+				return err
+			}
+			newPath, err := resolveVaultPath(args[1])
+			if err != nil {
+				return err
+			}
+
+			if _, err := os.Stat(oldPath); err != nil {
+				return fmt.Errorf("vault '%s' not found", args[0])
+			}
+			if _, err := os.Stat(newPath); err == nil {
+				return fmt.Errorf("target vault '%s' already exists", args[1])
+			}
+
+			if err := os.Rename(oldPath, newPath); err != nil {
+				return err
+			}
+
+			if JSONOutput {
+				printJSON(map[string]string{"status": "success", "from": args[0], "to": args[1]})
+			} else {
+				fmt.Printf("Vault '%s' renamed to '%s'\n", args[0], args[1])
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func vaultDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete [name]",
+		Short: "Permanently delete a vault file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			path, err := resolveVaultPath(args[0])
+			if err != nil {
+				return err
+			}
+
+			if _, err := os.Stat(path); err != nil {
+				return fmt.Errorf("vault '%s' not found", args[0])
+			}
+
+			if !JSONOutput {
+				fmt.Printf("ARE YOU SURE you want to delete vault '%s'? This cannot be undone. (y/N): ", args[0])
+				var confirm string
+				fmt.Scanln(&confirm)
+				if strings.ToLower(confirm) != "y" {
+					return fmt.Errorf("deletion cancelled")
+				}
+			}
+
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+
+			if JSONOutput {
+				printJSON(map[string]string{"status": "success", "deleted": args[0]})
+			} else {
+				fmt.Printf("Vault '%s' deleted successfully.\n", args[0])
 			}
 			return nil
 		},

@@ -91,7 +91,7 @@ func TestIntegrationSecurityScenarios(t *testing.T) {
 
 		getCmd := VaultCmd()
 		getCmd.SetArgs([]string{"--vault", vaultPath, "--passphrase", pass, "get", "service1", "--json"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := getCmd.Execute(); err != nil {
 				t.Error(err)
 			}

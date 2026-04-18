@@ -2,12 +2,15 @@ package crypto
 
 import (
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"runtime"
 	"sync"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // DecryptStream decrypts data from r to w using a passphrase.
@@ -40,11 +43,7 @@ func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int) (
 
 	// 3. Derive Key
 	key := profile.DeriveKey(password, salt)
-	defer func() {
-		for i := range key {
-			key[i] = 0
-		}
-	}()
+	defer SafeClear(key)
 
 	// 4. Setup AEAD
 	aead, err := profile.NewAEAD(key)
@@ -58,26 +57,32 @@ func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int) (
 
 // DecryptStreamWithPrivateKey decrypts data from r to w using a Post-Quantum Private Key.
 func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, concurrency int) (byte, error) {
-	// 1. Read Fixed Header (Magic, Version, Flags)
-	fixedHeader := make([]byte, 6)
-	if _, err := io.ReadFull(r, fixedHeader); err != nil {
+	// 1. Read Fixed Header (Magic, Version, Flags, RecipientCount)
+	header := make([]byte, 7)
+	if _, err := io.ReadFull(r, header); err != nil {
 		return 0, err
 	}
 
-	if string(fixedHeader[:4]) != MagicHeaderAsym {
+	if string(header[:4]) != MagicHeaderAsym {
 		return 0, errors.New("invalid file format: missing MAKA magic header")
 	}
 
-	profile, err := GetProfile(fixedHeader[4], r)
+	profile, err := GetProfile(header[4], r)
 	if err != nil {
 		return 0, err
 	}
-	flags := fixedHeader[5]
+	flags := header[5]
+	recipientCount := header[6]
 
-	// 2. Read KEM Ciphertext
-	ct := make([]byte, profile.KEMCiphertextSize())
-	if _, err := io.ReadFull(r, ct); err != nil {
-		return 0, err
+	// 2. Load ALL recipient blocks
+	// Each block is [Hash(4) | KEM_CT(M) | WrappedFEK(32+16)]
+	kemSize := profile.KEMCiphertextSize()
+	wrappedSize := 32 + 16 // FEK(32) + Poly1305 Tag(16)
+	blockSize := 4 + kemSize + wrappedSize
+	
+	blocks := make([]byte, int(recipientCount)*blockSize)
+	if _, err := io.ReadFull(r, blocks); err != nil {
+		return 0, fmt.Errorf("failed to read recipient blocks: %w", err)
 	}
 
 	// 3. Read Base Nonce
@@ -86,25 +91,64 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 		return 0, err
 	}
 
-	// 4. Decapsulate Shared Secret
-	ss, err := profile.KEMDecapsulate(privKeyBytes, ct)
-	if err != nil {
-		return 0, fmt.Errorf("decapsulation failed: %w", err)
-	}
-	defer func() {
-		for i := range ss {
-			ss[i] = 0
+	// 4. Find and Uncapsulate the FEK
+	var fek []byte
+	for i := 0; i < int(recipientCount); i++ {
+		offset := i * blockSize
+		ct := blocks[offset+4 : offset+4+kemSize]
+		wrappedFEK := blocks[offset+4+kemSize : offset+blockSize]
+		
+		ss, err := profile.KEMDecapsulate(privKeyBytes, ct)
+		if err != nil {
+			continue // Not for this key
 		}
-	}()
+		
+		// Try to unwrap FEK
+		unwrapped, err := unwrapFEK(ss, wrappedFEK)
+		SafeClear(ss)
+		if err == nil {
+			fek = unwrapped
+			break
+		}
+	}
+
+	if fek == nil {
+		return 0, fmt.Errorf("decryption failed: no recipient block matches the provided private key")
+	}
+	defer SafeClear(fek)
 
 	// 5. Setup AEAD
-	aead, err := profile.NewAEAD(ss)
+	aead, err := profile.NewAEAD(fek)
 	if err != nil {
 		return 0, err
 	}
 
 	// 6. Stream Decrypt Chunks
 	return flags, streamDecrypt(r, w, aead, baseNonce, concurrency)
+}
+
+func wrapFEK(ss, fek []byte) ([]byte, error) {
+	block, err := chacha20poly1305.NewX(ss)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, block.NonceSize())
+	return block.Seal(nil, nonce, fek, nil), nil
+}
+
+func unwrapFEK(ss, wrapped []byte) ([]byte, error) {
+	block, err := chacha20poly1305.NewX(ss)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, block.NonceSize())
+	return block.Open(nil, nonce, wrapped, nil)
+}
+
+func sha256Sum(data []byte) []byte {
+	h := sha256.New()
+	h.Write(data)
+	return h.Sum(nil)
 }
 
 type decryptJob struct {
@@ -131,23 +175,19 @@ func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 	results := make(chan decryptResult, concurrency*2)
 	var wg sync.WaitGroup
 
-	// Workers
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go decryptionWorker(&wg, jobs, results, aead, baseNonce)
 	}
 
-	// Closer
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Reader
 	errChan := make(chan error, 1)
 	go decryptionReader(r, jobs, errChan)
 
-	// Writer (Sequencer)
 	return decryptionSequencer(w, results, errChan)
 }
 
@@ -159,7 +199,6 @@ func decryptionWorker(wg *sync.WaitGroup, jobs <-chan decryptJob, results chan<-
 		counterBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(counterBytes, job.index)
 
-		// XOR counter into the last 8 bytes of the nonce
 		offset := len(nonce) - 8
 		for i := 0; i < 8; i++ {
 			nonce[offset+i] ^= counterBytes[i]
@@ -267,7 +306,6 @@ func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 		copy(nonce, baseNonce)
 		counterBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(counterBytes, chunkIndex)
-		// XOR counter into the last 8 bytes of the nonce
 		offset := len(nonce) - 8
 		for i := 0; i < 8; i++ {
 			nonce[offset+i] ^= counterBytes[i]

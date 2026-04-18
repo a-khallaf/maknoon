@@ -12,31 +12,11 @@ import (
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 )
 
-// captureOutput captures the stdout of a function.
-func captureOutput(f func()) string {
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	f()
-
-	if err := w.Close(); err != nil {
-		panic(err)
-	}
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		panic(err)
-	}
-	return buf.String()
-}
-
 func TestGenCmd(t *testing.T) {
 	t.Run("Default password", func(t *testing.T) {
 		cmd := GenCmd()
 		cmd.SetArgs([]string{"password"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := cmd.Execute(); err != nil {
 				t.Error(err)
 			}
@@ -49,7 +29,7 @@ func TestGenCmd(t *testing.T) {
 	t.Run("Custom length", func(t *testing.T) {
 		cmd := GenCmd()
 		cmd.SetArgs([]string{"password", "--length", "16"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := cmd.Execute(); err != nil {
 				t.Error(err)
 			}
@@ -62,7 +42,7 @@ func TestGenCmd(t *testing.T) {
 	t.Run("Passphrase mode", func(t *testing.T) {
 		cmd := GenCmd()
 		cmd.SetArgs([]string{"passphrase", "--words", "5"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := cmd.Execute(); err != nil {
 				t.Error(err)
 			}
@@ -124,7 +104,7 @@ func TestVaultGet(t *testing.T) {
 	t.Run("Get existing service", func(t *testing.T) {
 		getCmd := VaultCmd()
 		getCmd.SetArgs([]string{"--vault", vaultName, "--passphrase", passphrase, "get", "github"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := getCmd.Execute(); err != nil {
 				t.Error(err)
 			}
@@ -173,7 +153,7 @@ func TestVaultList(t *testing.T) {
 
 	listCmd := VaultCmd()
 	listCmd.SetArgs([]string{"--vault", vaultName, "--passphrase", passphrase, "list"})
-	output := captureOutput(func() {
+	output := CaptureOutput(func() {
 		if err := listCmd.Execute(); err != nil {
 			t.Error(err)
 		}
@@ -358,7 +338,7 @@ func TestVaultJSON(t *testing.T) {
 
 		setCmd := VaultCmd()
 		setCmd.SetArgs([]string{"--vault", vaultName, "--passphrase", passphrase, "set", "service_env"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := setCmd.Execute(); err != nil {
 				t.Error(err)
 			}
@@ -373,7 +353,7 @@ func TestVaultJSON(t *testing.T) {
 		resetVaultGlobals()
 		getCmd := VaultCmd()
 		getCmd.SetArgs([]string{"--vault", vaultName, "--passphrase", passphrase, "--json", "get", "service_env"})
-		output := captureOutput(func() {
+		output := CaptureOutput(func() {
 			if err := getCmd.Execute(); err != nil {
 				t.Error(err)
 			}

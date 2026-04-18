@@ -5,10 +5,44 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/al-Zamakhshari/maknoon/cmd/maknoon/commands"
+	"github.com/spf13/cobra"
 )
+
+// runRootCmd helper to run the full CLI with global flags
+func runRootCmd(args ...string) string {
+	rootCmd := &cobra.Command{
+		Use:   "maknoon",
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			if commands.JSONOutput || os.Getenv("MAKNOON_JSON") == "1" {
+				commands.JSONOutput = true
+				cmd.SilenceUsage = true
+				cmd.SilenceErrors = true
+			}
+		},
+	}
+	rootCmd.PersistentFlags().BoolVar(&commands.JSONOutput, "json", false, "Output results in JSON format")
+
+	rootCmd.AddCommand(commands.EncryptCmd())
+	rootCmd.AddCommand(commands.DecryptCmd())
+	rootCmd.AddCommand(commands.InfoCmd())
+	rootCmd.AddCommand(commands.IdentityCmd())
+	rootCmd.AddCommand(commands.KeygenCmd())
+	rootCmd.AddCommand(commands.ProfilesCmd())
+	rootCmd.AddCommand(commands.GenCmd())
+	rootCmd.AddCommand(commands.VaultCmd())
+	rootCmd.AddCommand(commands.SignCmd())
+	rootCmd.AddCommand(commands.VerifyCmd())
+
+	rootCmd.SetArgs(args)
+
+	return commands.CaptureOutput(func() {
+		_ = rootCmd.Execute()
+	})
+}
 
 func TestIntegrationBasicSymmetric(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -625,6 +659,131 @@ func TestIntegrationPipesAndEnv(t *testing.T) {
 	}
 	if buf.String() != content {
 		t.Errorf("Pipe output mismatch. Got: %s, Want: %s", buf.String(), content)
+	}
+}
+
+func TestIntegrationInfo(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "info_test.txt")
+	if err := os.WriteFile(inputFile, []byte("Metadata test data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	encryptedFile := inputFile + ".makn"
+	encCmd := commands.EncryptCmd()
+	encCmd.SetArgs([]string{inputFile, "-o", encryptedFile, "-s", "pass", "--compress", "--quiet"})
+	if err := encCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test Text Output
+	output := runRootCmd("info", encryptedFile)
+	if !strings.Contains(output, "Symmetric") || !strings.Contains(output, "Compression:    true") {
+		t.Errorf("Info text output mismatch. Got: %s", output)
+	}
+
+	// Test JSON Output
+	outputJSON := runRootCmd("--json", "info", encryptedFile)
+	if !strings.Contains(outputJSON, `"type":"symmetric"`) || !strings.Contains(outputJSON, `"compressed":true`) {
+		t.Errorf("Info JSON output mismatch. Got: %s", outputJSON)
+	}
+}
+
+func TestIntegrationIdentity(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	// 1. Generate an identity
+	keyBase := "test_id"
+	runRootCmd("keygen", "-o", keyBase, "--no-password")
+
+	// 2. List identities
+	output := runRootCmd("identity", "list")
+	if !strings.Contains(output, keyBase) {
+		t.Errorf("Identity list mismatch. Got: %s", output)
+	}
+
+	// 3. Rename identity
+	newBase := "renamed_id"
+	runRootCmd("identity", "rename", keyBase, newBase)
+	
+	outputNew := runRootCmd("identity", "list")
+	if !strings.Contains(outputNew, newBase) || strings.Contains(outputNew, keyBase) {
+		t.Errorf("Identity rename failed. List output: %s", outputNew)
+	}
+}
+
+func TestIntegrationMultiRecipient(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// 1. Generate two identities
+	key1 := filepath.Join(tmpDir, "user1")
+	key2 := filepath.Join(tmpDir, "user2")
+	runRootCmd("keygen", "-o", key1, "--no-password")
+	runRootCmd("keygen", "-o", key2, "--no-password")
+
+	inputFile := filepath.Join(tmpDir, "team_secret.txt")
+	content := []byte("Top secret team data")
+	if err := os.WriteFile(inputFile, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	encryptedFile := inputFile + ".makn"
+
+	// 2. Encrypt for BOTH recipients
+	runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-p", key1+".kem.pub", "-p", key2+".kem.pub", "--quiet")
+
+	// 3. Verify User 1 can decrypt
+	out1 := filepath.Join(tmpDir, "restored1.txt")
+	runRootCmd("decrypt", encryptedFile, "-o", out1, "-k", key1+".kem.key", "--quiet")
+	res1, _ := os.ReadFile(out1)
+	if !bytes.Equal(res1, content) {
+		t.Errorf("User 1 decryption failed")
+	}
+
+	// 4. Verify User 2 can decrypt
+	out2 := filepath.Join(tmpDir, "restored2.txt")
+	runRootCmd("decrypt", encryptedFile, "-o", out2, "-k", key2+".kem.key", "--quiet")
+	res2, _ := os.ReadFile(out2)
+	if !bytes.Equal(res2, content) {
+		t.Errorf("User 2 decryption failed")
+	}
+}
+
+func TestIntegrationVaultMaintenance(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	vaultName := "maint_test"
+	if err := os.Setenv("MAKNOON_PASSWORD", "secret123"); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Unsetenv("MAKNOON_PASSWORD")
+
+	// 1. Create vault
+	runRootCmd("vault", "set", "svc1", "--vault", vaultName, "--passphrase", "master")
+
+	// 2. Rename vault
+	newName := "renamed_vault"
+	runRootCmd("vault", "rename", vaultName, newName)
+
+	// 3. Verify access to renamed vault
+	output := runRootCmd("vault", "get", "svc1", "--vault", newName, "--passphrase", "master")
+	if !strings.Contains(output, "secret123") {
+		t.Errorf("Vault maintenance rename failed. Output: %s", output)
+	}
+
+	// 4. Delete vault
+	// We use JSON mode to skip interactive confirmation
+	runRootCmd("--json", "vault", "delete", newName)
+	
+	home, _ := os.UserHomeDir()
+	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".db")
+	if _, err := os.Stat(dbPath); err == nil {
+		t.Errorf("Vault deletion failed, file still exists")
 	}
 }
 

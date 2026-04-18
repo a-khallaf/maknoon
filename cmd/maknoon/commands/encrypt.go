@@ -15,7 +15,7 @@ import (
 // EncryptCmd returns the cobra command for encrypting files and directories.
 func EncryptCmd() *cobra.Command {
 	var output string
-	var pubKeyPath string
+	var pubKeyPaths []string
 	var passphrase string
 	var compress bool
 	var concurrency int
@@ -72,7 +72,7 @@ func EncryptCmd() *cobra.Command {
 				ProfileID:   byte(profile),
 			}
 
-			if err := resolveEncryptionKeys(&opts, pubKeyPath, passphrase, inputPath); err != nil {
+			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
 					return nil
@@ -116,7 +116,7 @@ func EncryptCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (use - for stdout)")
-	cmd.Flags().StringVarP(&pubKeyPath, "public-key", "p", "", "Path to the recipient's public key")
+	cmd.Flags().StringSliceVarP(&pubKeyPaths, "public-key", "p", []string{}, "Path to recipient public key(s)")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for symmetric encryption")
 	cmd.Flags().BoolVarP(&compress, "compress", "c", false, "Enable Zstd compression")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
@@ -181,19 +181,31 @@ func loadCustomProfile(path string, profileID *int) error {
 	return nil
 }
 
-func resolveEncryptionKeys(opts *crypto.Options, pubKeyPath, passphrase, inputPath string) error {
-	resolvedPath := crypto.ResolveKeyPath(pubKeyPath, "MAKNOON_PUBLIC_KEY")
-	if resolvedPath != "" {
-		pk, err := os.ReadFile(resolvedPath)
-		if err == nil {
-			opts.PublicKey = pk
-			return nil
-		}
-		if pubKeyPath != "" {
-			return err
+func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, passphrase, inputPath string) error {
+	// If no paths provided, check env
+	if len(pubKeyPaths) == 0 {
+		if env := os.Getenv("MAKNOON_PUBLIC_KEY"); env != "" {
+			pubKeyPaths = append(pubKeyPaths, env)
 		}
 	}
 
+	for _, path := range pubKeyPaths {
+		resolvedPath := crypto.ResolveKeyPath(path, "")
+		if resolvedPath == "" {
+			return fmt.Errorf("public key not found: %s", path)
+		}
+		pk, err := os.ReadFile(resolvedPath)
+		if err != nil {
+			return fmt.Errorf("failed to read public key %s: %w", path, err)
+		}
+		opts.PublicKeys = append(opts.PublicKeys, pk)
+	}
+
+	if len(opts.PublicKeys) > 0 {
+		return nil
+	}
+
+	// Fallback to passphrase
 	if passphrase != "" {
 		opts.Passphrase = []byte(passphrase)
 		return nil

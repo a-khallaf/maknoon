@@ -14,8 +14,9 @@ import (
 // Options defines settings for the protection process.
 type Options struct {
 	Passphrase     []byte
-	PublicKey      []byte
-	ProfileID      byte // 0 for default
+	PublicKey      []byte   // Deprecated: use PublicKeys
+	PublicKeys     [][]byte // Supports multi-recipient encryption
+	ProfileID      byte     // 0 for default
 	Compress       bool
 	IsArchive      bool
 	Concurrency    int       // 0 for auto (NumCPU), 1 for sequential
@@ -101,8 +102,14 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 		}()
 	}
 
+	// Handle Public Key(s)
+	allPublicKeys := opts.PublicKeys
 	if len(opts.PublicKey) > 0 {
-		return EncryptStreamWithPublicKey(sourceReader, w, opts.PublicKey, flags, opts.Concurrency, opts.ProfileID)
+		allPublicKeys = append(allPublicKeys, opts.PublicKey)
+	}
+
+	if len(allPublicKeys) > 0 {
+		return EncryptStreamWithPublicKeys(sourceReader, w, allPublicKeys, flags, opts.Concurrency, opts.ProfileID)
 	}
 	return EncryptStream(sourceReader, w, opts.Passphrase, flags, opts.Concurrency, opts.ProfileID)
 }
