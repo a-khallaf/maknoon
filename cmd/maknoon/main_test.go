@@ -14,6 +14,7 @@ import (
 
 // runRootCmd helper to run the full CLI with global flags and capture combined output
 func runRootCmd(args ...string) string {
+	commands.JSONOutput = false
 	rootCmd := &cobra.Command{
 		Use: "maknoon",
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {

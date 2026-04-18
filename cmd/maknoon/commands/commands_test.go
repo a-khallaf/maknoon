@@ -13,6 +13,7 @@ import (
 )
 
 func TestGenCmd(t *testing.T) {
+	JSONOutput = false
 	t.Run("Default password", func(t *testing.T) {
 		cmd := GenCmd()
 		cmd.SetArgs([]string{"password"})
@@ -80,6 +81,7 @@ func TestResolveKeyPath(t *testing.T) {
 }
 
 func TestVaultGet(t *testing.T) {
+	JSONOutput = false
 	vaultName := "testvault_get"
 	passphrase := "testpass"
 
@@ -124,6 +126,7 @@ func TestVaultGet(t *testing.T) {
 }
 
 func TestVaultList(t *testing.T) {
+	JSONOutput = false
 	vaultName := "testvault_list_v2"
 	passphrase := "testpass"
 
@@ -165,6 +168,7 @@ func TestVaultList(t *testing.T) {
 }
 
 func TestDecryptFailures(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 
 	t.Run("File not found", func(t *testing.T) {
@@ -204,6 +208,7 @@ func TestDecryptFailures(t *testing.T) {
 }
 
 func TestEncryptDecryptSymmetric(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "input.txt")
 	content := []byte("Hello Maknoon Integration")
@@ -237,6 +242,7 @@ func TestEncryptDecryptSymmetric(t *testing.T) {
 }
 
 func TestKeygenAndAsymmetric(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 	keyBase := filepath.Join(tmpDir, "id_test")
 
@@ -279,6 +285,7 @@ func TestKeygenAndAsymmetric(t *testing.T) {
 }
 
 func TestKeygenWithEnvPassphrase(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 	keyBase := filepath.Join(tmpDir, "id_env_test")
 	passphrase := "env-pass-123"
@@ -392,6 +399,7 @@ func TestVaultJSON(t *testing.T) {
 }
 
 func TestSignVerify(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 	keyBase := filepath.Join(tmpDir, "sig_test")
 

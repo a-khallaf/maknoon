@@ -217,16 +217,28 @@ func resolveBaseKeyPath(output string) (string, string, error) {
 		return "", "", fmt.Errorf("failed to create keys directory: %w", err)
 	}
 
+	if output != "" && strings.Contains(output, string(os.PathSeparator)) {
+		if JSONOutput {
+			absPath, _ := filepath.Abs(output)
+			evalPath, _ := filepath.EvalSymlinks(absPath)
+			evalHome, _ := filepath.EvalSymlinks(home)
+			if !strings.HasPrefix(evalPath, evalHome) {
+				return "", "", fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
+			}
+		}
+		return output, filepath.Base(output), nil
+	}
+
 	baseName := "id_maknoon"
 	if output != "" {
-		baseName = output
+		baseName = filepath.Base(output)
+	}
+
+	if baseName == ".." || baseName == "." || baseName == "/" {
+		return "", "", fmt.Errorf("invalid identity name")
 	}
 
 	basePath := filepath.Join(keysDir, baseName)
-	if output != "" && (filepath.IsAbs(output) || strings.Contains(output, string(os.PathSeparator))) {
-		basePath = output
-		baseName = filepath.Base(output)
-	}
 	return basePath, baseName, nil
 }
 

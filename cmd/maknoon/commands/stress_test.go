@@ -13,6 +13,7 @@ import (
 )
 
 func TestIntegrationSecurityScenarios(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 
 	t.Run("Verification Failure on Tampered File", func(t *testing.T) {
@@ -137,6 +138,7 @@ func TestIntegrationSecurityScenarios(t *testing.T) {
 }
 
 func TestIntegrationLargeFileConcurrency(t *testing.T) {
+	JSONOutput = false
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "large.bin")
 	data := make([]byte, 10*1024*1024) // 10MB

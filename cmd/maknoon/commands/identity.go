@@ -127,7 +127,25 @@ func identityShowCmd() *cobra.Command {
 			name := args[0]
 			home, _ := os.UserHomeDir()
 			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
-			basePath := filepath.Join(keysDir, name)
+
+			var basePath string
+			if strings.Contains(name, string(os.PathSeparator)) {
+				if JSONOutput {
+					absPath, _ := filepath.Abs(name)
+					evalPath, _ := filepath.EvalSymlinks(absPath)
+					evalHome, _ := filepath.EvalSymlinks(home)
+					if !strings.HasPrefix(evalPath, evalHome) {
+						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
+					}
+				}
+				basePath = name
+			} else {
+				bn := filepath.Base(name)
+				if bn == ".." || bn == "." || bn == "/" {
+					return fmt.Errorf("invalid identity name")
+				}
+				basePath = filepath.Join(keysDir, bn)
+			}
 
 			pubKeyPath := basePath + ".kem.pub"
 			if _, err := os.Stat(pubKeyPath); err != nil {
@@ -167,8 +185,42 @@ func identityRenameCmd() *cobra.Command {
 			home, _ := os.UserHomeDir()
 			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
 
-			oldBase := filepath.Join(keysDir, oldName)
-			newBase := filepath.Join(keysDir, newName)
+			var oldBase, newBase string
+			if strings.Contains(oldName, string(os.PathSeparator)) {
+				if JSONOutput {
+					absPath, _ := filepath.Abs(oldName)
+					evalPath, _ := filepath.EvalSymlinks(absPath)
+					evalHome, _ := filepath.EvalSymlinks(home)
+					if !strings.HasPrefix(evalPath, evalHome) {
+						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
+					}
+				}
+				oldBase = oldName
+			} else {
+				ob := filepath.Base(oldName)
+				if ob == ".." || ob == "." || ob == "/" {
+					return fmt.Errorf("invalid old identity name")
+				}
+				oldBase = filepath.Join(keysDir, ob)
+			}
+
+			if strings.Contains(newName, string(os.PathSeparator)) {
+				if JSONOutput {
+					absPath, _ := filepath.Abs(newName)
+					evalPath, _ := filepath.EvalSymlinks(absPath)
+					evalHome, _ := filepath.EvalSymlinks(home)
+					if !strings.HasPrefix(evalPath, evalHome) {
+						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
+					}
+				}
+				newBase = newName
+			} else {
+				nb := filepath.Base(newName)
+				if nb == ".." || nb == "." || nb == "/" {
+					return fmt.Errorf("invalid new identity name")
+				}
+				newBase = filepath.Join(keysDir, nb)
+			}
 
 			suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2"}
 			renamed := 0

@@ -11,6 +11,13 @@ import (
 )
 
 func main() {
+	s := createServer()
+	if err := server.ServeStdio(s); err != nil {
+		fmt.Printf("Server error: %v\n", err)
+	}
+}
+
+func createServer() *server.MCPServer {
 	s := server.NewMCPServer(
 		"Maknoon PQC Server",
 		"1.1.6",
@@ -72,9 +79,7 @@ func main() {
 	}
 	s.AddTool(identityActive, identityActiveHandler)
 
-	if err := server.ServeStdio(s); err != nil {
-		fmt.Printf("Server error: %v\n", err)
-	}
+	return s
 }
 
 func getMaknoonBinary() string {
