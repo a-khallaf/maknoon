@@ -834,7 +834,7 @@ func TestIntegrationSignThenEncrypt(t *testing.T) {
 	if !bytes.Equal(res, content) {
 		t.Errorf("Integrated sign-then-encrypt content mismatch. Got: %q, Want: %q", string(res), string(content))
 	}
-	}
+}
 func TestIntegrationVerbose(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "verbose_test.txt")

@@ -60,7 +60,7 @@ func TestAsymmetricRoundTrip(t *testing.T) {
 func TestIntegratedSignThenEncryptUnit(t *testing.T) {
 	data := []byte("Sign-then-Encrypt Unit Test")
 	profile := DefaultProfile()
-	
+
 	// Recipient keys
 	pub, priv, _ := profile.GenerateKEMKeyPair()
 	// Sender keys

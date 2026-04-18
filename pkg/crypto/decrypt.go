@@ -82,7 +82,7 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 
 	// 2. Load ALL recipient blocks
 	kemSize := profile.KEMCiphertextSize()
-	wrappedSize := 32 + 16 
+	wrappedSize := 32 + 16
 	blockSize := 4 + kemSize + wrappedSize
 
 	blocks := make([]byte, int(recipientCount)*blockSize)

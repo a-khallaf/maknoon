@@ -159,7 +159,7 @@ func DecryptCmd() *cobra.Command {
 				} else {
 					f, dErr = crypto.DecryptStreamWithPrivateKeyAndVerifier(proxyIn, pw, finalKey, senderKey, concurrency)
 				}
-				_ = f 
+				_ = f
 				_ = pw.CloseWithError(dErr)
 			}()
 
@@ -215,7 +215,7 @@ func resolveDecryptionOutputPath(output, inputFile string, flags byte) (string, 
 	}
 
 	if flags&crypto.FlagArchive != 0 {
-		return ".", nil 
+		return ".", nil
 	}
 
 	if strings.HasSuffix(inputFile, ".makn") {
