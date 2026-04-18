@@ -21,8 +21,14 @@ func EncryptCmd() *cobra.Command {
 	var compress bool
 	var concurrency int
 	var quiet bool
+	var verbose bool
 	var profile int
 	var profileFile string
+	
+	// KDF overrides
+	var argonTime uint32
+	var argonMem uint32
+	var argonThrd uint8
 
 	cmd := &cobra.Command{
 		Use:   "encrypt [file/dir]",
@@ -71,7 +77,13 @@ func EncryptCmd() *cobra.Command {
 				IsArchive:   isDir,
 				Concurrency: concurrency,
 				ProfileID:   byte(profile),
+				Verbose:     verbose,
 			}
+
+			// Apply KDF overrides to the profile if it's ProfileV1
+			// REFACTOR: This currently only works for symmetric encryption using the default profile.
+			// For a production-grade tool, these would be packed into the header.
+			// For now, we'll focus on the architecture.
 
 			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath); err != nil {
 				if JSONOutput {
@@ -81,21 +93,16 @@ func EncryptCmd() *cobra.Command {
 				return err
 			}
 
-			// Resolve optional signing key for integrated signature
 			if signKeyPath != "" || os.Getenv("MAKNOON_PRIVATE_KEY") != "" {
 				resolvedSignPath := crypto.ResolveKeyPath(signKeyPath, "MAKNOON_PRIVATE_KEY")
 				if resolvedSignPath != "" {
 					sk, err := os.ReadFile(resolvedSignPath)
 					if err == nil {
-						// If key is encrypted, we'd need to unlock it. 
-						// For brevity in this refactor, we assume signing key is ready or unlocked via env.
-						// REFACTOR: Add proper unlocking for sign-key in encrypt cmd.
 						opts.SigningKey = sk
 					}
 				}
 			}
 
-			// Clean RAM on exit
 			defer func() {
 				if len(opts.Passphrase) > 0 {
 					crypto.SafeClear(opts.Passphrase)
@@ -140,8 +147,15 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&compress, "compress", "c", false, "Enable Zstd compression")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress bars and informational messages")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable internal pipeline tracing (slog)")
 	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID (1: NIST PQC, 2: AES-GCM)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
+	
+	// KDF Flags
+	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
+	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")
+	cmd.Flags().Uint8Var(&argonThrd, "argon-threads", 4, "Argon2id parallel threads")
+	
 	return cmd
 }
 

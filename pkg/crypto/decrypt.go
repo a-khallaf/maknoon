@@ -2,15 +2,12 @@ package crypto
 
 import (
 	"crypto/cipher"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"runtime"
 	"sync"
-
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // DecryptStream decrypts data from r to w using a passphrase.
@@ -134,11 +131,8 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 	}
 	defer SafeClear(fek)
 
-	// 6. Verify Integrated Signature if present
 	if flags&FlagSigned != 0 {
 		if len(pubKeyBytes) == 0 {
-			// Without the sender's public key, we can't verify the signature.
-			// This is an architectural choice: integrated signing REQUIRES the sender's identity.
 			return 0, fmt.Errorf("file is signed but sender public key not provided")
 		}
 		
@@ -147,7 +141,7 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		commitment = append(commitment, baseNonce...)
 		
 		if !profile.Verify(commitment, signature, pubKeyBytes) {
-			return 0, fmt.Errorf("integrated signature verification FAILED: header might be tampered or sender unknown")
+			return 0, fmt.Errorf("integrated signature verification FAILED")
 		}
 	}
 
@@ -333,7 +327,7 @@ func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 			return errors.New("corrupted payload: chunk size exceeds maximum")
 		}
 
-		ciphertext := buf[:chunkLen]
+		ciphertext := make([]byte, chunkLen)
 		if _, err := io.ReadFull(r, ciphertext); err != nil {
 			return err
 		}

@@ -22,6 +22,11 @@ func KeygenCmd() *cobra.Command {
 	var profile int
 	var profileFile string
 
+	// KDF overrides
+	var argonTime uint32
+	var argonMem uint32
+	var argonThrd uint8
+
 	cmd := &cobra.Command{
 		Use:   "keygen",
 		Short: "Generate a Post-Quantum (KEM & SIG) identity",
@@ -31,34 +36,25 @@ func KeygenCmd() *cobra.Command {
 			var err error
 
 			if profileFile != "" {
-				raw, err := os.ReadFile(profileFile)
-				if err != nil {
-					err := fmt.Errorf("failed to read profile file: %w", err)
+				if err := loadCustomProfile(profileFile, &profile); err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
 						return nil
 					}
 					return err
 				}
-				var dp crypto.DynamicProfile
-				if err := json.Unmarshal(raw, &dp); err != nil {
-					err := fmt.Errorf("invalid profile format: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
+			}
+
+			// Apply KDF Overrides to default profile if requested
+			// Note: This modifies the global instance for this execution.
+			if argonTime != 3 || argonMem != 64*1024 || argonThrd != 4 {
+				if p1, err := crypto.GetProfile(1, nil); err == nil {
+					if v1, ok := p1.(*crypto.ProfileV1); ok {
+						v1.ArgonTime = argonTime
+						v1.ArgonMem = argonMem
+						v1.ArgonThrd = argonThrd
 					}
-					return err
 				}
-				if err := dp.Validate(); err != nil {
-					err := fmt.Errorf("invalid profile parameters: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
-				}
-				crypto.RegisterProfile(&dp)
-				profile = int(dp.ID())
 			}
 
 			if useFido2 {
@@ -159,6 +155,12 @@ func KeygenCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key to protect the private keys")
 	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID to protect the keys")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file to protect the keys")
+	
+	// KDF Flags
+	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
+	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")
+	cmd.Flags().Uint8Var(&argonThrd, "argon-threads", 4, "Argon2id parallel threads")
+
 	return cmd
 }
 

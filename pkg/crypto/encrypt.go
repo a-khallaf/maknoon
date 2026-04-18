@@ -129,7 +129,6 @@ func EncryptStreamWithPublicKeysAndSigner(r io.Reader, w io.Writer, pubKeys [][]
 		return err
 	}
 
-	// Integrated Signing: If signingKey is provided, sign the FEK + metadata commitment
 	var signature []byte
 	if len(signingKey) > 0 {
 		commitment := append([]byte(MagicHeaderAsym), profile.ID(), flags)
