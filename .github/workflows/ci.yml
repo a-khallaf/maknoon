@@ -8,10 +8,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-permissions:
-  contents: write
-  pull_requests: write
-
 jobs:
   quality:
     name: Quality
@@ -46,6 +42,9 @@ jobs:
     name: Release & Sync
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
