@@ -32,4 +32,3 @@ func CaptureOutput(f func()) string {
 	}
 	return buf.String()
 }
-

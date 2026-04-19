@@ -20,8 +20,8 @@ const (
 
 // IdentityManager handles resolution and discovery of cryptographic identities.
 type IdentityManager struct {
-	KeysDir  string
-	HomeDir  string
+	KeysDir string
+	HomeDir string
 }
 
 // NewIdentityManager creates a new manager with default paths.
