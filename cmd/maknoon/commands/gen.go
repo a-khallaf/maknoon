@@ -51,7 +51,11 @@ func genPasswordCmd() *cobra.Command {
 				password[i] = charset[num.Int64()]
 			}
 
-			fmt.Println(string(password))
+			if JSONOutput {
+				printJSON(map[string]string{"password": string(password)})
+			} else {
+				fmt.Println(string(password))
+			}
 
 			// Memory Hygiene: Zero out the password bytes immediately after use
 			for i := range password {
@@ -94,7 +98,12 @@ func genPassphraseCmd() *cobra.Command {
 					result += separator
 				}
 			}
-			fmt.Println(result)
+
+			if JSONOutput {
+				printJSON(map[string]string{"passphrase": result})
+			} else {
+				fmt.Println(result)
+			}
 
 			// Clear the slice from memory
 			for i := range passphrase {

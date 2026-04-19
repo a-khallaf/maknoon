@@ -47,7 +47,7 @@ func InfoCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				return printInfoJSON(magic, profileID, flags, filePath)
+				return printInfoJSON(magic, profileID, flags, filePath, f)
 			}
 
 			fmt.Printf("File: %s\n", filePath)
@@ -92,15 +92,18 @@ func InfoCmd() *cobra.Command {
 	return cmd
 }
 
-func printInfoJSON(magic string, profileID byte, flags byte, path string) error {
+func printInfoJSON(magic string, profileID byte, flags byte, path string, f io.Reader) error {
 	type info struct {
-		Path       string `json:"path"`
-		Type       string `json:"type"`
-		ProfileID  byte   `json:"profile_id"`
-		Compressed bool   `json:"compressed"`
-		IsArchive  bool   `json:"is_archive"`
-		IsSigned   bool   `json:"is_signed"`
-		IsStealth  bool   `json:"is_stealth"`
+		Path         string `json:"path"`
+		Type         string `json:"type"`
+		ProfileID    byte   `json:"profile_id"`
+		Compressed   bool   `json:"compressed"`
+		IsArchive    bool   `json:"is_archive"`
+		IsSigned     bool   `json:"is_signed"`
+		IsStealth    bool   `json:"is_stealth"`
+		KEMAlgorithm string `json:"kem_algorithm,omitempty"`
+		SIGAlgorithm string `json:"sig_algorithm,omitempty"`
+		KDFDetails   string `json:"kdf_details,omitempty"`
 	}
 
 	res := info{
@@ -118,6 +121,16 @@ func printInfoJSON(magic string, profileID byte, flags byte, path string) error 
 		res.Type = "asymmetric"
 	} else if magic == "STEALTH" {
 		res.Type = "stealth"
+	}
+
+	profile, err := crypto.GetProfile(profileID, f)
+	if err == nil {
+		res.KEMAlgorithm = profile.KEMName()
+		res.SIGAlgorithm = profile.SIGName()
+
+		if v1, ok := profile.(*crypto.ProfileV1); ok {
+			res.KDFDetails = fmt.Sprintf("Argon2id (t=%d, m=%d, p=%d)", v1.ArgonTime, v1.ArgonMem, v1.ArgonThrd)
+		}
 	}
 
 	printJSON(res)

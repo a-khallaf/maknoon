@@ -27,9 +27,6 @@ var vaultName string
 var vaultPassphrase string
 var useFido2 bool
 
-// JSONOutput triggers JSON-formatted output and suppresses all interactive prompts.
-var JSONOutput bool
-
 // VaultCmd returns the cobra command for managing secure vaults.
 func VaultCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -59,16 +56,6 @@ func checkJSONMode(cmd *cobra.Command) {
 			cmd.SilenceErrors = true
 		}
 	}
-}
-
-func printJSON(v interface{}) {
-	raw, _ := json.Marshal(v)
-	fmt.Println(string(raw))
-}
-
-func printErrorJSON(err error) {
-	raw, _ := json.Marshal(map[string]string{"error": err.Error()})
-	fmt.Fprintln(os.Stderr, string(raw))
 }
 
 func resolveVaultPath(name string) (string, error) {

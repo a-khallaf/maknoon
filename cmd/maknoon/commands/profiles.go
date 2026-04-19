@@ -42,7 +42,25 @@ func ProfilesCmd() *cobra.Command {
 					}
 					return os.WriteFile(output, raw, 0644)
 				}
-				fmt.Println(string(raw))
+
+				if JSONOutput {
+					printJSON(dp)
+				} else {
+					fmt.Println(string(raw))
+				}
+				return nil
+			}
+
+			if JSONOutput {
+				type profileInfo struct {
+					ID          byte   `json:"id"`
+					Description string `json:"description"`
+				}
+				list := []profileInfo{
+					{ID: 1, Description: "NIST PQC (Kyber1024 + Dilithium87) + XChaCha20-Poly1305 (Default)"},
+					{ID: 2, Description: "NIST PQC (Kyber1024 + Dilithium87) + AES-256-GCM"},
+				}
+				printJSON(list)
 				return nil
 			}
 
