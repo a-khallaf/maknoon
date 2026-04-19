@@ -121,10 +121,6 @@ func Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, er
 		var dFlags byte
 		if len(opts.PublicKeys) > 0 || len(opts.PublicKey) > 0 {
 			// Asymmetric
-			allPublicKeys := opts.PublicKeys
-			if len(opts.PublicKey) > 0 {
-				allPublicKeys = append(allPublicKeys, opts.PublicKey)
-			}
 			// Note: Current core API for asymmetric decrypt expects a single priv key.
 			// Pipeline 'Restore' assumes the caller provided the correct single key in Passphrase or similar.
 			// For now, assume symmetric or simple asymmetric bypass.
