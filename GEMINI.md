@@ -4,9 +4,9 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 
 ## 🏗 Project Architecture
 
-- **`cmd/maknoon/`**: Entry point (`main.go`) and CLI command definitions using Cobra.
+- **`cmd/maknoon/`**: Entry point (`main.go`) and CLI command definitions using Cobra. CLI commands should remain "thin," delegating logic to the service layer.
 - **`pkg/crypto/`**: Core library implementing the cryptographic pipeline, streaming logic, and FIDO2 integration.
-- **`integrations/`**: Third-party wrappers and tools (e.g., Python/LangChain).
+- **`integrations/`**: Third-party wrappers and tools (e.g., Python/LangChain, MCP Server).
 
 ## 🛡 Cryptographic Stack
 
@@ -14,71 +14,66 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 - **Asymmetric Encryption (KEM)**: ML-KEM / Kyber1024 (NIST Standard).
 - **Digital Signatures**: ML-DSA-87 / Dilithium (NIST Standard).
 - **Key Derivation (KDF)**: Argon2id (Time: 3, Memory: 64MB).
-- **Hardware Security**: FIDO2 (Passkey) support via a CGO-free pure-Go implementation.
+- **P2P Transport**: Magic Wormhole (SPAKE2 PAKE) layered with Maknoon Symmetric PQC.
+
+## 📋 Engineering Standards & Design Patterns
+
+### 1. Service Layer Pattern
+Core business logic (handshakes, multi-stage pipelines) MUST reside in `pkg/crypto` and be exposed as reusable service functions.
+- **`crypto.Protect`**: Orchestrates "Archive -> Compress -> Encrypt."
+- **`crypto.Unprotect`**: Orchestrates "Decrypt -> Decompress -> Extract."
+- **Goal**: Allow the core library to be used by TUIs, APIs, or Agents without CLI dependency.
+
+### 2. Context Encapsulation
+Avoid global variables for execution state. Use the `commands.Context` struct to manage `JSONOutput`, `JSONWriter`, and other session-specific states.
+- Always use `commands.SetJSONOutput(bool)` to keep state synchronized.
+
+### 3. Centralized Security Validation
+All file system operations MUST be validated using `crypto.ValidatePath(path, restricted)`.
+- **Restricted Mode**: (Triggered in Agent/JSON mode) Limits access to the user's Home and System Temp directories to prevent path traversal.
+
+### 4. Identity Management API
+Use the `crypto.IdentityManager` struct for key discovery and resolution. Avoid manual path concatenation in CLI commands.
+
+### 5. Memory Hygiene
+Use `crypto.SafeClear` (aliased to `memguard.WipeBytes`) immediately after sensitive data use.
+- **Critical**: Go's GC does not guarantee immediate erasure; deterministic wiping is mandatory for FEKs and passphrases.
+
+### 6. Streaming & Pipes
+All cryptographic operations MUST support `io.Reader` and `io.Writer` to allow processing of files larger than available RAM.
 
 ## 🛠 Building and Running
 
 ### Prerequisites
 - Go 1.25 or higher.
+- `uv` for Python integration tasks.
 
 ### Key Commands
-- **Build (Local)**: `go build -o maknoon ./cmd/maknoon`
-- **Build (Release Simulation)**: `goreleaser release --snapshot --clean`
+- **Build**: `go build -o maknoon ./cmd/maknoon`
 - **Test**: `go test ./...`
-- **Run (Development)**: `go run ./cmd/maknoon`
-- **Quality Check**: `staticcheck ./... && go vet ./...`
+- **Python Tests**: `uv run python3 integrations/langchain/test_maknoon_agent_tool.py`
 
 ## 🚀 Development Workflow
 
-1.  **Dedicated Branching**: ALWAYS create a new dedicated feature branch (`feat/...`, `fix/...`, or `chore/...`) BEFORE committing any changes. Direct commits to `main` are strictly prohibited.
-2.  **Pre-Push Requirements**: BEFORE pushing to the remote repository, you MUST:
-    *   **Update Documentation**: Sync `README.md` and the `maknoon.1` man page with all changes.
-    *   **Verify Tests**: Run the full test suite (`go test ./...`) and ensure a 100% pass rate.
-    *   **Security Check**: Manually review or use `/security:analyze` to ensure no new vulnerabilities (PII leaks, Zip Slip, path traversal) are introduced.
-3.  **Mandatory Pull Requests**: ALL changes MUST be submitted via a Pull Request from your dedicated branch to `main`.
-4.  **Post-Push Monitoring**:
-    *   **Verify CI/CD Success**: AFTER each push, you MUST wait for the GitHub Actions pipeline to complete.
-    *   **Strict Blocking Rule**: NEVER merge a Pull Request (including automated sync PRs) until the CI/CD build is explicitly verified as **SUCCESSFUL**. Jumping to conclusions about build status is strictly prohibited.
-    *   **Automated Sync**: The CI/CD pipeline will automatically detect the next release version and sync the extension manifest directly to your Pull Request branch.
-5.  **Merge Requirements**: Once the CI has automatically synced the manifest and all checks pass, you may merge the PR into `main`.
-6.  **Wiki Synchronization**: The GitHub Wiki is **automatically updated** by the CI/CD pipeline whenever changes are merged into `main`.
-    *   The `wiki/` directory in the repository is the **Source of Truth** for documentation.
-    *   To update the wiki, simply modify the `.md` files in the `wiki/` folder as part of your feature branch.
+1.  **Dedicated Branching**: ALWAYS create a new feature branch (`feat/...`, `fix/...`) BEFORE committing.
+2.  **Pre-Push Requirements**:
+    *   **Update Documentation**: Sync `README.md`, `maknoon.1`, and `wiki/`.
+    *   **Verify Tests**: Ensure 100% pass rate on all Go and Python integration tests.
+    *   **Formatting**: Run `gofmt -w .` project-wide.
+3.  **Mandatory Pull Requests**: Direct commits to `main` are restricted. Changes must be verified via CI/CD before merging.
 
 ## 🚀 Pre-Release Checklist
 
-1.  **Documentation Update**: Sync `README.md` and `maknoon.1` with all new features and security changes.
-2.  **Test Verification**:
-    *   Ensure **Unit Tests** in `pkg/crypto/` cover all new logic.
-    *   Verify **Integration Tests** in `cmd/maknoon/commands/stress_test.go`.
-    *   Run the full suite: `go test -v ./...`.
-3.  **Security Audit**:
-    *   Verify **Zip Slip** protection in `ExtractArchive`.
-    *   Ensure **Memory Hygiene** (`SafeClear`) is applied to ALL sensitive buffers (passphrases, keys, PINs).
-    *   Confirm **Access Control** logic for vault paths in JSON mode.
-4.  **Quality Check**:
-    *   Ensure 100% `gofmt` compliance.
-    *   Check cyclomatic complexity (keep under 15 for core functions).
-    *   Run `staticcheck ./...`.
-    *   Verify that the **CI/CD workflow** (.github/workflows/ci.yml) is passing on main.
-
-## 📋 Engineering Standards
-
-- **Cryptographic Agility**: Use the `Profile` interface for all primitives. Support both Secret (3-127) and Portable (128-255) profiles.
-- **Memory Hygiene**: Use `crypto.SafeClear` immediately after sensitive data use. Sensitive fields in structs (like passwords) must be `[]byte`.
-- **Streaming & Pipes**: Prefer `io.Reader` and `io.Writer`. All commands MUST support standard I/O (stdin/stdout via `-`).
-- **Automation & AI**: Maintain a strict `--json` output mode.
-    - **Agent-Handshake**: Automatic JSON mode switch when `MAKNOON_AGENT_MODE=1` is set and output is not a TTY.
-    - **Identity Discovery**: `maknoon identity active` outputs absolute paths of public keys in JSON format.
-    - **MCP Server**: Native Model Context Protocol (MCP) server in `integrations/mcp` for cross-platform agentic workflows (Claude, Gemini CLI, IDEs).
-    - **Interactive Suppression**: All interactive prompts are suppressed in JSON/Agent mode.
-    - **Vault Isolation**: Restricted vault paths to `~/.maknoon/vaults` in Agent mode.
-    - **Error Handling**: Return errors as JSON on `stderr`.
-- **CGO Avoidance**: Maintain a 100% Pure Go codebase for maximum portability.
-- **Python Tooling**: Keep `integrations/langchain/maknoon_agent_tool.py` updated with the latest CLI signature.
+1.  **Security Audit**:
+    *   Verify **Path Traversal** protection in `validatePath`.
+    *   Confirm **Zip Slip** protection in `ExtractArchive`.
+    *   Ensure **JSON Redirection**: In `stdout` decryption, success metadata MUST go to `stderr`.
+2.  **Quality Check**:
+    *   Run `staticcheck ./...` and `go vet ./...`.
+    *   Verify CI/CD success at [Actions](https://github.com/al-Zamakhshari/maknoon/actions).
 
 ## 🧪 Testing Practices
 
 - **Unit Tests**: Alongside source in `*_test.go`.
-- **Integration Tests**: End-to-end CLI scenarios in `cmd/maknoon/main_test.go`.
-- **Mocking**: Use the `Authenticator` interface for hardware testing.
+- **Integration Tests**: End-to-end scenarios in `cmd/maknoon/main_test.go` and `integrations/`.
+- **P2P Verification**: Use `pkg/crypto/p2p_test.go` to verify race-free header handling.
