@@ -79,7 +79,7 @@ func ReceiveCmd() *cobra.Command {
 			if _, err := io.Copy(tmpFile, proxyReader); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return fmt.Errorf("download failed: %w", err)
 			}
@@ -118,6 +118,10 @@ func ReceiveCmd() *cobra.Command {
 				finalOut = strings.TrimSuffix(msg.Name, ".makn")
 			}
 
+			if err := validatePath(finalOut); err != nil {
+				return err
+			}
+
 			// Use pipe to bridge DecryptStream and finalizeDecryption
 			pr, pw := io.Pipe()
 			var dErr error
@@ -132,7 +136,7 @@ func ReceiveCmd() *cobra.Command {
 			if err := finalizeDecryption(pr, flags, finalOut); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return fmt.Errorf("decryption failed (check passphrase): %w", err)
 			}

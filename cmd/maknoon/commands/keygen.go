@@ -39,7 +39,7 @@ func KeygenCmd() *cobra.Command {
 				if err := loadCustomProfile(profileFile, &profile); err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -62,7 +62,7 @@ func KeygenCmd() *cobra.Command {
 				if err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -73,7 +73,7 @@ func KeygenCmd() *cobra.Command {
 				if err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -91,7 +91,7 @@ func KeygenCmd() *cobra.Command {
 				err := fmt.Errorf("failed to generate keypairs: %w", err)
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -105,14 +105,14 @@ func KeygenCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
 			if err := writeIdentityKeys(basePath, baseName, kemPub, kemPriv, sigPub, sigPriv, password, byte(profile)); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -123,7 +123,7 @@ func KeygenCmd() *cobra.Command {
 					err := fmt.Errorf("failed to marshal fido2 metadata: %w", err)
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -131,7 +131,7 @@ func KeygenCmd() *cobra.Command {
 					err := fmt.Errorf("failed to write fido2 metadata: %w", err)
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -218,13 +218,8 @@ func resolveBaseKeyPath(output string) (string, string, error) {
 	}
 
 	if output != "" && strings.Contains(output, string(os.PathSeparator)) {
-		if JSONOutput {
-			absPath, _ := filepath.Abs(output)
-			evalPath, _ := filepath.EvalSymlinks(absPath)
-			evalHome, _ := filepath.EvalSymlinks(home)
-			if !strings.HasPrefix(evalPath, evalHome) {
-				return "", "", fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
-			}
+		if err := validatePath(output); err != nil {
+			return "", "", err
 		}
 		return output, filepath.Base(output), nil
 	}

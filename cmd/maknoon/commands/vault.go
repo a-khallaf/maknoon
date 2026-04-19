@@ -66,11 +66,8 @@ func resolveVaultPath(name string) (string, error) {
 	defaultDir := filepath.Join(home, crypto.MaknoonDir, crypto.VaultsDir)
 
 	if strings.Contains(name, string(os.PathSeparator)) {
-		if JSONOutput {
-			absPath, _ := filepath.Abs(name)
-			if !strings.HasPrefix(absPath, defaultDir) {
-				return "", fmt.Errorf("security policy: arbitrary vault paths are prohibited in JSON mode")
-			}
+		if err := validatePath(name); err != nil {
+			return "", err
 		}
 		return name, nil
 	}
@@ -209,7 +206,7 @@ func vaultSetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -221,7 +218,7 @@ func vaultSetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -233,7 +230,7 @@ func vaultSetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -261,7 +258,7 @@ func vaultGetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -281,7 +278,7 @@ func vaultGetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -290,7 +287,7 @@ func vaultGetCmd() *cobra.Command {
 				err := fmt.Errorf("service not found")
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -298,7 +295,7 @@ func vaultGetCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -335,7 +332,7 @@ func vaultListCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -365,7 +362,7 @@ func vaultListCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}

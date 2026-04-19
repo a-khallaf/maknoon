@@ -30,7 +30,7 @@ func SignCmd() *cobra.Command {
 				err := fmt.Errorf("signing key required (use --private-key or MAKNOON_PRIVATE_KEY)")
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -39,7 +39,7 @@ func SignCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -56,7 +56,7 @@ func SignCmd() *cobra.Command {
 					err := fmt.Errorf("private key is encrypted; provide passphrase via --passphrase or MAKNOON_PASSPHRASE")
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -66,7 +66,7 @@ func SignCmd() *cobra.Command {
 					err := fmt.Errorf("failed to unlock signing key: %w", err)
 					if JSONOutput {
 						printErrorJSON(err)
-						return nil
+						return err
 					}
 					return err
 				}
@@ -78,16 +78,19 @@ func SignCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
 
 			sigFile := filePath + ".sig"
+			if err := validatePath(sigFile); err != nil {
+				return err
+			}
 			if err := os.WriteFile(sigFile, sig, 0644); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}

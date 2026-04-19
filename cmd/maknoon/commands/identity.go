@@ -130,13 +130,8 @@ func identityShowCmd() *cobra.Command {
 
 			var basePath string
 			if strings.Contains(name, string(os.PathSeparator)) {
-				if JSONOutput {
-					absPath, _ := filepath.Abs(name)
-					evalPath, _ := filepath.EvalSymlinks(absPath)
-					evalHome, _ := filepath.EvalSymlinks(home)
-					if !strings.HasPrefix(evalPath, evalHome) {
-						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
-					}
+				if err := validatePath(name); err != nil {
+					return err
 				}
 				basePath = name
 			} else {
@@ -187,13 +182,8 @@ func identityRenameCmd() *cobra.Command {
 
 			var oldBase, newBase string
 			if strings.Contains(oldName, string(os.PathSeparator)) {
-				if JSONOutput {
-					absPath, _ := filepath.Abs(oldName)
-					evalPath, _ := filepath.EvalSymlinks(absPath)
-					evalHome, _ := filepath.EvalSymlinks(home)
-					if !strings.HasPrefix(evalPath, evalHome) {
-						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
-					}
+				if err := validatePath(oldName); err != nil {
+					return err
 				}
 				oldBase = oldName
 			} else {
@@ -205,13 +195,8 @@ func identityRenameCmd() *cobra.Command {
 			}
 
 			if strings.Contains(newName, string(os.PathSeparator)) {
-				if JSONOutput {
-					absPath, _ := filepath.Abs(newName)
-					evalPath, _ := filepath.EvalSymlinks(absPath)
-					evalHome, _ := filepath.EvalSymlinks(home)
-					if !strings.HasPrefix(evalPath, evalHome) {
-						return fmt.Errorf("security policy: arbitrary key paths outside home are prohibited in JSON mode")
-					}
+				if err := validatePath(newName); err != nil {
+					return err
 				}
 				newBase = newName
 			} else {

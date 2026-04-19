@@ -37,8 +37,16 @@ func ProfilesCmd() *cobra.Command {
 				raw, _ := json.MarshalIndent(dp, "", "  ")
 
 				if output != "" {
+					if err := validatePath(output); err != nil {
+						return err
+					}
 					if _, err := os.Stat(output); err == nil {
-						return fmt.Errorf("output file already exists: %s (delete it first or use a different name)", output)
+						err := fmt.Errorf("output file already exists: %s (delete it first or use a different name)", output)
+						if JSONOutput {
+							printErrorJSON(err)
+							return err
+						}
+						return err
 					}
 					return os.WriteFile(output, raw, 0644)
 				}

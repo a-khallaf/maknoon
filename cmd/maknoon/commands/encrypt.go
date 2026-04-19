@@ -41,7 +41,7 @@ func EncryptCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -55,7 +55,7 @@ func EncryptCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -90,7 +90,7 @@ func EncryptCmd() *cobra.Command {
 			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -129,7 +129,7 @@ func EncryptCmd() *cobra.Command {
 			if _, err := crypto.Protect(inputPath, nil, out, opts); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -166,6 +166,9 @@ func resolveEncryptInput(path string) (io.Reader, string, int64, bool, error) {
 	if path == "-" {
 		return os.Stdin, "stdin", -1, false, nil
 	}
+	if err := validatePath(path); err != nil {
+		return nil, "", 0, false, err
+	}
 	stat, err := os.Stat(path)
 	if err != nil {
 		return nil, "", 0, false, err
@@ -191,6 +194,11 @@ func resolveEncryptOutput(output, inputPath string) (io.Writer, string, error) {
 		}
 		outPath = inputPath + ".makn"
 	}
+
+	if err := validatePath(outPath); err != nil {
+		return nil, "", err
+	}
+
 	f, err := os.Create(outPath)
 	if err != nil {
 		return nil, "", err
