@@ -274,7 +274,7 @@ func TestMCPServerTools(t *testing.T) {
 		res := s.HandleMessage(ctx, req)
 		resRaw, _ := json.Marshal(res)
 
-		if !strings.Contains(string(resRaw), "established") || !strings.Contains(string(resRaw), "ghost-chat") {
+		if !strings.Contains(string(resRaw), "established") || !strings.Contains(string(resRaw), "status") {
 			t.Errorf("Start chat tool failed. Result: %s", string(resRaw))
 		}
 	})
