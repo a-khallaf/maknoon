@@ -134,11 +134,9 @@ func runLineChat(args []string) error {
 	}
 	defer rl.Close()
 
-	peerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
-	myStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
-
 	// Receiver loop
 	go func() {
+		peerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
 		for {
 			select {
 			case <-ctx.Done():
@@ -148,17 +146,18 @@ func runLineChat(args []string) error {
 					return
 				}
 				if ev.Type == "message" {
-					// Cleanly print message using readline's internal buffer handling
-					fmt.Fprintf(rl.Stdout(), "\r%s %s\n",
+					// Move to start of line, clear it, print message, then restore prompt
+					fmt.Fprintf(rl.Stdout(), "\r\033[2K%s %s\n💬 > %s",
 						peerStyle.Render("Peer:"),
-						ev.Text)
-					rl.Refresh() // Force redraw the prompt and current input
+						ev.Text,
+						rl.Line())
 				}
 			}
 		}
 	}()
 
 	// Sender loop
+	myStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 	for {
 		line, err := rl.Readline()
 		if err != nil { // io.EOF (Ctrl+D) or Ctrl+C
@@ -173,8 +172,8 @@ func runLineChat(args []string) error {
 			break
 		}
 
-		// Optimistically print your own message immediately
-		fmt.Fprintf(rl.Stdout(), "%s %s\n", myStyle.Render("You:"), line)
+		// Cleanly replace the typed line with our styled 'You:' line
+		fmt.Fprintf(rl.Stdout(), "\033[1A\r\033[2K%s %s\n", myStyle.Render("You:"), line)
 
 		err = sess.Send(ctx, line)
 		if err != nil {

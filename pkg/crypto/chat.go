@@ -101,7 +101,10 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 			return
 		case <-s.done:
 			return
-		case ev := <-msgChan:
+		case ev, ok := <-msgChan:
+			if !ok {
+				return
+			}
 			if ev.Side != s.SideID {
 				s.mu.Lock()
 				if s.seenMsgs[ev.Phase] {
@@ -111,12 +114,15 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 				s.seenMsgs[ev.Phase] = true
 				s.mu.Unlock()
 
-				s.Events <- ChatEvent{
-					ID:        ev.Phase,
-					Type:      "message",
-					Sender:    "peer",
-					Text:      ev.Body,
-					Timestamp: time.Now().Unix(),
+				// If it's a phase we haven't seen, it's a new message or status
+				if strings.HasPrefix(ev.Phase, "msg-") {
+					s.Events <- ChatEvent{
+						ID:        ev.Phase,
+						Type:      "message",
+						Sender:    "peer",
+						Text:      ev.Body,
+						Timestamp: time.Now().Unix(),
+					}
 				}
 			}
 		}
