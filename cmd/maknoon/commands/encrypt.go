@@ -134,7 +134,6 @@ func EncryptCmd() *cobra.Command {
 				return err
 			}
 
-
 			if JSONOutput {
 				printJSON(map[string]string{"status": "success", "output": outPath})
 			}
