@@ -218,6 +218,30 @@ func TestMCPServerTools(t *testing.T) {
 		}
 	})
 
+	t.Run("P2P Text Send (Tool Logic)", func(t *testing.T) {
+		req := json.RawMessage(`{
+			"jsonrpc": "2.0",
+			"id": "9",
+			"method": "tools/call",
+			"params": {
+				"name": "send_file",
+				"arguments": {
+					"text": "mcp-text-payload"
+				}
+			}
+		}`)
+
+		timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+
+		res := s.HandleMessage(timeoutCtx, req)
+		resRaw, _ := json.Marshal(res)
+
+		if strings.Contains(string(resRaw), "either 'path' or 'text' must be provided") {
+			t.Errorf("MCP send_file failed to recognize 'text' argument")
+		}
+	})
+
 	t.Run("Vault Get Error (Missing Master Key)", func(t *testing.T) {
 		req := json.RawMessage(`{
 			"jsonrpc": "2.0",

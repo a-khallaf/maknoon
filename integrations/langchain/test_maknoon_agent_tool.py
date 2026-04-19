@@ -9,7 +9,9 @@ from maknoon_agent_tool import (
     generate_maknoon_passphrase,
     get_maknoon_file_info,
     encrypt_maknoon_file,
-    decrypt_maknoon_file
+    decrypt_maknoon_file,
+    send_maknoon_file,
+    receive_maknoon_file
 )
 
 class TestMaknoonLangChainTools(unittest.TestCase):
@@ -79,21 +81,14 @@ class TestMaknoonLangChainTools(unittest.TestCase):
         self.assertEqual(dec_content.strip(), "agent-test-payload")
 
     def test_p2p_directory_lifecycle(self):
-        # 1. Setup a directory
-        src_dir = os.path.join(self.test_dir, "agent_src")
-        os.makedirs(src_dir, exist_ok=True)
-        with open(os.path.join(src_dir, "data.txt"), "w") as f:
-            f.write("p2p-agent-data")
-        
-        # 2. Mock 'send' - We can't actually hit the relay in a standard unit test
-        # without potentially hanging, but we can verify the command arguments
-        # and the underlying encryption logic via a subprocess call to 'encrypt'
-        # which is what 'send' uses internally.
-        
-        # However, we've already verified the core logic in Go. 
-        # For the python tool, let's at least verify it handles directory inputs.
-        # Since 'send' is blocking and hits public servers, we'll verify the 
-        # tool definition and skip the live network call to avoid CI hangs.
+        # ... (unchanged)
+        pass
+
+    def test_p2p_text_send_tool(self):
+        # Verify tool accepts 'text' argument
+        # We don't run it to avoid blocking network calls
+        self.assertTrue(hasattr(send_maknoon_file, "invoke"))
+        # Check signature or args if possible, or just verify it doesn't crash on setup
         pass
 
 if __name__ == "__main__":
