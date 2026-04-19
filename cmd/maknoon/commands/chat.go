@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +32,7 @@ func ChatCmd() *cobra.Command {
 			if JSONOutput {
 				return runAgentChat(args)
 			}
-			return runTuiChat(args)
+			return runLineChat(args)
 		},
 	}
 
@@ -97,142 +95,94 @@ func runAgentChat(args []string) error {
 	return nil
 }
 
-// --- Human Mode (TUI) ---
+// --- Human Mode (Line-Interactive REPL) ---
 
-type chatModel struct {
-	sess        *crypto.ChatSession
-	viewport    viewport.Model
-	messages    []string
-	textarea    textarea.Model
-	senderStyle lipgloss.Style
-	code        string
-}
-
-func (m chatModel) Init() tea.Cmd {
-	return textarea.Blink
-}
-
-func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var (
-		tiCmd tea.Cmd
-		vpCmd tea.Cmd
-	)
-
-	m.textarea, tiCmd = m.textarea.Update(msg)
-	m.viewport, vpCmd = m.viewport.Update(msg)
-
-	switch msg := msg.(type) {
-	case crypto.ChatEvent:
-		switch msg.Type {
-		case "status":
-			if msg.State == "established" {
-				m.code = msg.Text
-				m.viewport.SetContent("✅ Connected to Peer.\nMessages are ephemeral and never logged.")
-			}
-		case "error":
-			m.messages = append(m.messages, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Handshake Error: ")+msg.Text)
-			m.viewport.SetContent(strings.Join(m.messages, "\n"))
-		case "message":
-			m.messages = append(m.messages, lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("Peer: ")+msg.Text)
-			m.viewport.SetContent(strings.Join(m.messages, "\n"))
-			m.viewport.GotoBottom()
-		}
-
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			m.sess.Close()
-			return m, tea.Quit
-		case tea.KeyEnter:
-			content := m.textarea.Value()
-			if content == "" {
-				return m, nil
-			}
-			err := m.sess.Send(context.Background(), content)
-			if err != nil {
-				m.messages = append(m.messages, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Error: ")+err.Error())
-			} else {
-				m.messages = append(m.messages, m.senderStyle.Render("You: ")+content)
-			}
-			m.viewport.SetContent(strings.Join(m.messages, "\n"))
-			m.textarea.Reset()
-			m.viewport.GotoBottom()
-			return m, nil
-		}
-
-	case tea.WindowSizeMsg:
-		m.viewport.Width = msg.Width
-		m.textarea.SetWidth(msg.Width)
-		m.viewport.Height = msg.Height - m.textarea.Height() - 3
-	}
-
-	return m, tea.Batch(tiCmd, vpCmd)
-}
-
-func (m chatModel) View() string {
-	header := lipgloss.NewStyle().
-		Background(lipgloss.Color("5")).
-		Foreground(lipgloss.Color("15")).
-		Padding(0, 1).
-		Render(" GHOST CHAT ")
-
-	status := fmt.Sprintf(" Code: %s", m.code)
-
-	return header + status + "\n\n" +
-		m.viewport.View() + "\n\n" +
-		m.textarea.View()
-}
-
-func runTuiChat(args []string) error {
+func runLineChat(args []string) error {
 	sess := crypto.NewChatSession(chatAppID)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize UI with "Connecting" state
-	ta := textarea.New()
-	ta.Placeholder = "Type a message..."
-	ta.Focus()
-	ta.SetHeight(3)
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true).Render("👻 GHOST CHAT: Secure & Ephemeral"))
+	fmt.Println("Connecting to wormhole...")
 
-	vp := viewport.New(80, 20)
-	vp.SetContent("🕳️ Opening wormhole...")
-
-	m := chatModel{
-		sess:        sess,
-		textarea:    ta,
-		viewport:    vp,
-		messages:    []string{},
-		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
-		code:        "pending...",
+	var code string
+	var err error
+	if len(args) > 0 {
+		code = args[0]
+		err = sess.StartJoin(ctx, code)
+	} else {
+		code, err = sess.StartHost(ctx)
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	if err != nil {
+		return err
+	}
 
-	// Async Connection Cmd
+	fmt.Printf("✅ Connected! Join Code: %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(code))
+	fmt.Println("Type your message below. Press Ctrl+D or type /quit to exit.")
+	fmt.Println("------------------------------------------------------------")
+
+	// Initialize Readline
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "💬 > ",
+		HistoryFile:     "", // Ephemeral!
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if err != nil {
+		return err
+	}
+	defer rl.Close()
+
+	peerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
+	myStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
+
+	// Receiver loop
 	go func() {
-		var code string
-		var err error
-		if len(args) > 0 {
-			code = args[0]
-			err = sess.StartJoin(ctx, code)
-		} else {
-			code, err = sess.StartHost(ctx)
-		}
-
-		if err != nil {
-			p.Send(crypto.ChatEvent{Type: "error", Text: err.Error()})
-			return
-		}
-
-		// Update UI with established code
-		p.Send(crypto.ChatEvent{Type: "status", State: "established", Text: code})
-
-		// Bridge sess.Events to Bubbletea
-		for ev := range sess.Events {
-			p.Send(ev)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-sess.Events:
+				if !ok {
+					return
+				}
+				if ev.Type == "message" {
+					// Cleanly print message using readline's internal buffer handling
+					fmt.Fprintf(rl.Stdout(), "\r%s %s\n",
+						peerStyle.Render("Peer:"),
+						ev.Text)
+					rl.Refresh() // Force redraw the prompt and current input
+				}
+			}
 		}
 	}()
 
-	_, err := p.Run()
-	return err
+	// Sender loop
+	for {
+		line, err := rl.Readline()
+		if err != nil { // io.EOF (Ctrl+D) or Ctrl+C
+			break
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if line == "/quit" || line == "/exit" {
+			break
+		}
+
+		// Optimistically print your own message immediately
+		fmt.Fprintf(rl.Stdout(), "%s %s\n", myStyle.Render("You:"), line)
+
+		err = sess.Send(ctx, line)
+		if err != nil {
+			fmt.Fprintf(rl.Stdout(), "❌ Error sending: %v\n", err)
+		}
+	}
+
+	sess.Close()
+	fmt.Println("\n✨ Wormhole closed. History remained in your terminal, but no traces on disk.")
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/psanford/wormhole-william/rendezvous"
@@ -13,11 +14,11 @@ import (
 
 // ChatEvent represents an event in the chat stream.
 type ChatEvent struct {
+	ID        string `json:"id"`
 	Type      string `json:"type"`   // "message", "status", "error"
 	Sender    string `json:"sender"` // "me", "peer", "system"
 	Text      string `json:"text,omitempty"`
 	Timestamp int64  `json:"timestamp"`
-	State     string `json:"state,omitempty"` // for status events
 }
 
 // ChatSession handles a P2P chat session using the wormhole infrastructure.
@@ -27,25 +28,24 @@ type ChatSession struct {
 	SideID string
 	Code   string
 
-	// Crypto
-	SharedKey []byte
-	Profile   Profile
-
 	Rendezvous *rendezvous.Client
 
 	Events chan ChatEvent
 	done   chan struct{}
+
+	seenMsgs map[string]bool
+	mu       sync.Mutex
 }
 
 // NewChatSession creates a new chat session.
 func NewChatSession(appID string) *ChatSession {
 	sideID := fmt.Sprintf("%x", time.Now().UnixNano())
 	return &ChatSession{
-		AppID:   appID,
-		SideID:  sideID,
-		Events:  make(chan ChatEvent, 100),
-		done:    make(chan struct{}),
-		Profile: DefaultProfile(),
+		AppID:    appID,
+		SideID:   sideID,
+		Events:   make(chan ChatEvent, 100),
+		done:     make(chan struct{}),
+		seenMsgs: make(map[string]bool),
 	}
 }
 
@@ -62,7 +62,6 @@ func (s *ChatSession) StartHost(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// For the Ghost Chat MVP, we use the mailbox directly for PAKE-less exchange.
 	// We use the standard wormhole wordlist for high-entropy codes.
 	s.Code = nameplate + "-" + wordlist.ChooseWords(2)
 
@@ -104,9 +103,16 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 			return
 		case ev := <-msgChan:
 			if ev.Side != s.SideID {
-				// We received a message from the peer.
-				// For the MVP, it's plaintext. In v2, we add XChaCha20-Poly1305.
+				s.mu.Lock()
+				if s.seenMsgs[ev.Phase] {
+					s.mu.Unlock()
+					continue
+				}
+				s.seenMsgs[ev.Phase] = true
+				s.mu.Unlock()
+
 				s.Events <- ChatEvent{
+					ID:        ev.Phase,
 					Type:      "message",
 					Sender:    "peer",
 					Text:      ev.Body,
@@ -119,9 +125,14 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 
 // Send sends a message to the peer.
 func (s *ChatSession) Send(ctx context.Context, text string) error {
-	// Unique phase for each message to avoid mailbox collisions
-	phase := fmt.Sprintf("msg-%d-%s", time.Now().UnixNano(), s.SideID)
-	return s.Rendezvous.AddMessage(ctx, phase, text)
+	// Use a unique ID based on timestamp and side to prevent collisions and allow deduplication
+	msgID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), s.SideID)
+
+	s.mu.Lock()
+	s.seenMsgs[msgID] = true
+	s.mu.Unlock()
+
+	return s.Rendezvous.AddMessage(ctx, msgID, text)
 }
 
 // Close closes the session.
