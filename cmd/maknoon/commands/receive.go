@@ -83,12 +83,22 @@ func ReceiveCmd() *cobra.Command {
 				fmt.Scanln(&recvPassphrase)
 			}
 
-			fmt.Println("🔓 Decrypting...")
-
-			// We need to read from the start of the temp file
+			// 1. Peek at the header to get flags (compression, etc)
+			// This avoids a race condition when starting the decryption goroutine.
 			if _, err := tmpFile.Seek(0, 0); err != nil {
 				return err
 			}
+			_, _, flags, err := crypto.ReadHeader(tmpFile, recvStealth)
+			if err != nil {
+				return fmt.Errorf("failed to read file header: %w", err)
+			}
+
+			// Seek back to start after peeking
+			if _, err := tmpFile.Seek(0, 0); err != nil {
+				return err
+			}
+
+			fmt.Println("🔓 Decrypting...")
 
 			// Set output name if not provided
 			finalOut := recvOutput
@@ -98,11 +108,10 @@ func ReceiveCmd() *cobra.Command {
 
 			// Use pipe to bridge DecryptStream and finalizeDecryption
 			pr, pw := io.Pipe()
-			var flags byte
 			var dErr error
 			go func() {
 				defer pw.Close()
-				flags, dErr = crypto.DecryptStream(tmpFile, pw, []byte(recvPassphrase), 0, recvStealth)
+				_, dErr = crypto.DecryptStream(tmpFile, pw, []byte(recvPassphrase), 0, recvStealth)
 				if dErr != nil {
 					_ = pw.CloseWithError(dErr)
 				}

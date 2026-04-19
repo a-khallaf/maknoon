@@ -15,22 +15,14 @@ import (
 
 // DecryptStream decrypts data from r to w using a passphrase.
 func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int, isStealth bool) (byte, error) {
-	if !isStealth {
-		magic := make([]byte, 4)
-		if _, err := io.ReadFull(r, magic); err != nil {
-			return 0, err
-		}
-		if string(magic) != MagicHeader {
-			return 0, errors.New("not a valid Maknoon file (symmetric)")
-		}
-	}
-
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(r, header); err != nil {
+	magic, profileID, flags, err := ReadHeader(r, isStealth)
+	if err != nil {
 		return 0, err
 	}
-	profileID := header[0]
-	flags := header[1]
+
+	if !isStealth && magic != MagicHeader {
+		return 0, errors.New("not a valid Maknoon file (symmetric)")
+	}
 
 	profile, err := GetProfile(profileID, r)
 	if err != nil {
@@ -56,6 +48,25 @@ func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int, i
 	}
 
 	return flags, streamDecrypt(r, w, aead, baseNonce, concurrency)
+}
+
+// ReadHeader reads the magic bytes (if not stealth) and the profile/flags header.
+func ReadHeader(r io.Reader, isStealth bool) (magic string, profileID byte, flags byte, err error) {
+	if !isStealth {
+		m := make([]byte, 4)
+		if _, err := io.ReadFull(r, m); err != nil {
+			return "", 0, 0, err
+		}
+		magic = string(m)
+	}
+
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return magic, 0, 0, err
+	}
+	profileID = header[0]
+	flags = header[1]
+	return magic, profileID, flags, nil
 }
 
 // DecryptStreamWithPrivateKey decrypts data from r to w using a private key.
