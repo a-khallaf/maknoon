@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/psanford/wormhole-william/rendezvous"
+	"github.com/psanford/wormhole-william/wordlist"
 	"github.com/psanford/wormhole-william/wormhole"
 )
 
@@ -62,8 +63,8 @@ func (s *ChatSession) StartHost(ctx context.Context) (string, error) {
 	}
 
 	// For the Ghost Chat MVP, we use the mailbox directly for PAKE-less exchange.
-	// In a real implementation, we'd add PAKE here.
-	s.Code = nameplate + "-ghost-chat"
+	// We use the standard wormhole wordlist for high-entropy codes.
+	s.Code = nameplate + "-" + wordlist.ChooseWords(2)
 
 	go s.listenLoop(ctx)
 

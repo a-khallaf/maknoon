@@ -123,7 +123,16 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case crypto.ChatEvent:
-		if msg.Type == "message" {
+		switch msg.Type {
+		case "status":
+			if msg.State == "established" {
+				m.code = msg.Text
+				m.viewport.SetContent("✅ Connected to Peer.\nMessages are ephemeral and never logged.")
+			}
+		case "error":
+			m.messages = append(m.messages, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Handshake Error: ")+msg.Text)
+			m.viewport.SetContent(strings.Join(m.messages, "\n"))
+		case "message":
 			m.messages = append(m.messages, lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("Peer: ")+msg.Text)
 			m.viewport.SetContent(strings.Join(m.messages, "\n"))
 			m.viewport.GotoBottom()
@@ -176,30 +185,17 @@ func (m chatModel) View() string {
 
 func runTuiChat(args []string) error {
 	sess := crypto.NewChatSession(chatAppID)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	var code string
-	var err error
-	if len(args) > 0 {
-		code = args[0]
-		err = sess.StartJoin(ctx, code)
-	} else {
-		code, err = sess.StartHost(ctx)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	// Initialize UI
+	// Initialize UI with "Connecting" state
 	ta := textarea.New()
 	ta.Placeholder = "Type a message..."
 	ta.Focus()
 	ta.SetHeight(3)
 
 	vp := viewport.New(80, 20)
-	vp.SetContent(`Connected to Wormhole.
-Messages are ephemeral and never logged.`)
+	vp.SetContent("🕳️ Opening wormhole...")
 
 	m := chatModel{
 		sess:        sess,
@@ -207,18 +203,36 @@ Messages are ephemeral and never logged.`)
 		viewport:    vp,
 		messages:    []string{},
 		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
-		code:        code,
+		code:        "pending...",
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
-	// Bridge sess.Events to Bubbletea
+	// Async Connection Cmd
 	go func() {
+		var code string
+		var err error
+		if len(args) > 0 {
+			code = args[0]
+			err = sess.StartJoin(ctx, code)
+		} else {
+			code, err = sess.StartHost(ctx)
+		}
+
+		if err != nil {
+			p.Send(crypto.ChatEvent{Type: "error", Text: err.Error()})
+			return
+		}
+
+		// Update UI with established code
+		p.Send(crypto.ChatEvent{Type: "status", State: "established", Text: code})
+
+		// Bridge sess.Events to Bubbletea
 		for ev := range sess.Events {
 			p.Send(ev)
 		}
 	}()
 
-	_, err = p.Run()
+	_, err := p.Run()
 	return err
 }
