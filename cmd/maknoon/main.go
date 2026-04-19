@@ -9,11 +9,14 @@ import (
 	"golang.org/x/term"
 )
 
+var version = "dev"
+
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "maknoon",
-		Short: "Maknoon (مكنون): A versatile, ultra-efficient CLI encryption tool.",
-		Long:  `Maknoon uses bleeding-edge hybrid cryptography to protect your files carefully.`,
+		Use:     "maknoon",
+		Version: version,
+		Short:   "Maknoon (مكنون): A versatile, ultra-efficient CLI encryption tool.",
+		Long:    `Maknoon uses bleeding-edge hybrid cryptography to protect your files carefully.`,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			// Auto-detect Agent mode: not a TTY and MAKNOON_AGENT_MODE env var is set
 			isAgent := !term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("MAKNOON_AGENT_MODE") == "1"

@@ -35,3 +35,4 @@ lint_report.json
 __pycache__/
 *.py[cod]
 *$py.class
+wiki_repo/
