@@ -137,6 +137,7 @@ func runLineChat(args []string) error {
 	// Receiver loop
 	go func() {
 		peerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
+		systemStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Italic(true)
 		for {
 			select {
 			case <-ctx.Done():
@@ -145,11 +146,15 @@ func runLineChat(args []string) error {
 				if !ok {
 					return
 				}
-				if ev.Type == "message" {
-					// Move to start of line, clear it, print message, then restore prompt
-					fmt.Fprintf(rl.Stdout(), "\r\033[2K%s %s\n💬 > %s",
-						peerStyle.Render("Peer:"),
-						ev.Text,
+				if ev.Type == "status" && ev.State == "peer-joined" {
+					fmt.Fprintf(rl.Stdout(), "\r\033[2K%s\n💬 > %s", 
+						systemStyle.Render("⚡ Peer joined the room."), 
+						rl.Line())
+				} else if ev.Type == "message" {
+					// Cleanly print message using readline's internal buffer handling
+					fmt.Fprintf(rl.Stdout(), "\r\033[2K%s %s\n💬 > %s", 
+						peerStyle.Render("Peer:"), 
+						ev.Text, 
 						rl.Line())
 				}
 			}
@@ -176,8 +181,9 @@ func runLineChat(args []string) error {
 		if err != nil {
 			fmt.Fprintf(rl.Stdout(), "❌ Error sending: %v\n", err)
 		} else {
-			// Print confirmation of what YOU sent
-			fmt.Fprintf(rl.Stdout(), "%s %s\n", myStyle.Render("You:"), line)
+			// Clear the line where the user typed and replace with a styled 'You:' line
+			// \033[1A moves cursor up, \r moves to start, \033[2K clears line
+			fmt.Fprintf(rl.Stdout(), "\033[1A\r\033[2K%s %s\n", myStyle.Render("You:"), line)
 		}
 	}
 

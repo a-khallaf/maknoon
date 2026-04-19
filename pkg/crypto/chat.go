@@ -15,10 +15,11 @@ import (
 // ChatEvent represents an event in the chat stream.
 type ChatEvent struct {
 	ID        string `json:"id"`
-	Type      string `json:"type"`   // "message", "status", "error"
-	Sender    string `json:"sender"` // "me", "peer", "system"
+	Type      string `json:"type"`            // "message", "status", "error"
+	Sender    string `json:"sender"`          // "me", "peer", "system"
 	Text      string `json:"text,omitempty"`
 	Timestamp int64  `json:"timestamp"`
+	State     string `json:"state,omitempty"` // for status events
 }
 
 // ChatSession handles a P2P chat session using the wormhole infrastructure.
@@ -67,6 +68,9 @@ func (s *ChatSession) StartHost(ctx context.Context) (string, error) {
 
 	go s.listenLoop(ctx)
 
+	// Send an initial silent handshake to announce presence
+	_ = s.Rendezvous.AddMessage(ctx, "handshake", "ping")
+
 	return s.Code, nil
 }
 
@@ -90,6 +94,10 @@ func (s *ChatSession) StartJoin(ctx context.Context, code string) error {
 	}
 
 	go s.listenLoop(ctx)
+
+	// Send an initial silent handshake to announce presence
+	_ = s.Rendezvous.AddMessage(ctx, "handshake", "ping")
+
 	return nil
 }
 
@@ -114,7 +122,16 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 				s.seenMsgs[ev.Phase] = true
 				s.mu.Unlock()
 
-				// If it's a phase we haven't seen, it's a new message or status
+				if ev.Phase == "handshake" {
+					s.Events <- ChatEvent{
+						Type:   "status",
+						State:  "peer-joined",
+						Sender: "system",
+					}
+					continue
+				}
+
+				// If it's a phase we haven't seen, it's a new message
 				if strings.HasPrefix(ev.Phase, "msg-") {
 					s.Events <- ChatEvent{
 						ID:        ev.Phase,
