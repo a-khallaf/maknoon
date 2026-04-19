@@ -14,7 +14,7 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 - **Asymmetric Encryption (KEM)**: ML-KEM / Kyber1024 (NIST Standard).
 - **Digital Signatures**: ML-DSA-87 / Dilithium (NIST Standard).
 - **Key Derivation (KDF)**: Argon2id (Time: 3, Memory: 64MB).
-- **P2P Transport**: Magic Wormhole (SPAKE2 PAKE) layered with Maknoon Symmetric PQC.
+- **P2P Transport**: Magic Wormhole (SPAKE2 PAKE) layered with Maknoon Symmetric PQC. Supports **Identity-Based** (Asymmetric) handshakes and **Zero-Disk** text transport.
 
 ## 📋 Engineering Standards & Design Patterns
 
@@ -76,4 +76,4 @@ All cryptographic operations MUST support `io.Reader` and `io.Writer` to allow p
 
 - **Unit Tests**: Alongside source in `*_test.go`.
 - **Integration Tests**: End-to-end scenarios in `cmd/maknoon/main_test.go` and `integrations/`.
-- **P2P Verification**: Use `pkg/crypto/p2p_test.go` to verify race-free header handling.
+- **P2P Verification**: Use `pkg/crypto/p2p_test.go` to verify race-free header handling, zero-disk text transfers, and asymmetric identity-based handshakes.

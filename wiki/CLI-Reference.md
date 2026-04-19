@@ -19,12 +19,15 @@ Decrypts and restores data.
 Sends data via secure ephemeral P2P (Magic Wormhole style).
 -   Generates a human-readable **Code** and a **Session Passphrase**.
 -   Works across networks and NATs.
+-   `--text`: Send raw text instead of a file (Zero-Disk).
+-   `--public-key`, `-p`: Encrypt for a specific recipient (Asymmetric mode).
 -   `--stealth`: Enable stealth mode for the transfer.
 
 ### `maknoon receive [code]`
 Receives data from a peer using a wormhole code.
 -   Prompts for the **Session Passphrase** provided by the sender.
--   `--output`, `-o`: Specify where to save the data.
+-   `--output`, `-o`: Specify where to save the data (use `-` for raw output).
+-   `--private-key`, `-k`: Required for identity-based transfers.
 
 ### `maknoon info [file]`
 Displays deep cryptographic metadata.

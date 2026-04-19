@@ -96,11 +96,15 @@ maknoon vault delete old_vault
 No keys? No problem. Transfer files globally through NATs/Firewalls with Magic Wormhole transport and Maknoon security.
 
 ```bash
-# Sender
+# 1. Send an entire directory (auto-archived)
 maknoon send project-assets/
 
-# Receiver
-maknoon receive 1-processor-atlas
+# 2. Send a one-time secret snippet (Zero-Disk transport)
+maknoon send --text "API_KEY_12345"
+
+# 3. Identity-based "one-click" P2P (Asymmetric)
+maknoon send data.bin -p alice.pub
+# Alice just runs: maknoon receive <code>
 ```
 
 ## 🤖 Agentic AI Integration

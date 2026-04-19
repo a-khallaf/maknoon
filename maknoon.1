@@ -22,9 +22,43 @@ Decrypt and restore data. Automatically detects archive and compression status f
 .TP
 .B send [file/dir]
 Send a file or directory via secure ephemeral P2P (Magic Wormhole). Generates a one-time code and session passphrase. Data is encrypted with a session-specific key before entering the P2P transport.
+.RS
+.TP
+.B \-s, \-\-passphrase <string>
+Set a custom session passphrase.
+.TP
+.B \-\-text <string>
+Send raw text directly instead of a file. Uses zero-disk in-memory transport.
+.TP
+.B \-p, \-\-public-key <path>
+Encrypt specifically for a recipient's Post-Quantum identity. Bypasses the need for a session passphrase.
+.TP
+.B \-\-rendezvous-url <url>
+Use a custom Magic Wormhole rendezvous server.
+.TP
+.B \-\-transit-relay <address>
+Use a custom Magic Wormhole transit relay (host:port).
+.RE
 .TP
 .B receive [code]
-Receive a file or directory from a peer using the provided code. Requires the session passphrase for decryption.
+Receive a file, directory, or text from a peer using the provided code.
+.RS
+.TP
+.B \-s, \-\-passphrase <string>
+The session passphrase provided by the sender (for symmetric mode).
+.TP
+.B \-k, \-\-private-key <path>
+Your private identity key (required for identity-based P2P).
+.TP
+.B \-o, \-\-output <path>
+Specify output path or directory. Use "\-" for stdout.
+.TP
+.B \-\-rendezvous-url <url>
+Use a custom Magic Wormhole rendezvous server.
+.TP
+.B \-\-transit-relay <address>
+Use a custom Magic Wormhole transit relay (host:port).
+.RE
 .TP
 .B info [file]
 Displays metadata and cryptographic details of an encrypted file (Type, Profile, KEM, SIG, KDF).

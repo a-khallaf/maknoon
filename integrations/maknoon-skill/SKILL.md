@@ -41,12 +41,15 @@ When asked to generate a password or passphrase:
 *   Passphrase: `maknoon gen passphrase --words <n> --json`
 
 ### 5. Secure P2P Transfer (Magic Wormhole)
-When asked to send a file to another user or agent without pre-shared keys:
-*   Use `maknoon send <path> --json` to generate a one-time code and session passphrase.
-*   Provide the recipient with both the **Code** and the **Passphrase**.
+When asked to send data to another user or agent:
+*   **Default**: `maknoon send <path> --json`
+*   **Raw Text**: `maknoon send --text "your-secret-here" --json`
+*   **Identity-Based**: `maknoon send <path> --public-key <recipient_pub_key> --json` (No passphrase needed).
 
 When asked to receive a file:
-*   Use `maknoon receive <code> --passphrase <passphrase> --json` to download and decrypt the file.
+*   **Default**: `maknoon receive <code> --passphrase <passphrase> --json`
+*   **Identity-Based**: `maknoon receive <code> --private-key <your_priv_key> --json`
+*   **Raw Output**: `maknoon receive <code> --json -o -`
 
 ### 6. Secret Management (Vault)
 When asked to store or retrieve secrets:
