@@ -1,1 +1,1 @@
-../../../../integrations/maknoon-skill/SKILL.md
+../../../../.github/skills/maknoon/SKILL.md
