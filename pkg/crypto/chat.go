@@ -131,8 +131,8 @@ func (s *ChatSession) listenLoop(ctx context.Context) {
 
 // Send sends a message to the peer.
 func (s *ChatSession) Send(ctx context.Context, text string) error {
-	// Use a unique ID based on timestamp and side to prevent collisions and allow deduplication
-	msgID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), s.SideID)
+	// Use a unique ID with 'msg-' prefix as expected by the receiver's filter
+	msgID := fmt.Sprintf("msg-%d-%s", time.Now().UnixNano(), s.SideID)
 
 	s.mu.Lock()
 	s.seenMsgs[msgID] = true
@@ -140,7 +140,6 @@ func (s *ChatSession) Send(ctx context.Context, text string) error {
 
 	return s.Rendezvous.AddMessage(ctx, msgID, text)
 }
-
 // Close closes the session.
 func (s *ChatSession) Close() {
 	select {

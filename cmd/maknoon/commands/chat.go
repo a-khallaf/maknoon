@@ -172,12 +172,12 @@ func runLineChat(args []string) error {
 			break
 		}
 
-		// Cleanly replace the typed line with our styled 'You:' line
-		fmt.Fprintf(rl.Stdout(), "\033[1A\r\033[2K%s %s\n", myStyle.Render("You:"), line)
-
 		err = sess.Send(ctx, line)
 		if err != nil {
 			fmt.Fprintf(rl.Stdout(), "❌ Error sending: %v\n", err)
+		} else {
+			// Print confirmation of what YOU sent
+			fmt.Fprintf(rl.Stdout(), "%s %s\n", myStyle.Render("You:"), line)
 		}
 	}
 
