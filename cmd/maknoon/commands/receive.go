@@ -45,10 +45,10 @@ func ReceiveCmd() *cobra.Command {
 				printJSON(map[string]interface{}{
 					"status":         "connected",
 					"file_name":      msg.Name,
-					"transfer_bytes": msg.TransferBytes,
+					"transfer_bytes": msg.TransferBytes64,
 				})
 			} else {
-				fmt.Printf("📥 Incoming file: %s (%d bytes)\n", msg.Name, msg.TransferBytes)
+				fmt.Printf("📥 Incoming file: %s (%d bytes)\n", msg.Name, msg.TransferBytes64)
 			}
 
 			// 1. Download to a temporary file
