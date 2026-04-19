@@ -93,7 +93,7 @@ maknoon vault delete old_vault
 ---
 
 ## 🤖 Agentic AI Integration
-Maknoon is **Agent-Ready** with strict JSON output and non-interactive environment triggers.
+Maknoon is **Agent-Ready** with strict JSON output, non-interactive environment triggers, and a comprehensive integration suite.
 
 ### Agent Handshake
 If `MAKNOON_AGENT_MODE=1` is set, Maknoon automatically switches to JSON mode whenever its output is piped or redirected (not a TTY), allowing for seamless "zero-config" agent integration.
@@ -102,6 +102,25 @@ If `MAKNOON_AGENT_MODE=1` is set, Maknoon automatically switches to JSON mode wh
 # Automated discovery and encryption
 export MAKNOON_AGENT_MODE=1
 maknoon identity active | jq .
+```
+
+### 🔌 MCP Server (Model Context Protocol)
+Maknoon includes a native Go-based MCP server for deep integration with **Claude Desktop**, IDE extensions (Cursor, VSCode), and other AI ecosystems.
+
+**Available Tools:**
+- `inspect_file`: Get deep cryptographic metadata (KEM/SIG/KDF details).
+- `encrypt_file` / `decrypt_file`: Direct file protection.
+- `gen_password` / `gen_passphrase`: High-entropy credential generation.
+- `vault_get` / `vault_set`: Secure secret management.
+- `identity_active`: Automated key discovery.
+
+### 🐍 LangChain Integration
+A Python-based toolkit is available in `integrations/langchain/` for building autonomous agents that can manage encryption and secrets.
+
+```python
+from maknoon_agent_tool import encrypt_maknoon_file, get_maknoon_file_info
+# Agents can now autonomously verify file security before processing
+info = get_maknoon_file_info.invoke({"file_path": "data.makn"})
 ```
 
 ---
