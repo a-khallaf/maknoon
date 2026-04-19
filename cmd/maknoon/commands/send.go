@@ -28,6 +28,9 @@ func SendCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := args[0]
+			if err := validatePath(path); err != nil {
+				return err
+			}
 			info, err := os.Stat(path)
 			if err != nil {
 				return err
@@ -126,7 +129,7 @@ func SendCmd() *cobra.Command {
 			if s.Error != nil {
 				if JSONOutput {
 					printErrorJSON(s.Error)
-					return nil
+					return s.Error
 				}
 				return fmt.Errorf("transfer failed: %w", s.Error)
 			}

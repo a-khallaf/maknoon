@@ -23,7 +23,7 @@ func VerifyCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -36,7 +36,7 @@ func VerifyCmd() *cobra.Command {
 				err := fmt.Errorf("signature file not found: %w", err)
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -47,7 +47,7 @@ func VerifyCmd() *cobra.Command {
 				err := fmt.Errorf("failed to read public key: %w", err)
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -63,7 +63,7 @@ func VerifyCmd() *cobra.Command {
 				err := fmt.Errorf("❌ Signature Verification FAILED! The data might be corrupted or from an untrusted source")
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}

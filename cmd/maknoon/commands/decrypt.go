@@ -39,7 +39,7 @@ func DecryptCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -108,7 +108,7 @@ func DecryptCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -152,7 +152,7 @@ func DecryptCmd() *cobra.Command {
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -203,7 +203,7 @@ func DecryptCmd() *cobra.Command {
 			if err := finalizeDecryption(pr, flags, outPath); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
-					return nil
+					return err
 				}
 				return err
 			}
@@ -234,6 +234,9 @@ func resolveDecryptInput(path string) (io.Reader, string, int64, error) {
 	if path == "-" {
 		return os.Stdin, "stdin", -1, nil
 	}
+	if err := validatePath(path); err != nil {
+		return nil, "", 0, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("failed to open input file: %w", err)
@@ -247,24 +250,26 @@ func resolveDecryptInput(path string) (io.Reader, string, int64, error) {
 }
 
 func resolveDecryptionOutputPath(output, inputFile string, flags byte) (string, error) {
+	outPath := ""
 	if output == "-" {
-		return "-", nil
-	}
-	if output != "" {
-		return output, nil
-	}
-	if inputFile == "-" {
+		outPath = "-"
+	} else if output != "" {
+		outPath = output
+	} else if inputFile == "-" {
 		return "", fmt.Errorf("output path required when reading from stdin (use -o)")
+	} else if flags&crypto.FlagArchive != 0 {
+		outPath = "."
+	} else if strings.HasSuffix(inputFile, ".makn") {
+		outPath = strings.TrimSuffix(inputFile, ".makn")
+	} else {
+		outPath = inputFile + ".dec"
 	}
 
-	if flags&crypto.FlagArchive != 0 {
-		return ".", nil
+	if err := validatePath(outPath); err != nil {
+		return "", err
 	}
 
-	if strings.HasSuffix(inputFile, ".makn") {
-		return strings.TrimSuffix(inputFile, ".makn"), nil
-	}
-	return inputFile + ".dec", nil
+	return outPath, nil
 }
 
 func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isStdin bool) ([]byte, []byte, error) {
