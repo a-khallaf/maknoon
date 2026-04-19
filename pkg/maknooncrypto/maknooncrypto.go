@@ -20,11 +20,9 @@ const (
 	fekSize = 32
 )
 
-// SafeClear deterministically zeroizes a standard Go byte slice.
+// SafeClear deterministically zeroizes a standard Go byte slice using memguard for reliability.
 func SafeClear(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
+	memguard.WipeBytes(b)
 }
 
 // GenerateKeys generates a new key pair for the hybrid ML-KEM-768 + X25519 KEM.

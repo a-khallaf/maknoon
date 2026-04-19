@@ -204,15 +204,11 @@ func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			nonce := make([]byte, aead.NonceSize())
+			nonceTail := len(nonce) - 8
 			for job := range jobs {
-				nonce := make([]byte, aead.NonceSize())
 				copy(nonce, baseNonce)
-				counterBytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(counterBytes, job.index)
-				offset := len(nonce) - 8
-				for i := 0; i < 8; i++ {
-					nonce[offset+i] ^= counterBytes[i]
-				}
+				binary.LittleEndian.PutUint64(nonce[nonceTail:], binary.LittleEndian.Uint64(baseNonce[nonceTail:])^job.index)
 
 				plaintext, err := aead.Open(nil, nonce, job.data, nil)
 				// Reclaim worker buffer (ciphertext)
@@ -268,39 +264,21 @@ func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 		}
 	}()
 
-	nextIndex := uint64(0)
-	pending := make(map[uint64][]byte)
-	for {
-		select {
-		case err := <-errChan:
-			return err
-		case res, ok := <-results:
-			if !ok {
-				if len(pending) > 0 {
-					return fmt.Errorf("decryption pipeline failed: missing chunks")
-				}
-				return nil
-			}
-			if res.err != nil {
-				return res.err
-			}
-
-			pending[res.index] = res.data
-
-			for {
-				data, exists := pending[nextIndex]
-				if !exists {
-					break
-				}
-				if _, err := w.Write(data); err != nil {
-					return err
-				}
-				SafeClear(data)
-				delete(pending, nextIndex)
-				nextIndex++
-			}
+	seqResults := make(chan sequencerResult)
+	go func() {
+		for r := range results {
+			seqResults <- sequencerResult(r)
 		}
-	}
+		close(seqResults)
+	}()
+
+	return runSequencer(w, seqResults, errChan, func(w io.Writer, b []byte) error {
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+		SafeClear(b)
+		return nil
+	})
 }
 
 func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte) error {

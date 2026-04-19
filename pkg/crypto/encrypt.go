@@ -258,15 +258,12 @@ func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 
 func encryptionWorker(wg *sync.WaitGroup, jobs <-chan encryptJob, results chan<- encryptResult, aead cipher.AEAD, baseNonce []byte, sem chan struct{}) {
 	defer wg.Done()
+	nonce := make([]byte, aead.NonceSize())
+	nonceTail := len(nonce) - 8
+
 	for job := range jobs {
-		nonce := make([]byte, aead.NonceSize())
 		copy(nonce, baseNonce)
-		counterBytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(counterBytes, job.index)
-		offset := len(nonce) - 8
-		for i := 0; i < 8; i++ {
-			nonce[offset+i] ^= counterBytes[i]
-		}
+		binary.LittleEndian.PutUint64(nonce[nonceTail:], binary.LittleEndian.Uint64(baseNonce[nonceTail:])^job.index)
 
 		ciphertext := aead.Seal(nil, nonce, job.data, nil)
 
@@ -283,6 +280,7 @@ func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error,
 	defer close(jobs)
 	chunkIndex := uint64(0)
 
+	// Reuse readBuf within the reader.
 	readBuf := make([]byte, ChunkSize)
 
 	for {
@@ -316,40 +314,16 @@ func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error,
 }
 
 func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error) error {
-	nextIndex := uint64(0)
-	pending := make(map[uint64][]byte)
-	for {
-		select {
-		case err := <-errChan:
-			return err
-		case res, ok := <-results:
-			if !ok {
-				if len(pending) > 0 {
-					return fmt.Errorf("encryption pipeline failed: missing chunks")
-				}
-				return nil
-			}
-			if res.err != nil {
-				return res.err
-			}
-
-			pending[res.index] = res.data
-
-			for {
-				data, exists := pending[nextIndex]
-				if !exists {
-					break
-				}
-
-				if err := writeChunk(w, data); err != nil {
-					return err
-				}
-
-				delete(pending, nextIndex)
-				nextIndex++
-			}
+	// Adapt the channel
+	seqResults := make(chan sequencerResult)
+	go func() {
+		for r := range results {
+			seqResults <- sequencerResult(r)
 		}
-	}
+		close(seqResults)
+	}()
+
+	return runSequencer(w, seqResults, errChan, writeChunk)
 }
 
 func writeChunk(w io.Writer, data []byte) error {

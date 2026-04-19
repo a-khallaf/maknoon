@@ -32,7 +32,6 @@ type Options struct {
 func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 	var logger *slog.Logger
 	if opts.Verbose {
-		// Use a handler that writes to Stdout so integration tests can capture it
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	} else {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -44,46 +43,7 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 	if opts.IsArchive {
 		logger.Info("archiving input directory", "path", inputName)
 		flags |= FlagArchive
-		pr, pw := io.Pipe()
-		sourceReader = pr
-		go func() {
-			var walkErr error
-			defer func() {
-				_ = pw.CloseWithError(walkErr)
-			}()
-
-			tw := tar.NewWriter(pw)
-			defer func() { _ = tw.Close() }()
-
-			baseDir := filepath.Dir(filepath.Clean(inputName))
-			walkErr = filepath.Walk(inputName, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				rel, err := filepath.Rel(baseDir, path)
-				if err != nil {
-					return err
-				}
-				header, err := tar.FileInfoHeader(info, "")
-				if err != nil {
-					return err
-				}
-				header.Name = rel
-				if err := tw.WriteHeader(header); err != nil {
-					return err
-				}
-				if !info.IsDir() {
-					f, err := os.Open(path)
-					if err != nil {
-						return err
-					}
-					defer func() { _ = f.Close() }()
-					_, err = io.Copy(tw, f)
-					return err
-				}
-				return nil
-			})
-		}()
+		sourceReader = wrapWithArchiver(inputName, logger)
 	} else if sourceReader == nil {
 		f, err := os.Open(inputName)
 		if err != nil {
@@ -102,18 +62,7 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 	if opts.Compress {
 		logger.Info("enabling zstd compression")
 		flags |= FlagCompress
-		pr, pw := io.Pipe()
-		oldReader := sourceReader
-		sourceReader = pr
-		go func() {
-			var zErr error
-			defer func() {
-				_ = pw.CloseWithError(zErr)
-			}()
-			zw, _ := zstd.NewWriter(pw)
-			defer func() { _ = zw.Close() }()
-			_, zErr = io.Copy(zw, oldReader)
-		}()
+		sourceReader = wrapWithCompressor(sourceReader, logger)
 	}
 
 	if opts.Stealth {
@@ -132,6 +81,63 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) error {
 	}
 	logger.Info("starting symmetric encryption")
 	return EncryptStream(sourceReader, w, opts.Passphrase, flags, opts.Concurrency, opts.ProfileID)
+}
+
+func wrapWithArchiver(inputName string, logger *slog.Logger) io.Reader {
+	pr, pw := io.Pipe()
+	go func() {
+		var walkErr error
+		defer func() {
+			_ = pw.CloseWithError(walkErr)
+		}()
+
+		tw := tar.NewWriter(pw)
+		defer func() { _ = tw.Close() }()
+
+		baseDir := filepath.Dir(filepath.Clean(inputName))
+		walkErr = filepath.Walk(inputName, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(baseDir, path)
+			if err != nil {
+				return err
+			}
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+			header.Name = rel
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = f.Close() }()
+				_, err = io.Copy(tw, f)
+				return err
+			}
+			return nil
+		})
+	}()
+	return pr
+}
+
+func wrapWithCompressor(r io.Reader, logger *slog.Logger) io.Reader {
+	pr, pw := io.Pipe()
+	go func() {
+		var zErr error
+		defer func() {
+			_ = pw.CloseWithError(zErr)
+		}()
+		zw, _ := zstd.NewWriter(pw)
+		defer func() { _ = zw.Close() }()
+		_, zErr = io.Copy(zw, r)
+	}()
+	return pr
 }
 
 // ExtractArchive takes a decrypted tar stream and extracts it to the target directory.
