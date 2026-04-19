@@ -126,31 +126,37 @@ func createServer() *server.MCPServer {
 
 	// Tool: send_file
 	sendFile := mcp.NewTool("send_file",
-		mcp.WithDescription("Send a file via secure ephemeral P2P and return a code"),
+		mcp.WithDescription("Send a file, directory, or raw text via secure ephemeral P2P and return a code"),
 	)
 	sendFile.InputSchema = mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
-			"path":    map[string]interface{}{"type": "string", "description": "Path to the file to send"},
-			"stealth": map[string]interface{}{"type": "boolean", "description": "Enable stealth mode"},
+			"path":           map[string]interface{}{"type": "string", "description": "Path to the file or directory to send"},
+			"text":           map[string]interface{}{"type": "string", "description": "Raw text to send instead of a file"},
+			"public_key":     map[string]interface{}{"type": "string", "description": "Encrypt for a specific recipient's identity"},
+			"stealth":        map[string]interface{}{"type": "boolean", "description": "Enable stealth mode"},
+			"rendezvous_url": map[string]interface{}{"type": "string", "description": "Custom rendezvous server URL"},
+			"transit_relay":  map[string]interface{}{"type": "string", "description": "Custom transit relay address"},
 		},
-		Required: []string{"path"},
 	}
 	s.AddTool(sendFile, sendHandler)
 
 	// Tool: receive_file
 	receiveFile := mcp.NewTool("receive_file",
-		mcp.WithDescription("Receive a file via secure ephemeral P2P using a code"),
+		mcp.WithDescription("Receive a file, directory, or text via secure ephemeral P2P using a code"),
 	)
 	receiveFile.InputSchema = mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
-			"code":       map[string]interface{}{"type": "string", "description": "The receiver code from the sender"},
-			"passphrase": map[string]interface{}{"type": "string", "description": "The session passphrase from the sender"},
-			"output":     map[string]interface{}{"type": "string", "description": "Output path"},
-			"stealth":    map[string]interface{}{"type": "boolean", "description": "Enable stealth mode detection"},
+			"code":           map[string]interface{}{"type": "string", "description": "The receiver code from the sender"},
+			"passphrase":     map[string]interface{}{"type": "string", "description": "The session passphrase from the sender (for symmetric mode)"},
+			"private_key":    map[string]interface{}{"type": "string", "description": "Path to your private key (for identity-based mode)"},
+			"output":         map[string]interface{}{"type": "string", "description": "Output path or directory (use '-' for stdout)"},
+			"stealth":        map[string]interface{}{"type": "boolean", "description": "Enable stealth mode detection"},
+			"rendezvous_url": map[string]interface{}{"type": "string", "description": "Custom rendezvous server URL"},
+			"transit_relay":  map[string]interface{}{"type": "string", "description": "Custom transit relay address"},
 		},
-		Required: []string{"code", "passphrase"},
+		Required: []string{"code"},
 	}
 	s.AddTool(receiveFile, receiveHandler)
 
@@ -323,11 +329,32 @@ func inspectHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 
 func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := request.GetString("path", "")
+	text := request.GetString("text", "")
+	publicKey := request.GetString("public_key", "")
 	stealth := request.GetBool("stealth", false)
+	rendURL := request.GetString("rendezvous_url", "")
+	transit := request.GetString("transit_relay", "")
 
-	args := []string{"send", path, "--json"}
+	args := []string{"send", "--json"}
+	if text != "" {
+		args = append(args, "--text", text)
+	} else if path != "" {
+		args = append(args, path)
+	} else {
+		return mcp.NewToolResultError("Either 'path' or 'text' must be provided"), nil
+	}
+
+	if publicKey != "" {
+		args = append(args, "--public-key", publicKey)
+	}
 	if stealth {
 		args = append(args, "--stealth")
+	}
+	if rendURL != "" {
+		args = append(args, "--rendezvous-url", rendURL)
+	}
+	if transit != "" {
+		args = append(args, "--transit-relay", transit)
 	}
 
 	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
@@ -344,15 +371,30 @@ func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 func receiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	code := request.GetString("code", "")
 	passphrase := request.GetString("passphrase", "")
+	privateKey := request.GetString("private_key", "")
 	output := request.GetString("output", "")
 	stealth := request.GetBool("stealth", false)
+	rendURL := request.GetString("rendezvous_url", "")
+	transit := request.GetString("transit_relay", "")
 
-	args := []string{"receive", code, "--passphrase", passphrase, "--json"}
+	args := []string{"receive", code, "--json"}
+	if passphrase != "" {
+		args = append(args, "--passphrase", passphrase)
+	}
+	if privateKey != "" {
+		args = append(args, "--private-key", privateKey)
+	}
 	if output != "" {
 		args = append(args, "--output", output)
 	}
 	if stealth {
 		args = append(args, "--stealth")
+	}
+	if rendURL != "" {
+		args = append(args, "--rendezvous-url", rendURL)
+	}
+	if transit != "" {
+		args = append(args, "--transit-relay", transit)
 	}
 
 	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)

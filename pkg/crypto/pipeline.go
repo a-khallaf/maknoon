@@ -142,6 +142,9 @@ func Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, er
 
 // FinalizeRestoration handles the post-decryption steps: decompression and archive extraction.
 func FinalizeRestoration(pr io.Reader, flags byte, outPath string, logger *slog.Logger) error {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	decReader := pr
 	if flags&FlagCompress != 0 {
 		logger.Info("decompressing zstd stream")

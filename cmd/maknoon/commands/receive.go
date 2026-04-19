@@ -15,23 +15,31 @@ import (
 )
 
 var (
-	recvOutput     string
-	recvPassphrase string
-	recvStealth    bool
-	quietRecv      bool
+	recvOutput        string
+	recvPassphrase    string
+	recvStealth       bool
+	quietRecv         bool
+	recvPrivateKey    string
+	recvRendezvousURL string
+	recvTransitRelay  string
 )
 
 // ReceiveCmd returns the cobra command for receiving files via ephemeral P2P.
 func ReceiveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "receive [code]",
-		Short: "Receive a file or directory via secure ephemeral P2P",
-		Long:  `Downloads and decrypts a file directly from a peer.`,
+		Short: "Receive a file, directory, or text via secure ephemeral P2P",
+		Long:  `Downloads and decrypts data directly from a peer.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			code := args[0]
 
-			var c wormhole.Client
+			c := wormhole.Client{
+				RendezvousURL: recvRendezvousURL,
+			}
+			if recvTransitRelay != "" {
+				c.TransitRelayAddress = recvTransitRelay
+			}
 			ctx := context.Background()
 
 			if JSONOutput {
@@ -85,26 +93,57 @@ func ReceiveCmd() *cobra.Command {
 				return fmt.Errorf("download failed: %w", err)
 			}
 
-			// 2. Decrypt
-			if recvPassphrase == "" {
-				if JSONOutput {
-					printErrorJSON(fmt.Errorf("session passphrase required via --passphrase"))
-					return nil
-				}
-				fmt.Printf("\n🔐 Enter session passphrase: ")
-				fmt.Scanln(&recvPassphrase)
-			}
-
-			// 1. Peek at the header to get flags (compression, etc)
+			// 2. Peek at the header to get type and flags
 			if _, err := tmpFile.Seek(0, 0); err != nil {
 				return err
 			}
-			_, _, flags, err := crypto.ReadHeader(tmpFile, recvStealth)
+			magic, _, flags, err := crypto.ReadHeader(tmpFile, recvStealth)
 			if err != nil {
 				return fmt.Errorf("failed to read file header: %w", err)
 			}
 
-			// Seek back to start after peeking
+			// 3. Resolve key (Asymmetric or Symmetric)
+			var passBytes []byte
+			var privKeyBytes []byte
+			var isAsymmetric bool
+
+			if magic == crypto.MagicHeaderAsym {
+				isAsymmetric = true
+				if !quietRecv {
+					fmt.Println("🛡️  Detected Identity-based encryption.")
+				}
+
+				resolvedPriv := crypto.ResolveKeyPath(recvPrivateKey, "MAKNOON_PRIVATE_KEY")
+				if resolvedPriv == "" {
+					return fmt.Errorf("private key required for identity-based P2P (use -k or MAKNOON_PRIVATE_KEY)")
+				}
+
+				// Re-use logic from decrypt.go
+				// For simplicity in this command, we'll try to unlock the key
+				pkRaw, err := os.ReadFile(resolvedPriv)
+				if err != nil {
+					return fmt.Errorf("failed to read private key: %w", err)
+				}
+
+				// Check if locked
+				unlocked, err := unlockPrivateKey(nil, resolvedPriv, false)
+				if err != nil {
+					return err
+				}
+				privKeyBytes = pkRaw
+				passBytes = unlocked // The key to decrypt the private key
+			} else {
+				if recvPassphrase == "" {
+					if JSONOutput {
+						return fmt.Errorf("session passphrase required via --passphrase for symmetric P2P")
+					}
+					fmt.Printf("\n🔐 Enter session passphrase: ")
+					fmt.Scanln(&recvPassphrase)
+				}
+				passBytes = []byte(recvPassphrase)
+			}
+
+			// Seek back to start after peeking/key resolution
 			if _, err := tmpFile.Seek(0, 0); err != nil {
 				return err
 			}
@@ -123,31 +162,33 @@ func ReceiveCmd() *cobra.Command {
 				return err
 			}
 
-			// Use pipe to bridge DecryptStream and finalizeDecryption
-			pr, pw := io.Pipe()
-			var dErr error
-			go func() {
-				defer pw.Close()
-				_, dErr = crypto.DecryptStream(tmpFile, pw, []byte(recvPassphrase), 0, recvStealth)
-				if dErr != nil {
-					_ = pw.CloseWithError(dErr)
-				}
-			}()
-
 			if finalOut == "-" {
-				// If we are outputting to stdout, we MUST send JSON status to stderr
-				// to avoid corrupting the raw data stream.
 				oldWriter := GlobalContext.JSONWriter
 				GlobalContext.JSONWriter = os.Stderr
 				defer func() { GlobalContext.JSONWriter = oldWriter }()
 			}
+
+			// Use pipe to bridge DecryptStream and FinalizeRestoration
+			pr, pw := io.Pipe()
+			var dErr error
+			go func() {
+				defer pw.Close()
+				if isAsymmetric {
+					_, dErr = crypto.DecryptStreamWithPrivateKeyAndVerifier(tmpFile, pw, privKeyBytes, nil, 0, recvStealth)
+				} else {
+					_, dErr = crypto.DecryptStream(tmpFile, pw, passBytes, 0, recvStealth)
+				}
+				if dErr != nil {
+					_ = pw.CloseWithError(dErr)
+				}
+			}()
 
 			if err := crypto.FinalizeRestoration(pr, flags, finalOut, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
 					return err
 				}
-				return fmt.Errorf("decryption failed (check passphrase): %w", err)
+				return fmt.Errorf("restoration failed: %w", err)
 			}
 
 			if JSONOutput {
@@ -163,10 +204,13 @@ func ReceiveCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&recvOutput, "output", "o", "", "Output path or directory")
-	cmd.Flags().StringVarP(&recvPassphrase, "passphrase", "s", "", "Session passphrase")
+	cmd.Flags().StringVarP(&recvOutput, "output", "o", "", "Output path or directory (use - for stdout)")
+	cmd.Flags().StringVarP(&recvPassphrase, "passphrase", "s", "", "Session passphrase (for symmetric mode)")
 	cmd.Flags().BoolVar(&recvStealth, "stealth", false, "Decrypt as stealth mode")
 	cmd.Flags().BoolVarP(&quietRecv, "quiet", "q", false, "Suppress informational messages")
+	cmd.Flags().StringVarP(&recvPrivateKey, "private-key", "k", "", "Path to your private key (for identity-based mode)")
+	cmd.Flags().StringVar(&recvRendezvousURL, "rendezvous-url", "", "Custom Magic Wormhole rendezvous server URL")
+	cmd.Flags().StringVar(&recvTransitRelay, "transit-relay", "", "Custom Magic Wormhole transit relay address (host:port)")
 
 	return cmd
 }

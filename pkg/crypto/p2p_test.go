@@ -5,8 +5,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/al-Zamakhshari/maknoon/pkg/maknooncrypto"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -154,5 +156,98 @@ func TestP2PDirectoryFlow(t *testing.T) {
 	f2, _ := os.ReadFile(filepath.Join(restoredDir, "source", "subdir", "file2.txt"))
 	if string(f2) != "data2" {
 		t.Errorf("File2 mismatch: %s", string(f2))
+	}
+}
+
+func TestP2PTextTransfer(t *testing.T) {
+	// 1. Setup text and passphrase
+	content := "top-secret-p2p-text"
+	passphrase := []byte("text-test-pass")
+
+	// 2. Encrypt to memory buffer (Simulate 'send --text')
+	var encrypted bytes.Buffer
+	opts := Options{
+		Passphrase: passphrase,
+		Compress:   true,
+	}
+	// Use inputName as a label since we are using a reader
+	_, err := Protect("text", strings.NewReader(content), &encrypted, opts)
+	if err != nil {
+		t.Fatalf("Protect text failed: %v", err)
+	}
+
+	// 3. Decrypt from memory buffer (Simulate 'receive')
+	var decrypted bytes.Buffer
+	// Symmetric flow
+	recvFlags, err := DecryptStream(&encrypted, &decrypted, passphrase, 1, false)
+	if err != nil {
+		t.Fatalf("Decryption failed: %v", err)
+	}
+
+	// Finalize (Decompress)
+	// Create a temp file path instead of "-" to capture output if it's not stdout
+	// Actually, FinalizeRestoration needs a way to write to a custom buffer.
+	// For now, let's use a temporary file.
+	outPath := filepath.Join(t.TempDir(), "out.txt")
+	if err := FinalizeRestoration(&decrypted, recvFlags, outPath, nil); err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+
+	restored, _ := os.ReadFile(outPath)
+	if string(restored) != content {
+		t.Errorf("Decrypted text mismatch. Expected: %s, Got: %q", content, string(restored))
+	}
+}
+
+func TestP2PAsymmetric(t *testing.T) {
+	// 1. Setup Identities
+	priv, pub, err := maknooncrypto.GenerateKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubBytes := pub.Bytes()
+	privBytes, _ := priv.Bytes()
+
+	content := "asymmetric-p2p-payload"
+
+	// 2. Encrypt for recipient (Simulate 'send --public-key')
+	var encrypted bytes.Buffer
+	opts := Options{
+		PublicKeys: [][]byte{pubBytes},
+		Compress:   true,
+	}
+	_, err = Protect("asym", strings.NewReader(content), &encrypted, opts)
+	if err != nil {
+		t.Fatalf("Protect asym failed: %v", err)
+	}
+
+	// 3. Decrypt with recipient's private key (Simulate 'receive')
+	// Peek at header first (standard pattern)
+	reader := bytes.NewReader(encrypted.Bytes())
+	magic, _, _, err := ReadHeader(reader, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if magic != MagicHeaderAsym {
+		t.Fatalf("Expected magic %s, got %s", MagicHeaderAsym, magic)
+	}
+	reader.Seek(0, 0)
+
+	var decrypted bytes.Buffer
+	// Asymmetric flow
+	recvFlags, err := DecryptStreamWithPrivateKey(reader, &decrypted, privBytes, 1, false)
+	if err != nil {
+		t.Fatalf("Asymmetric decryption failed: %v", err)
+	}
+
+	// Finalize (Decompress)
+	outPath := filepath.Join(t.TempDir(), "out_asym.txt")
+	if err := FinalizeRestoration(&decrypted, recvFlags, outPath, nil); err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+
+	restored, _ := os.ReadFile(outPath)
+	if string(restored) != content {
+		t.Errorf("Decrypted content mismatch. Expected: %s, Got: %q", content, string(restored))
 	}
 }

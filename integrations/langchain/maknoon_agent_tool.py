@@ -116,24 +116,60 @@ def encrypt_maknoon_file(
     return _parse_json_result(result)
 
 @tool
-def send_maknoon_file(file_path: str, stealth: bool = False) -> Dict[str, Any]:
-    """Sends a file via secure ephemeral P2P and returns a one-time code and passphrase."""
-    cmd = ["MAKNOON_PLACEHOLDER", "send", file_path, "--json"]
+def send_maknoon_file(
+    file_path: Optional[str] = None, 
+    text: Optional[str] = None,
+    public_key_path: Optional[str] = None,
+    stealth: bool = False,
+    rendezvous_url: Optional[str] = None,
+    transit_relay: Optional[str] = None
+) -> Dict[str, Any]:
+    """Sends a file, directory, or raw text via secure ephemeral P2P and returns a one-time code."""
+    cmd = ["MAKNOON_PLACEHOLDER", "send", "--json"]
+    if text:
+        cmd.extend(["--text", text])
+    elif file_path:
+        cmd.append(file_path)
+    else:
+        return {"error": "either file_path or text must be provided"}
+        
+    if public_key_path:
+        cmd.extend(["--public-key", public_key_path])
     if stealth:
         cmd.append("--stealth")
+    if rendezvous_url:
+        cmd.extend(["--rendezvous-url", rendezvous_url])
+    if transit_relay:
+        cmd.extend(["--transit-relay", transit_relay])
     
     # This is a blocking call that waits for the receiver
-    result = _run_maknoon(cmd, {}, timeout=300) # Longer timeout for P2P
+    result = _run_maknoon(cmd, {}, timeout=300) 
     return _parse_json_result(result)
 
 @tool
-def receive_maknoon_file(code: str, passphrase: str, output_path: Optional[str] = None, stealth: bool = False) -> Dict[str, Any]:
-    """Receives a file via secure ephemeral P2P using a code and passphrase."""
-    cmd = ["MAKNOON_PLACEHOLDER", "receive", code, "--passphrase", passphrase, "--json"]
+def receive_maknoon_file(
+    code: str, 
+    passphrase: Optional[str] = None, 
+    private_key_path: Optional[str] = None,
+    output_path: Optional[str] = None, 
+    stealth: bool = False,
+    rendezvous_url: Optional[str] = None,
+    transit_relay: Optional[str] = None
+) -> Dict[str, Any]:
+    """Receives a file via secure ephemeral P2P using a code."""
+    cmd = ["MAKNOON_PLACEHOLDER", "receive", code, "--json"]
+    if passphrase:
+        cmd.extend(["--passphrase", passphrase])
+    if private_key_path:
+        cmd.extend(["--private-key", private_key_path])
     if output_path:
         cmd.extend(["--output", output_path])
     if stealth:
         cmd.append("--stealth")
+    if rendezvous_url:
+        cmd.extend(["--rendezvous-url", rendezvous_url])
+    if transit_relay:
+        cmd.extend(["--transit-relay", transit_relay])
     
     result = _run_maknoon(cmd, {}, timeout=300)
     return _parse_json_result(result)

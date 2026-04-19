@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/psanford/wormhole-william/wormhole"
@@ -17,44 +19,60 @@ var (
 	sendPassphrase string
 	useStealth     bool
 	quietSend      bool
+	sendText       string
+	sendPublicKey  string
+	rendezvousURL  string
+	transitRelay   string
 )
 
 // SendCmd returns the cobra command for sending files via ephemeral P2P.
 func SendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send [file/dir]",
-		Short: "Send a file or directory via secure ephemeral P2P",
+		Short: "Send a file, directory, or text via secure ephemeral P2P",
 		Long:  `Encrypts and transfers data directly to another peer. Data is never stored on a relay.`,
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := args[0]
-			if err := validatePath(path); err != nil {
-				return err
+			var path string
+			var isDir bool
+			var inputReader io.Reader
+			var inputName string
+
+			if sendText != "" {
+				inputReader = strings.NewReader(sendText)
+				inputName = "text-message"
+			} else if len(args) > 0 {
+				path = args[0]
+				if path == "-" {
+					inputReader = os.Stdin
+					inputName = "stdin"
+				} else {
+					if err := validatePath(path); err != nil {
+						return err
+					}
+					info, err := os.Stat(path)
+					if err != nil {
+						return err
+					}
+					isDir = info.IsDir()
+					inputName = filepath.Base(path)
+				}
+			} else {
+				return fmt.Errorf("either a file path or --text must be provided")
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				return err
-			}
-			isDir := info.IsDir()
 
 			if JSONOutput {
 				quietSend = true
 			}
 
 			if !quietSend {
-				fmt.Printf("🚀 Preparing to send: %s\n", filepath.Base(path))
+				fmt.Printf("🚀 Preparing to send: %s\n", inputName)
 			}
 
-			// 1. Create a temporary encrypted file (Zero-trace effort)
-			tmpEnc, err := os.CreateTemp("", "maknoon-send-*.makn")
-			if err != nil {
-				return err
-			}
-			tmpPath := tmpEnc.Name()
-			defer func() {
-				_ = tmpEnc.Close()
-				_ = os.Remove(tmpPath)
-			}()
+			// 1. Encrypt (to RAM if small enough, otherwise to temp file)
+			var tmpReader io.ReadSeeker
+			var tmpFile *os.File
+			var totalSize int64
 
 			opts := crypto.Options{
 				Passphrase: []byte(sendPassphrase),
@@ -63,8 +81,18 @@ func SendCmd() *cobra.Command {
 				IsArchive:  isDir,
 			}
 
-			// If no passphrase provided, generate a random one for this session
-			if len(opts.Passphrase) == 0 {
+			if sendPublicKey != "" {
+				pk := crypto.ResolveKeyPath(sendPublicKey, "")
+				if pk == "" {
+					return fmt.Errorf("public key not found: %s", sendPublicKey)
+				}
+				pkBytes, err := os.ReadFile(pk)
+				if err != nil {
+					return fmt.Errorf("failed to read public key: %w", err)
+				}
+				opts.PublicKey = pkBytes
+				opts.Passphrase = nil // Clear passphrase for asymmetric mode
+			} else if len(opts.Passphrase) == 0 {
 				p, _ := crypto.GeneratePassphrase(4, "-")
 				opts.Passphrase = []byte(p)
 			}
@@ -72,57 +100,90 @@ func SendCmd() *cobra.Command {
 			if !quietSend {
 				fmt.Println("🔒 Encrypting...")
 			}
-			if _, err := crypto.Protect(path, nil, tmpEnc, opts); err != nil {
-				return err
-			}
 
-			// Get size for progress bar
-			tmpInfo, _ := tmpEnc.Stat()
-			totalSize := tmpInfo.Size()
+			// For text and small stdin, use memory. For files and large stdin, use temp file.
+			if sendText != "" {
+				var encBuf bytes.Buffer
+				if _, err := crypto.Protect(inputName, inputReader, &encBuf, opts); err != nil {
+					return err
+				}
+				totalSize = int64(encBuf.Len())
+				tmpReader = bytes.NewReader(encBuf.Bytes())
+			} else {
+				tmpEnc, err := os.CreateTemp("", "maknoon-send-*.makn")
+				if err != nil {
+					return err
+				}
+				tmpFile = tmpEnc
+				defer func() {
+					_ = tmpFile.Close()
+					_ = os.Remove(tmpFile.Name())
+				}()
 
-			// Seek back to start for wormhole
-			if _, err := tmpEnc.Seek(0, 0); err != nil {
-				return err
+				if _, err := crypto.Protect(path, inputReader, tmpFile, opts); err != nil {
+					return err
+				}
+				stat, _ := tmpFile.Stat()
+				totalSize = stat.Size()
+				if _, err := tmpFile.Seek(0, 0); err != nil {
+					return err
+				}
+				tmpReader = tmpFile
 			}
 
 			// 2. Initialize Wormhole Client
-			var c wormhole.Client
+			c := wormhole.Client{
+				RendezvousURL: rendezvousURL,
+			}
+			if transitRelay != "" {
+				c.TransitRelayAddress = transitRelay
+			}
 			ctx := context.Background()
 
 			if !quietSend {
 				fmt.Println("🕳️  Opening wormhole...")
 			}
 
-			fileName := filepath.Base(path)
-			if isDir {
+			fileName := inputName
+			if isDir || !strings.HasSuffix(fileName, ".makn") {
 				fileName += ".makn"
 			}
 
-			var reader io.Reader = tmpEnc
+			var wormholeReader io.Reader = tmpReader
 			if !quietSend {
 				bar := progressbar.DefaultBytes(totalSize, "sending")
-				reader = io.TeeReader(tmpEnc, bar)
+				wormholeReader = io.TeeReader(tmpReader, bar)
 			}
 
 			code, status, err := c.SendFile(ctx, fileName, struct {
 				io.Reader
 				io.Seeker
-			}{reader, tmpEnc})
+			}{wormholeReader, tmpReader})
 			if err != nil {
 				return err
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{
-					"code":       code,
-					"passphrase": string(opts.Passphrase),
-					"status":     "established",
-				})
+				res := map[string]string{
+					"code":   code,
+					"status": "established",
+				}
+				if len(opts.Passphrase) > 0 {
+					res["passphrase"] = string(opts.Passphrase)
+				} else {
+					res["type"] = "asymmetric"
+				}
+				printJSON(res)
 			} else {
 				fmt.Printf("\n✅ Wormhole established!\n")
 				fmt.Printf("🔑 Receiver Code: %s\n", code)
-				fmt.Printf("👉 Session Passphrase: %s\n\n", string(opts.Passphrase))
-				fmt.Printf("Share these with the recipient. The transfer will begin once they enter them.\n")
+				if len(opts.Passphrase) > 0 {
+					fmt.Printf("👉 Session Passphrase: %s\n\n", string(opts.Passphrase))
+					fmt.Printf("Share these with the recipient. The transfer will begin once they enter them.\n")
+				} else {
+					fmt.Printf("🛡️  Encrypted for recipient's identity. No passphrase required.\n\n")
+					fmt.Printf("Share this code with the recipient. They will need their private key to decrypt.\n")
+				}
 			}
 
 			s := <-status
@@ -149,6 +210,10 @@ func SendCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&sendPassphrase, "passphrase", "s", "", "Session passphrase (optional, one will be generated if omitted)")
 	cmd.Flags().BoolVar(&useStealth, "stealth", false, "Use stealth mode (headerless)")
 	cmd.Flags().BoolVarP(&quietSend, "quiet", "q", false, "Suppress informational messages")
+	cmd.Flags().StringVar(&sendText, "text", "", "Send raw text instead of a file")
+	cmd.Flags().StringVarP(&sendPublicKey, "public-key", "p", "", "Encrypt for a specific recipient's identity (bypasses passphrase)")
+	cmd.Flags().StringVar(&rendezvousURL, "rendezvous-url", "", "Custom Magic Wormhole rendezvous server URL")
+	cmd.Flags().StringVar(&transitRelay, "transit-relay", "", "Custom Magic Wormhole transit relay address (host:port)")
 
 	return cmd
 }
