@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
@@ -155,7 +156,9 @@ func ReceiveCmd() *cobra.Command {
 			// Set output name if not provided
 			finalOut := recvOutput
 			if finalOut == "" {
-				finalOut = strings.TrimSuffix(msg.Name, ".makn")
+				// SECURITY: Sanitize the peer-provided filename to prevent path traversal
+				safeName := filepath.Base(msg.Name)
+				finalOut = strings.TrimSuffix(safeName, ".makn")
 			}
 
 			if err := validatePath(finalOut); err != nil {

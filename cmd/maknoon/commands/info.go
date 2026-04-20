@@ -18,6 +18,13 @@ func InfoCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			filePath := args[0]
+			if err := validatePath(filePath); err != nil {
+				if JSONOutput {
+					printErrorJSON(err)
+					return nil
+				}
+				return err
+			}
 			f, err := os.Open(filePath)
 			if err != nil {
 				return err
