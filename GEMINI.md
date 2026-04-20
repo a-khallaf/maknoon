@@ -14,7 +14,13 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 - **Asymmetric Encryption (KEM)**: ML-KEM / Kyber1024 (NIST Standard).
 - **Digital Signatures**: ML-DSA-87 / Dilithium (NIST Standard).
 - **Key Derivation (KDF)**: Argon2id (Time: 3, Memory: 64MB).
-- **P2P Transport**: Magic Wormhole (SPAKE2 PAKE) layered with Maknoon Symmetric PQC. Supports **Identity-Based** (Asymmetric) handshakes and **Zero-Disk** text transport.
+- **P2P Transport**: Magic Wormhole (SPAKE2 PAKE) layered with Maknoon Symmetric PQC. Supports **Identity-Based** (Asymmetric) handshakes, **Zero-Disk** text transport, and a **Sequenced Chat Protocol** with reordering buffers for rock-solid synchronization.
+
+## 🤖 Agent Integration & Skills
+
+- **"gh skill" Ready**: The project defines an official Agent Skill at `.github/skills/maknoon/SKILL.md`.
+- **Inlined MCP Server**: The skill manifest includes a dedicated MCP server configuration (`go run ./integrations/mcp/main.go`) that agents can auto-provision.
+- **Agent mode**: Triggered via `MAKNOON_AGENT_MODE=1` or `--json`. Suppresses all interactive prompts and forces structured JSON output.
 
 ## 📋 Engineering Standards & Design Patterns
 
@@ -64,10 +70,12 @@ All cryptographic operations MUST support `io.Reader` and `io.Writer` to allow p
 
 ## 🚀 Pre-Release Checklist
 
-1.  **Security Audit**:
-    *   Verify **Path Traversal** protection in `validatePath`.
-    *   Confirm **Zip Slip** protection in `ExtractArchive`.
-    *   Ensure **JSON Redirection**: In `stdout` decryption, success metadata MUST go to `stderr`.
+1.  **Security Audit (v1.4 Status: COMPLETED)**:
+    *   **Path Traversal**: Verified that `ValidatePath` is applied to all file I/O commands (`encrypt`, `decrypt`, `info`, `sign`, `verify`).
+    *   **Agent Isolation**: Confirmed that in Agent mode, all file operations are restricted to `~/` and system temp directories.
+    *   **Zip Slip**: Verified protection in `ExtractArchive`.
+    *   **Zero-Trace**: Confirmed use of `SafeClear` for FEKs and private keys.
+    *   **JSON Redirection**: In `stdout` decryption, success metadata MUST go to `stderr`.
 2.  **Quality Check**:
     *   Run `staticcheck ./...` and `go vet ./...`.
     *   Verify CI/CD success at [Actions](https://github.com/al-Zamakhshari/maknoon/actions).
