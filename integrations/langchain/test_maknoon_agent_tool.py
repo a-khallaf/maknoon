@@ -75,8 +75,9 @@ class TestMaknoonLangChainTools(unittest.TestCase):
 
         # 3. Decrypt
         dec_content = decrypt_maknoon_file.invoke({
-            "file_path": output_file,
-            "private_key_path": priv_key
+            "input_path": output_file,
+            "output_path": "-",
+            "private_key": priv_key
         })
         self.assertEqual(dec_content.strip(), "agent-test-payload")
 

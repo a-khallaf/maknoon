@@ -1,12 +1,10 @@
 package commands
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/schollz/progressbar/v3"
@@ -98,9 +96,10 @@ func EncryptCmd() *cobra.Command {
 			}
 
 			if signKeyPath != "" || os.Getenv("MAKNOON_PRIVATE_KEY") != "" {
-				resolvedSignPath := crypto.ResolveKeyPath(signKeyPath, "MAKNOON_PRIVATE_KEY")
+				m := crypto.NewIdentityManager()
+				resolvedSignPath := m.ResolveKeyPath(signKeyPath, "MAKNOON_PRIVATE_KEY")
 				if resolvedSignPath != "" {
-					sk, err := os.ReadFile(resolvedSignPath)
+					sk, err := m.LoadPrivateKey(resolvedSignPath, []byte(passphrase), false)
 					if err == nil {
 						opts.SigningKey = sk
 					}
@@ -137,7 +136,10 @@ func EncryptCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "output": outPath})
+				printJSON(crypto.EncryptResult{
+					Status: "success",
+					Output: outPath,
+				})
 			}
 
 			return nil
@@ -227,6 +229,7 @@ func loadCustomProfile(path string, profileID *int) error {
 	return nil
 }
 func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, passphrase, inputPath string) error {
+	m := crypto.NewIdentityManager()
 	if len(pubKeyPaths) == 0 {
 		if env := os.Getenv("MAKNOON_PUBLIC_KEY"); env != "" {
 			pubKeyPaths = append(pubKeyPaths, env)
@@ -234,35 +237,9 @@ func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, pass
 	}
 
 	for _, path := range pubKeyPaths {
-		if strings.HasPrefix(path, "@") {
-			// 1. Check local contacts (Petnames)
-			cm, err := crypto.NewContactManager()
-			if err == nil {
-				contact, err := cm.Get(path)
-				if err == nil {
-					opts.PublicKeys = append(opts.PublicKeys, contact.KEMPubKey)
-					cm.Close()
-					continue
-				}
-				cm.Close()
-			}
-
-			// 2. Fallback to Global Registry (dPKI Discovery)
-			record, err := crypto.GlobalRegistry.Resolve(context.Background(), path)
-			if err != nil {
-				return fmt.Errorf("failed to resolve handle %s: %w", path, err)
-			}
-			opts.PublicKeys = append(opts.PublicKeys, record.KEMPubKey)
-			continue
-		}
-
-		resolvedPath := crypto.ResolveKeyPath(path, "")
-		if resolvedPath == "" {
-			return fmt.Errorf("public key not found: %s", path)
-		}
-		pk, err := os.ReadFile(resolvedPath)
+		pk, err := m.ResolvePublicKey(path)
 		if err != nil {
-			return fmt.Errorf("failed to read public key %s: %w", path, err)
+			return err
 		}
 		opts.PublicKeys = append(opts.PublicKeys, pk)
 	}

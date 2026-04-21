@@ -43,18 +43,17 @@ func VerifyCmd() *cobra.Command {
 				err := fmt.Errorf("signature file not found: %w", err)
 				if JSONOutput {
 					printErrorJSON(err)
-					return err
+					return nil
 				}
 				return err
 			}
 
-			resolvedPath := crypto.ResolveKeyPath(pubKeyPath, "MAKNOON_PUBLIC_KEY")
-			pubKeyBytes, err := os.ReadFile(resolvedPath)
+			im := crypto.NewIdentityManager()
+			pubKeyBytes, err := im.ResolvePublicKey(pubKeyPath)
 			if err != nil {
-				err := fmt.Errorf("failed to read public key: %w", err)
 				if JSONOutput {
 					printErrorJSON(err)
-					return err
+					return nil
 				}
 				return err
 			}
@@ -62,11 +61,12 @@ func VerifyCmd() *cobra.Command {
 			valid := crypto.VerifySignature(data, sigBytes, pubKeyBytes)
 			if valid {
 				if JSONOutput {
-					printJSON(map[string]string{"status": "success", "message": "Signature Verified"})
+					printJSON(crypto.CommonResult{Status: "success", Message: "Signature Verified"})
 				} else {
 					fmt.Println("✅ Signature Verified! The data is authentic and has not been tampered with.")
 				}
 			} else {
+
 				err := fmt.Errorf("❌ Signature Verification FAILED! The data might be corrupted or from an untrusted source")
 				if JSONOutput {
 					printErrorJSON(err)

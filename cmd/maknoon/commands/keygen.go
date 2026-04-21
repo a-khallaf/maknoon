@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
@@ -19,6 +18,7 @@ func KeygenCmd() *cobra.Command {
 	var noPassword bool
 	var passphrase string
 	var useFido2 bool
+	var quiet bool
 	var profile int
 	var profileFile string
 
@@ -46,7 +46,6 @@ func KeygenCmd() *cobra.Command {
 			}
 
 			// Apply KDF Overrides to default profile if requested
-			// Note: This modifies the global instance for this execution.
 			if argonTime != 3 || argonMem != 64*1024 || argonThrd != 4 {
 				if p1, err := crypto.GetProfile(1, nil); err == nil {
 					if v1, ok := p1.(*crypto.ProfileV1); ok {
@@ -83,7 +82,7 @@ func KeygenCmd() *cobra.Command {
 				defer crypto.SafeClear(password)
 			}
 
-			if !JSONOutput {
+			if !JSONOutput && !quiet {
 				fmt.Println("Generating bleeding-edge Hybrid Post-Quantum identity (ML-KEM-768-X25519 + ML-DSA-87)...")
 			}
 			kemPub, kemPriv, sigPub, sigPriv, err := crypto.GeneratePQKeyPair()
@@ -101,7 +100,8 @@ func KeygenCmd() *cobra.Command {
 				crypto.SafeClear(sigPriv)
 			}()
 
-			basePath, baseName, err := resolveBaseKeyPath(output)
+			im := crypto.NewIdentityManager()
+			basePath, baseName, err := im.ResolveBaseKeyPath(output)
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
@@ -137,11 +137,17 @@ func KeygenCmd() *cobra.Command {
 				}
 			}
 
+			if !JSONOutput && !quiet {
+				fmt.Printf("Success! Identity generated in %s\n", filepath.Dir(basePath))
+				fmt.Printf("  - Encryption Keys: %s.kem.{key,pub}\n", baseName)
+				fmt.Printf("  - Signing Keys:    %s.sig.{key,pub}\n", baseName)
+			}
+
 			if JSONOutput {
-				printJSON(map[string]string{
-					"status":    "success",
-					"base_path": basePath,
-					"base_name": baseName,
+				printJSON(crypto.IdentityResult{
+					Status:   "success",
+					BasePath: basePath,
+					BaseName: baseName,
 				})
 			}
 
@@ -153,7 +159,8 @@ func KeygenCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&noPassword, "no-password", "n", false, "Generate unprotected keys (automation mode)")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase to protect the keys")
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key to protect the private keys")
-	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID to protect the keys")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress informational output")
+	cmd.Flags().IntVar(&profile, "profile", 1, "Cryptographic profile ID to protect the keys")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file to protect the keys")
 
 	// KDF Flags
@@ -207,36 +214,6 @@ func getInitialPassphrase(noPassword bool, manual string) ([]byte, error) {
 	return p, nil
 }
 
-func resolveBaseKeyPath(output string) (string, string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	keysDir := filepath.Join(home, ".maknoon", "keys")
-	if err := os.MkdirAll(keysDir, 0700); err != nil {
-		return "", "", fmt.Errorf("failed to create keys directory: %w", err)
-	}
-
-	if output != "" && strings.Contains(output, string(os.PathSeparator)) {
-		if err := validatePath(output); err != nil {
-			return "", "", err
-		}
-		return output, filepath.Base(output), nil
-	}
-
-	baseName := "id_maknoon"
-	if output != "" {
-		baseName = filepath.Base(output)
-	}
-
-	if baseName == ".." || baseName == "." || baseName == "/" {
-		return "", "", fmt.Errorf("invalid identity name")
-	}
-
-	basePath := filepath.Join(keysDir, baseName)
-	return basePath, baseName, nil
-}
-
 func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPriv, password []byte, profileID byte) error {
 	writeKey := func(path string, data []byte, isPrivate bool) error {
 		finalData := data
@@ -265,12 +242,6 @@ func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPr
 	}
 	if err := writeKey(basePath+".sig.pub", sigPub, false); err != nil {
 		return err
-	}
-
-	if !JSONOutput {
-		fmt.Printf("Success! Identity generated in %s\n", filepath.Dir(basePath))
-		fmt.Printf("  - Encryption Keys: %s.kem.{key,pub}\n", baseName)
-		fmt.Printf("  - Signing Keys:    %s.sig.{key,pub}\n", baseName)
 	}
 	return nil
 }

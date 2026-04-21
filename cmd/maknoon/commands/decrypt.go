@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -361,73 +360,18 @@ func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isSt
 	}
 
 	if magic == crypto.MagicHeaderAsym {
-		return resolveAsymmetricKey(password, keyPath, isStdin)
-	}
+		m := crypto.NewIdentityManager()
+		resolvedPath := m.ResolveKeyPath(keyPath, "MAKNOON_PRIVATE_KEY")
+		if resolvedPath == "" {
+			return nil, nil, fmt.Errorf("private key required via -k or MAKNOON_PRIVATE_KEY")
+		}
 
-	return nil, nil, fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
-}
-
-func resolveAsymmetricKey(password []byte, keyPath string, isStdin bool) ([]byte, []byte, error) {
-	resolvedPath := crypto.ResolveKeyPath(keyPath, "MAKNOON_PRIVATE_KEY")
-	if resolvedPath == "" && keyPath != "" {
-		return nil, nil, fmt.Errorf("private key not found: %s", keyPath)
-	}
-	if resolvedPath == "" {
-		return nil, nil, fmt.Errorf("private key required via -k or MAKNOON_PRIVATE_KEY")
-	}
-
-	keyBytes, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read private key: %w", err)
-	}
-
-	if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
-		var err error
-		password, err = unlockPrivateKey(password, resolvedPath, isStdin)
+		priv, err := m.LoadPrivateKey(resolvedPath, password, isStdin)
 		if err != nil {
 			return nil, nil, err
 		}
-
-		var unlockedKey bytes.Buffer
-		if _, _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password, 1, false); err != nil {
-			return nil, nil, fmt.Errorf("failed to unlock private key: %w", err)
-		}
-		return password, unlockedKey.Bytes(), nil
+		return password, priv, nil
 	}
 
-	return password, keyBytes, nil
-}
-
-func unlockPrivateKey(password []byte, resolvedPath string, isStdin bool) ([]byte, error) {
-	fido2Path := strings.TrimSuffix(resolvedPath, ".key")
-	fido2Path = strings.TrimSuffix(fido2Path, ".kem")
-	fido2Path = strings.TrimSuffix(fido2Path, ".sig")
-	fido2Path += ".fido2"
-
-	if _, err := os.Stat(fido2Path); err == nil {
-		raw, err := os.ReadFile(fido2Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read fido2 metadata: %w", err)
-		}
-		var meta crypto.Fido2Metadata
-		if err := json.Unmarshal(raw, &meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal fido2 metadata: %w", err)
-		}
-
-		return crypto.Fido2Derive(meta.RPID, meta.CredentialID)
-	}
-
-	if len(password) == 0 {
-		if isStdin {
-			return nil, fmt.Errorf("passphrase required via MAKNOON_PASSPHRASE or -s to unlock private key when reading from stdin")
-		}
-		fmt.Print("Enter passphrase to unlock your private key: ")
-		p, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		if err != nil {
-			return nil, err
-		}
-		password = p
-	}
-	return password, nil
+	return nil, nil, fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
 }

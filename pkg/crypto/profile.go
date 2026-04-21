@@ -118,11 +118,6 @@ func DefaultProfile() Profile {
 	return p
 }
 
-// SafeClear deterministically zeroizes a standard Go byte slice using memguard for reliability.
-func SafeClear(b []byte) {
-	memguard.WipeBytes(b)
-}
-
 // SafeClearString clears a string slice by setting each element to empty.
 func SafeClearString(s []string) {
 	for i := range s {

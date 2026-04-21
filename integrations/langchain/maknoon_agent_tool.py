@@ -76,24 +76,6 @@ def set_maknoon_secret(
     return _parse_json_result(result)
 
 @tool
-def decrypt_maknoon_file(file_path: str, private_key_path: Optional[str] = None) -> Union[str, Dict[str, Any]]:
-    """Decrypts a .makn file and returns its content as a string."""
-    env = {}
-    if private_key_path:
-        env["MAKNOON_PRIVATE_KEY"] = private_key_path
-    
-    # Disable global JSON mode for this specific command to get raw data
-    env["MAKNOON_JSON"] = "0"
-
-    cmd = ["MAKNOON_PLACEHOLDER", "decrypt", file_path, "-o", "-", "--quiet"]
-    result = _run_maknoon(cmd, env, timeout=30)
-    
-    if result.returncode != 0:
-        return _parse_json_result(result)
-    
-    return result.stdout
-
-@tool
 def encrypt_maknoon_file(
     input_path: str, 
     output_path: str, 
@@ -319,7 +301,7 @@ def decrypt_maknoon_file(
     private_key: Optional[str] = None,
     sender_key: Optional[str] = None,
     trust_on_first_use: bool = False
-) -> Dict[str, Any]:
+) -> Union[str, Dict[str, Any]]:
     """Decrypts a .makn file or directory (Agent Mode)."""
     cmd = ["MAKNOON_PLACEHOLDER", "decrypt", input_path, "-o", output_path]
     if private_key:
@@ -334,6 +316,10 @@ def decrypt_maknoon_file(
         env["MAKNOON_PASSPHRASE"] = passphrase
         
     result = _run_maknoon(cmd, env, timeout=60)
+    
+    if output_path == "-":
+        return result.stdout
+    
     return _parse_json_result(result)
 
 @tool

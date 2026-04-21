@@ -342,6 +342,27 @@ func vaultSetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	return mcp.NewToolResultText(string(out)), nil
 }
 
+func encryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	input := request.GetString("input", "")
+	output := request.GetString("output", "")
+	pubKey := request.GetString("public_key", "")
+
+	args := []string{"encrypt", input, "-o", output, "--json"}
+	if pubKey != "" {
+		args = append(args, "-p", pubKey)
+	}
+
+	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
+	cmd.Env = getMaknoonEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Encryption failed: %s", string(out))), nil
+	}
+
+	return mcp.NewToolResultText(string(out)), nil
+}
+
 func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	input := request.GetString("input", "")
 	output := request.GetString("output", "")
@@ -357,29 +378,7 @@ func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	}
 
 	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-
 	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Encryption failed: %s", string(out))), nil
-	}
-
-	return mcp.NewToolResultText(string(out)), nil
-}
-
-func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	input := request.GetString("input", "")
-	output := request.GetString("output", "")
-	privateKey := request.GetString("private_key", "")
-
-	args := []string{"decrypt", input, "-o", output, "--json", "--quiet"}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-	if privateKey != "" {
-		cmd.Env = append(cmd.Env, "MAKNOON_PRIVATE_KEY="+privateKey)
-	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

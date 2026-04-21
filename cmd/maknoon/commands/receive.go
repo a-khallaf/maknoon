@@ -114,25 +114,17 @@ func ReceiveCmd() *cobra.Command {
 					fmt.Println("🛡️  Detected Identity-based encryption.")
 				}
 
-				resolvedPriv := crypto.ResolveKeyPath(recvPrivateKey, "MAKNOON_PRIVATE_KEY")
+				m := crypto.NewIdentityManager()
+				resolvedPriv := m.ResolveKeyPath(recvPrivateKey, "MAKNOON_PRIVATE_KEY")
 				if resolvedPriv == "" {
 					return fmt.Errorf("private key required for identity-based P2P (use -k or MAKNOON_PRIVATE_KEY)")
 				}
 
-				// Re-use logic from decrypt.go
-				// For simplicity in this command, we'll try to unlock the key
-				pkRaw, err := os.ReadFile(resolvedPriv)
-				if err != nil {
-					return fmt.Errorf("failed to read private key: %w", err)
-				}
-
-				// Check if locked
-				unlocked, err := unlockPrivateKey(nil, resolvedPriv, false)
+				privKeyBytes, err = m.LoadPrivateKey(resolvedPriv, []byte(recvPassphrase), false)
 				if err != nil {
 					return err
 				}
-				privKeyBytes = pkRaw
-				passBytes = unlocked // The key to decrypt the private key
+				defer crypto.SafeClear(privKeyBytes)
 			} else {
 				if recvPassphrase == "" {
 					if JSONOutput {
@@ -142,6 +134,7 @@ func ReceiveCmd() *cobra.Command {
 					fmt.Scanln(&recvPassphrase)
 				}
 				passBytes = []byte(recvPassphrase)
+				defer crypto.SafeClear(passBytes)
 			}
 
 			// Seek back to start after peeking/key resolution
@@ -195,9 +188,9 @@ func ReceiveCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{
-					"status": "success",
-					"path":   finalOut,
+				printJSON(crypto.CommonResult{
+					Status:  "success",
+					Message: fmt.Sprintf("Data saved to: %s", finalOut),
 				})
 			} else {
 				fmt.Printf("\n✨ Success! Data saved to: %s\n", finalOut)

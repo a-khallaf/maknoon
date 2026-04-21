@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 
@@ -32,7 +31,8 @@ func SignCmd() *cobra.Command {
 				return err
 			}
 
-			resolvedPath := crypto.ResolveKeyPath(sigKeyPath, "MAKNOON_PRIVATE_KEY")
+			m := crypto.NewIdentityManager()
+			resolvedPath := m.ResolveKeyPath(sigKeyPath, "MAKNOON_PRIVATE_KEY")
 			if resolvedPath == "" {
 				err := fmt.Errorf("signing key required (use --private-key or MAKNOON_PRIVATE_KEY)")
 				if JSONOutput {
@@ -42,7 +42,7 @@ func SignCmd() *cobra.Command {
 				return err
 			}
 
-			keyBytes, err := os.ReadFile(resolvedPath)
+			keyBytes, err := m.LoadPrivateKey(resolvedPath, []byte(passphrase), false)
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
@@ -50,36 +50,7 @@ func SignCmd() *cobra.Command {
 				}
 				return err
 			}
-
-			// Unlock logic
-			if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
-				password := []byte(passphrase)
-				if len(password) == 0 {
-					if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
-						password = []byte(env)
-					}
-				}
-				if len(password) == 0 {
-					err := fmt.Errorf("private key is encrypted; provide passphrase via --passphrase or MAKNOON_PASSPHRASE")
-					if JSONOutput {
-						printErrorJSON(err)
-						return err
-					}
-					return err
-				}
-
-				var unlockedKey bytes.Buffer
-				if _, _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlockedKey, password, 1, false); err != nil {
-					err := fmt.Errorf("failed to unlock signing key: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return err
-					}
-					return err
-				}
-				keyBytes = unlockedKey.Bytes()
-				defer crypto.SafeClear(keyBytes)
-			}
+			defer crypto.SafeClear(keyBytes)
 
 			sig, err := crypto.SignData(data, keyBytes)
 			if err != nil {
@@ -103,7 +74,10 @@ func SignCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "signature": sigFile})
+				printJSON(crypto.CommonResult{
+					Status:  "success",
+					Message: fmt.Sprintf("Signature saved to %s", sigFile),
+				})
 			} else {
 				fmt.Printf("File signed successfully. Signature saved to %s\n", sigFile)
 			}

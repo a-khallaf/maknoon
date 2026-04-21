@@ -1,10 +1,16 @@
 package crypto
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/awnumar/memguard"
+	"golang.org/x/term"
 )
 
 const (
@@ -17,6 +23,20 @@ const (
 	// ProfilesDir is the subdirectory for custom profiles.
 	ProfilesDir = "profiles"
 )
+
+// Identity represents a full PQC keypair (KEM + SIG).
+type Identity struct {
+	Name    string
+	KEMPub  []byte
+	KEMPriv []byte
+	SIGPub  []byte
+	SIGPriv []byte
+}
+
+func (id *Identity) Wipe() {
+	SafeClear(id.KEMPriv)
+	SafeClear(id.SIGPriv)
+}
 
 // IdentityManager handles resolution and discovery of cryptographic identities.
 type IdentityManager struct {
@@ -35,19 +55,16 @@ func NewIdentityManager() *IdentityManager {
 
 // ResolveKeyPath checks if a key exists locally, in the manager's keys directory, or in environment variables.
 func (m *IdentityManager) ResolveKeyPath(path string, envVar string) string {
-	// 1. Check if provided path is actually a path to a file
 	if path != "" {
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
-		// 2. Check in managed keys directory
 		maknoonPath := filepath.Join(m.KeysDir, path)
 		if _, err := os.Stat(maknoonPath); err == nil {
 			return maknoonPath
 		}
 	}
 
-	// 3. If path is empty or not found, check environment variable
 	if envVar != "" {
 		if env := os.Getenv(envVar); env != "" {
 			if _, err := os.Stat(env); err == nil {
@@ -56,7 +73,146 @@ func (m *IdentityManager) ResolveKeyPath(path string, envVar string) string {
 		}
 	}
 
-	return path // Fallback
+	return path
+}
+
+// ResolveBaseKeyPath resolves the base path and name for an identity.
+func (m *IdentityManager) ResolveBaseKeyPath(output string) (string, string, error) {
+	if err := os.MkdirAll(m.KeysDir, 0700); err != nil {
+		return "", "", fmt.Errorf("failed to create keys directory: %w", err)
+	}
+
+	if output != "" && strings.Contains(output, string(os.PathSeparator)) {
+		return output, filepath.Base(output), nil
+	}
+
+	baseName := "id_maknoon"
+	if output != "" {
+		baseName = filepath.Base(output)
+	}
+	return filepath.Join(m.KeysDir, baseName), baseName, nil
+}
+
+// LoadIdentity handles the full flow of resolving and unlocking an identity.
+func (m *IdentityManager) LoadIdentity(name string, passphrase []byte, isStdin bool) (*Identity, error) {
+	basePath, _, err := m.ResolveBaseKeyPath(name)
+	if err != nil {
+		return nil, err
+	}
+
+	id := &Identity{Name: name}
+
+	// Load Public Keys
+	id.KEMPub, _ = os.ReadFile(basePath + ".kem.pub")
+	id.SIGPub, _ = os.ReadFile(basePath + ".sig.pub")
+
+	// Load and Unlock KEM Private Key
+	id.KEMPriv, err = m.LoadPrivateKey(basePath+".kem.key", passphrase, isStdin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load KEM key: %w", err)
+	}
+
+	// Load and Unlock SIG Private Key
+	id.SIGPriv, err = m.LoadPrivateKey(basePath+".sig.key", passphrase, isStdin)
+	if err != nil {
+		id.Wipe()
+		return nil, fmt.Errorf("failed to load SIG key: %w", err)
+	}
+
+	return id, nil
+}
+
+// LoadPrivateKey resolves, reads, and unlocks a single private key.
+func (m *IdentityManager) LoadPrivateKey(path string, passphrase []byte, isStdin bool) ([]byte, error) {
+	resolvedPath := m.ResolveKeyPath(path, "")
+	if _, err := os.Stat(resolvedPath); err != nil {
+		return nil, fmt.Errorf("private key not found: %s", path)
+	}
+
+	keyBytes, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(keyBytes) > 4 && string(keyBytes[:4]) == MagicHeader {
+		unlockedPass, err := m.UnlockPrivateKeyWithFIDOOrPass(passphrase, resolvedPath, isStdin)
+		if err != nil {
+			return nil, err
+		}
+		// Decrypt the key stream
+		var unlocked bytes.Buffer
+		if _, _, err := DecryptStream(bytes.NewReader(keyBytes), &unlocked, unlockedPass, 1, false); err != nil {
+			return nil, fmt.Errorf("failed to decrypt private key: %w", err)
+		}
+		return unlocked.Bytes(), nil
+	}
+
+	return keyBytes, nil
+}
+
+// UnlockPrivateKeyWithFIDOOrPass handles the logic of getting the unlocking secret.
+func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, resolvedPath string, isStdin bool) ([]byte, error) {
+	fido2Path := strings.TrimSuffix(resolvedPath, ".key")
+	fido2Path = strings.TrimSuffix(fido2Path, ".kem")
+	fido2Path = strings.TrimSuffix(fido2Path, ".sig")
+	fido2Path += ".fido2"
+
+	if _, err := os.Stat(fido2Path); err == nil {
+		raw, err := os.ReadFile(fido2Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read fido2 metadata: %w", err)
+		}
+		var meta Fido2Metadata
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal fido2 metadata: %w", err)
+		}
+		return Fido2Derive(meta.RPID, meta.CredentialID)
+	}
+
+	if len(password) == 0 {
+		if isStdin {
+			return nil, fmt.Errorf("passphrase required via MAKNOON_PASSPHRASE or -s to unlock private key")
+		}
+		fmt.Print("Enter passphrase to unlock your private key: ")
+		p, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return nil, err
+		}
+		password = p
+	}
+	return password, nil
+}
+
+// ResolvePublicKey handles handle resolution (@name) and local file paths.
+func (m *IdentityManager) ResolvePublicKey(input string) ([]byte, error) {
+	if strings.HasPrefix(input, "@") {
+		// 1. Check local contacts
+		cm, err := NewContactManager()
+		if err == nil {
+			contact, err := cm.Get(input)
+			if err == nil {
+				cm.Close()
+				return contact.KEMPubKey, nil
+			}
+			cm.Close()
+		}
+
+		// 2. Fallback to Global Registry
+		if GlobalRegistry != nil {
+			record, err := GlobalRegistry.Resolve(context.Background(), input)
+			if err == nil {
+				return record.KEMPubKey, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to resolve handle: %s", input)
+	}
+
+	resolvedPath := m.ResolveKeyPath(input, "")
+	if resolvedPath == "" {
+		return nil, fmt.Errorf("public key not found: %s", input)
+	}
+	return os.ReadFile(resolvedPath)
 }
 
 // ListActiveIdentities returns absolute paths to all available public keys.
@@ -79,28 +235,28 @@ func (m *IdentityManager) ListActiveIdentities() ([]string, error) {
 	return keys, nil
 }
 
-// ResolveKeyPath checks if a key exists locally, in ~/.maknoon/keys/, or in environment variables.
+// Helper functions for easy access
+
 func ResolveKeyPath(path string, envVar string) string {
 	return NewIdentityManager().ResolveKeyPath(path, envVar)
 }
 
-// GetDefaultVaultPath returns the path to the default vault file.
 func GetDefaultVaultPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, MaknoonDir, VaultsDir, "default.db")
 }
 
-// EnsureMaknoonDirs creates the necessary directory structure for keys, vaults, and profiles.
 func EnsureMaknoonDirs() error {
-	home, _ := os.UserHomeDir()
-	base := filepath.Join(home, MaknoonDir)
+	return NewIdentityManager().ensureDirs()
+}
 
+func (m *IdentityManager) ensureDirs() error {
+	base := filepath.Join(m.HomeDir, MaknoonDir)
 	dirs := []string{
-		filepath.Join(base, KeysDir),
+		m.KeysDir,
 		filepath.Join(base, VaultsDir),
 		filepath.Join(base, ProfilesDir),
 	}
-
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
@@ -109,8 +265,6 @@ func EnsureMaknoonDirs() error {
 	return nil
 }
 
-// ValidatePath ensures a path is safe to use.
-// If restricted is true, it limits file operations to the user's home and system temp directories.
 func ValidatePath(path string, restricted bool) error {
 	if path == "-" || path == "" {
 		return nil
@@ -121,8 +275,6 @@ func ValidatePath(path string, restricted bool) error {
 		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Always resolve symlinks for final validation.
-	// If the file doesn't exist, resolve symlinks of the parent directory.
 	evalPath, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		parentEval, err2 := filepath.EvalSymlinks(filepath.Dir(absPath))
@@ -134,20 +286,21 @@ func ValidatePath(path string, restricted bool) error {
 	}
 
 	if restricted {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
-		}
+		home, _ := os.UserHomeDir()
 		evalHome, _ := filepath.EvalSymlinks(home)
-
 		tmp := os.TempDir()
 		evalTmp, _ := filepath.EvalSymlinks(tmp)
 
-		// Ensure the path is within the home directory or system temp directory
 		if !strings.HasPrefix(evalPath, evalHome) && !strings.HasPrefix(evalPath, evalTmp) {
 			return fmt.Errorf("security policy: arbitrary file paths outside home or temp are prohibited")
 		}
 	}
 
 	return nil
+}
+
+func SafeClear(b []byte) {
+	if b != nil {
+		memguard.WipeBytes(b)
+	}
 }

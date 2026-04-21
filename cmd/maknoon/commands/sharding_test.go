@@ -16,7 +16,7 @@ func TestIdentityShardingCLI(t *testing.T) {
 
 	// 1. Generate identity
 	gen := KeygenCmd()
-	gen.SetArgs([]string{"-o", keyBase, "-s", pass})
+	gen.SetArgs([]string{"-o", keyBase, "-s", pass, "--quiet"})
 	if err := gen.Execute(); err != nil {
 		t.Fatalf("Keygen failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestDPKIPocCLI(t *testing.T) {
 
 	// 1. Generate identity
 	gen := KeygenCmd()
-	gen.SetArgs([]string{"-o", "default", "--no-password"})
+	gen.SetArgs([]string{"-o", "default", "--no-password", "--quiet"})
 	if err := gen.Execute(); err != nil {
 		t.Fatalf("Keygen failed: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestContactResolutionCLI(t *testing.T) {
 	// 1. Generate identity for a friend
 	friendPath := filepath.Join(tmpDir, "friend_keys")
 	gen := KeygenCmd()
-	gen.SetArgs([]string{"-o", friendPath, "--no-password"})
+	gen.SetArgs([]string{"-o", friendPath, "--no-password", "--quiet"})
 	if err := gen.Execute(); err != nil {
 		t.Fatalf("Keygen failed: %v", err)
 	}

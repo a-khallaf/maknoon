@@ -55,7 +55,8 @@ func vaultSplitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "split",
 		Short: "Shard the vault's master access key",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			checkJSONMode(cmd)
 			// We need to get the raw passphrase used for the vault
 			db, key, err := openVault()
 			if err != nil {
@@ -97,7 +98,8 @@ func vaultRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover [shards...]",
 		Short: "Recover vault contents using shards and optionally save to a new vault",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			if len(args) == 0 {
 				return fmt.Errorf("at least one shard mnemonic is required")
 			}
@@ -383,7 +385,8 @@ func vaultSetCmd() *cobra.Command {
 		Use:   "set [service]",
 		Short: "Store a secret in the vault",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			service := args[0]
 			var password []byte
 			var err error
@@ -529,7 +532,8 @@ func vaultListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all services stored in the vault",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			checkJSONMode(cmd)
 			db, key, err := openVault()
 			if err != nil {
 				if JSONOutput {
@@ -583,7 +587,8 @@ func vaultRenameCmd() *cobra.Command {
 		Use:   "rename [old_name] [new_name]",
 		Short: "Rename a local vault file",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			oldPath, err := resolveVaultPath(args[0])
 			if err != nil {
 				return err
@@ -620,7 +625,8 @@ func vaultDeleteCmd() *cobra.Command {
 		Use:   "delete [name]",
 		Short: "Permanently delete a vault file",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			path, err := resolveVaultPath(args[0])
 			if err != nil {
 				return err

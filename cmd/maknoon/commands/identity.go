@@ -1,12 +1,10 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,7 +38,8 @@ func identityPublishCmd() *cobra.Command {
 		Use:   "publish [handle]",
 		Short: "Anchor your active identity to the global registry (dPKI)",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			handle := args[0]
 			if !strings.HasPrefix(handle, "@") {
 				return fmt.Errorf("handle must start with @ (e.g., @alice)")
@@ -49,52 +48,26 @@ func identityPublishCmd() *cobra.Command {
 			// 1. Get active identity
 			name := "default" // Simplified for POC
 
-			basePath, _, err := resolveBaseKeyPath(name)
-			if err != nil {
+			m := crypto.NewIdentityManager()
+			if _, _, err := m.ResolveBaseKeyPath(name); err != nil {
 				return err
 			}
 
-			kemPub, err := os.ReadFile(basePath + ".kem.pub")
+			id, err := m.LoadIdentity(name, []byte(passphrase), false)
 			if err != nil {
 				return err
 			}
-			sigPub, err := os.ReadFile(basePath + ".sig.pub")
-			if err != nil {
-				return err
-			}
-
-			// 2. Load and unlock SIG private key to sign the record
-			sigKeyPath := basePath + ".sig.key"
-			sigKeyBytes, err := os.ReadFile(sigKeyPath)
-			if err != nil {
-				return err
-			}
-			
-			var sigPriv []byte
-			if len(sigKeyBytes) > 4 && string(sigKeyBytes[:4]) == crypto.MagicHeader {
-				pass, err := unlockPrivateKey([]byte(passphrase), sigKeyPath, false)
-				if err != nil {
-					return err
-				}
-				var unlocked bytes.Buffer
-				if _, _, err := crypto.DecryptStream(bytes.NewReader(sigKeyBytes), &unlocked, pass, 1, false); err != nil {
-					return err
-				}
-				sigPriv = unlocked.Bytes()
-			} else {
-				sigPriv = sigKeyBytes
-			}
-			defer crypto.SafeClear(sigPriv)
+			defer id.Wipe()
 
 			// 3. Create and sign the record
 			record := &crypto.IdentityRecord{
 				Handle:    handle,
-				KEMPubKey: kemPub,
-				SIGPubKey: sigPub,
+				KEMPubKey: id.KEMPub,
+				SIGPubKey: id.SIGPub,
 				Timestamp: time.Now(),
 			}
 
-			if err := record.Sign(sigPriv); err != nil {
+			if err := record.Sign(id.SIGPriv); err != nil {
 				return fmt.Errorf("failed to sign identity record: %w", err)
 			}
 
@@ -104,7 +77,11 @@ func identityPublishCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "handle": handle, "registry": "bolt"})
+				printJSON(crypto.IdentityResult{
+					Status:   "success",
+					Handle:   handle,
+					Registry: "bolt",
+				})
 			} else {
 				fmt.Printf("🚀 Identity published to Global Registry as %s\n", handle)
 				fmt.Println("Note: This is currently using a local persistent bbolt database.")
@@ -125,53 +102,22 @@ func identitySplitCmd() *cobra.Command {
 		Use:   "split [name]",
 		Short: "Shard a private identity using Shamir's Secret Sharing",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			name := args[0]
-			basePath, _, err := resolveBaseKeyPath(name)
+			m := crypto.NewIdentityManager()
+			id, err := m.LoadIdentity(name, []byte(passphrase), false)
 			if err != nil {
 				return err
 			}
-
-			kemKeyPath := basePath + ".kem.key"
-			sigKeyPath := basePath + ".sig.key"
-
-			unlockKey := func(path string) ([]byte, error) {
-				keyBytes, err := os.ReadFile(path)
-				if err != nil {
-					return nil, err
-				}
-				if len(keyBytes) > 4 && string(keyBytes[:4]) == crypto.MagicHeader {
-					pass, err := unlockPrivateKey([]byte(passphrase), path, false)
-					if err != nil {
-						return nil, err
-					}
-					var unlocked bytes.Buffer
-					if _, _, err := crypto.DecryptStream(bytes.NewReader(keyBytes), &unlocked, pass, 1, false); err != nil {
-						return nil, err
-					}
-					return unlocked.Bytes(), nil
-				}
-				return keyBytes, nil
-			}
-
-			kemPriv, err := unlockKey(kemKeyPath)
-			if err != nil {
-				return fmt.Errorf("failed to unlock KEM key: %w", err)
-			}
-			defer crypto.SafeClear(kemPriv)
-
-			sigPriv, err := unlockKey(sigKeyPath)
-			if err != nil {
-				return fmt.Errorf("failed to unlock SIG key: %w", err)
-			}
-			defer crypto.SafeClear(sigPriv)
+			defer id.Wipe()
 
 			// Combine keys into a single blob: [len_kem_4_bytes][kem_priv][len_sig_4_bytes][sig_priv]
-			blob := make([]byte, 8+len(kemPriv)+len(sigPriv))
-			binary.BigEndian.PutUint32(blob[0:4], uint32(len(kemPriv)))
-			copy(blob[4:4+len(kemPriv)], kemPriv)
-			binary.BigEndian.PutUint32(blob[4+len(kemPriv):8+len(kemPriv)], uint32(len(sigPriv)))
-			copy(blob[8+len(kemPriv):], sigPriv)
+			blob := make([]byte, 8+len(id.KEMPriv)+len(id.SIGPriv))
+			binary.BigEndian.PutUint32(blob[0:4], uint32(len(id.KEMPriv)))
+			copy(blob[4:4+len(id.KEMPriv)], id.KEMPriv)
+			binary.BigEndian.PutUint32(blob[4+len(id.KEMPriv):8+len(id.KEMPriv)], uint32(len(id.SIGPriv)))
+			copy(blob[8+len(id.KEMPriv):], id.SIGPriv)
 			defer crypto.SafeClear(blob)
 
 			shards, err := crypto.SplitSecret(blob, threshold, shares)
@@ -184,7 +130,12 @@ func identitySplitCmd() *cobra.Command {
 				for _, s := range shards {
 					jsonShards = append(jsonShards, s.ToMnemonic())
 				}
-				printJSON(map[string]interface{}{"identity": name, "threshold": threshold, "shares": jsonShards})
+				printJSON(crypto.IdentityResult{
+					Status:    "success",
+					Identity:  name,
+					Threshold: threshold,
+					Shares:    jsonShards,
+				})
 			} else {
 				fmt.Printf("🛡️  Identity '%s' sharded into %d parts (Threshold: %d)\n", name, shares, threshold)
 				fmt.Println("CRITICAL: Keep these mnemonics safe and separated.")
@@ -212,14 +163,15 @@ func identityCombineCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "combine [mnemonics...]",
 		Short: "Reconstruct a private identity from shards",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			if len(args) == 0 {
 				return fmt.Errorf("at least one shard mnemonic is required")
 			}
 
 			var shards []crypto.Share
-			for _, m := range args {
-				s, err := crypto.FromMnemonic(m)
+			for _, mn := range args {
+				s, err := crypto.FromMnemonic(mn)
 				if err != nil {
 					return fmt.Errorf("invalid mnemonic: %w", err)
 				}
@@ -248,11 +200,7 @@ func identityCombineCmd() *cobra.Command {
 			}
 			sigPriv := blob[8+kemLen:]
 
-			// We need public keys too for a full identity.
-			// ML-KEM and ML-DSA public keys can usually be derived from private keys,
-			// but for now let's assume the user might want to re-provide them or we can derive them.
-			// Actually, Maknoon keygen saves them separately.
-			// Let's derive them using circl.
+			// Derive public keys from private keys.
 			kemPub, err := crypto.DeriveKEMPublic(kemPriv)
 			if err != nil {
 				return fmt.Errorf("failed to derive KEM public key: %w", err)
@@ -262,7 +210,8 @@ func identityCombineCmd() *cobra.Command {
 				return fmt.Errorf("failed to derive SIG public key: %w", err)
 			}
 
-			basePath, baseName, err := resolveBaseKeyPath(output)
+			m := crypto.NewIdentityManager()
+			basePath, baseName, err := m.ResolveBaseKeyPath(output)
 			if err != nil {
 				return err
 			}
@@ -286,7 +235,10 @@ func identityCombineCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "base_path": basePath})
+				printJSON(crypto.IdentityResult{
+					Status:   "success",
+					BasePath: basePath,
+				})
 			} else {
 				fmt.Printf("Successfully reconstructed and saved identity to %s\n", basePath)
 			}
@@ -307,28 +259,10 @@ func identityActiveCmd() *cobra.Command {
 		Use:   "active",
 		Short: "List absolute paths of available public keys for encryption",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			home, _ := os.UserHomeDir()
-			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
-
-			files, err := os.ReadDir(keysDir)
+			m := crypto.NewIdentityManager()
+			keys, err := m.ListActiveIdentities()
 			if err != nil {
-				if os.IsNotExist(err) {
-					if JSONOutput {
-						printJSON(map[string]interface{}{"active_keys": []string{}})
-						return nil
-					}
-					fmt.Println("No identities found.")
-					return nil
-				}
 				return err
-			}
-
-			var keys []string
-			for _, f := range files {
-				name := f.Name()
-				if strings.HasSuffix(name, ".kem.pub") {
-					keys = append(keys, filepath.Join(keysDir, name))
-				}
 			}
 
 			if JSONOutput {
@@ -337,6 +271,9 @@ func identityActiveCmd() *cobra.Command {
 				})
 			} else {
 				fmt.Println("🛡️  Active Public Keys (Absolute Paths):")
+				if len(keys) == 0 {
+					fmt.Println("  No identities found.")
+				}
 				for _, k := range keys {
 					fmt.Printf("  - %s\n", k)
 				}
@@ -352,19 +289,18 @@ func identityListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all local identities",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			home, _ := os.UserHomeDir()
-			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
-
-			files, err := os.ReadDir(keysDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					if JSONOutput {
-						printJSON([]string{})
-						return nil
-					}
-					fmt.Println("No identities found.")
+			m := crypto.NewIdentityManager()
+			if _, err := os.Stat(m.KeysDir); os.IsNotExist(err) {
+				if JSONOutput {
+					printJSON([]string{})
 					return nil
 				}
+				fmt.Println("No identities found.")
+				return nil
+			}
+
+			files, err := os.ReadDir(m.KeysDir)
+			if err != nil {
 				return err
 			}
 
@@ -385,6 +321,9 @@ func identityListCmd() *cobra.Command {
 				printJSON(identities)
 			} else {
 				fmt.Println("🛡️  Maknoon Identities:")
+				if len(identities) == 0 {
+					fmt.Println("  No identities found.")
+				}
 				for _, id := range identities {
 					fmt.Printf("  - %s\n", id)
 				}
@@ -402,21 +341,11 @@ func identityShowCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
-			home, _ := os.UserHomeDir()
-			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
+			m := crypto.NewIdentityManager()
 
-			var basePath string
-			if strings.Contains(name, string(os.PathSeparator)) {
-				if err := validatePath(name); err != nil {
-					return err
-				}
-				basePath = name
-			} else {
-				bn := filepath.Base(name)
-				if bn == ".." || bn == "." || bn == "/" {
-					return fmt.Errorf("invalid identity name")
-				}
-				basePath = filepath.Join(keysDir, bn)
+			basePath, _, err := m.ResolveBaseKeyPath(name)
+			if err != nil {
+				return err
 			}
 
 			pubKeyPath := basePath + ".kem.pub"
@@ -454,34 +383,15 @@ func identityRenameCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			oldName, newName := args[0], args[1]
-			home, _ := os.UserHomeDir()
-			keysDir := filepath.Join(home, crypto.MaknoonDir, crypto.KeysDir)
+			m := crypto.NewIdentityManager()
 
-			var oldBase, newBase string
-			if strings.Contains(oldName, string(os.PathSeparator)) {
-				if err := validatePath(oldName); err != nil {
-					return err
-				}
-				oldBase = oldName
-			} else {
-				ob := filepath.Base(oldName)
-				if ob == ".." || ob == "." || ob == "/" {
-					return fmt.Errorf("invalid old identity name")
-				}
-				oldBase = filepath.Join(keysDir, ob)
+			oldBase, _, err := m.ResolveBaseKeyPath(oldName)
+			if err != nil {
+				return err
 			}
-
-			if strings.Contains(newName, string(os.PathSeparator)) {
-				if err := validatePath(newName); err != nil {
-					return err
-				}
-				newBase = newName
-			} else {
-				nb := filepath.Base(newName)
-				if nb == ".." || nb == "." || nb == "/" {
-					return fmt.Errorf("invalid new identity name")
-				}
-				newBase = filepath.Join(keysDir, nb)
+			newBase, _, err := m.ResolveBaseKeyPath(newName)
+			if err != nil {
+				return err
 			}
 
 			suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2"}
@@ -502,7 +412,11 @@ func identityRenameCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "from": oldName, "to": newName})
+				printJSON(crypto.IdentityResult{
+					Status: "success",
+					From:   oldName,
+					To:     newName,
+				})
 			} else {
 				fmt.Printf("Successfully renamed identity '%s' to '%s'\n", oldName, newName)
 			}

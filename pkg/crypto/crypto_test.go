@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -79,8 +80,8 @@ func TestIntegratedSignThenEncryptUnit(t *testing.T) {
 	// 2. Decrypt and Verify
 	var decrypted bytes.Buffer
 	// Test failure without sender key
-	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, 0, false)
-	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("sender public key not provided")) {
+	_, _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, 0, false)
+	if err == nil || !strings.Contains(err.Error(), "sender public key not provided") {
 		t.Errorf("Expected error for missing sender key, got: %v", err)
 	}
 
