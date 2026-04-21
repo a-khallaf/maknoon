@@ -16,6 +16,8 @@ func ContactCmd() *cobra.Command {
 		Short: "Manage local trusted contacts (Petnames)",
 	}
 
+	cmd.PersistentFlags().BoolVar(&JSONOutput, "json", false, "Output results in JSON format")
+
 	cmd.AddCommand(contactAddCmd())
 	cmd.AddCommand(contactListCmd())
 	cmd.AddCommand(contactRemoveCmd())

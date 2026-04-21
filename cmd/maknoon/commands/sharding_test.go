@@ -125,3 +125,59 @@ func TestDPKIPocCLI(t *testing.T) {
 		t.Errorf("Encrypted file not created")
 	}
 }
+
+func TestContactResolutionCLI(t *testing.T) {
+	SetJSONOutput(false)
+	tmpDir := t.TempDir()
+	
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	keysDir := filepath.Join(tmpDir, ".maknoon", "keys")
+	os.MkdirAll(keysDir, 0700)
+
+	// 1. Generate identity for a friend
+	friendPath := filepath.Join(tmpDir, "friend_keys")
+	gen := KeygenCmd()
+	gen.SetArgs([]string{"-o", friendPath, "--no-password"})
+	if err := gen.Execute(); err != nil {
+		t.Fatalf("Keygen failed: %v", err)
+	}
+
+	// 2. Add friend to contacts
+	add := ContactCmd()
+	add.SetArgs([]string{"add", "@buddy", "--kem-pub", friendPath + ".kem.pub", "--note", "Integration test"})
+	if err := add.Execute(); err != nil {
+		t.Fatalf("Contact add failed: %v", err)
+	}
+
+	// 3. Encrypt using contact alias
+	inputFile := filepath.Join(tmpDir, "secret.txt")
+	os.WriteFile(inputFile, []byte("contact test"), 0644)
+	
+	enc := EncryptCmd()
+	enc.SetArgs([]string{inputFile, "-o", inputFile + ".makn", "-p", "@buddy", "--quiet"})
+	if err := enc.Execute(); err != nil {
+		t.Fatalf("Encryption via petname failed: %v", err)
+	}
+
+	if _, err := os.Stat(inputFile + ".makn"); err != nil {
+		t.Errorf("Encrypted file not created using petname")
+	}
+
+	// 4. List contacts
+	list := ContactCmd()
+	list.SetArgs([]string{"list", "--json"})
+	var listOut bytes.Buffer
+	GlobalContext.JSONWriter = &listOut
+	SetJSONOutput(true)
+	if err := list.Execute(); err != nil {
+		t.Fatalf("Contact list failed: %v", err)
+	}
+	SetJSONOutput(false)
+
+	if !strings.Contains(listOut.String(), "@buddy") {
+		t.Errorf("Expected @buddy in contact list, got: %s", listOut.String())
+	}
+}
