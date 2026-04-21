@@ -257,6 +257,32 @@ func createServer() *server.MCPServer {
 	}
 	s.AddTool(identityPublish, identityPublishHandler)
 
+	// Tool: contact_add
+	contactAdd := mcp.NewTool("contact_add",
+		mcp.WithDescription("Add a new trusted contact (Petname)"),
+	)
+	contactAdd.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"petname":  map[string]interface{}{"type": "string", "description": "Local alias (e.g., @boss)"},
+			"kem_pub":  map[string]interface{}{"type": "string", "description": "Path to the contact's ML-KEM public key file"},
+			"sig_pub":  map[string]interface{}{"type": "string", "description": "Optional path to the contact's ML-DSA public key file"},
+			"note":     map[string]interface{}{"type": "string", "description": "Optional note"},
+		},
+		Required: []string{"petname", "kem_pub"},
+	}
+	s.AddTool(contactAdd, contactAddHandler)
+
+	// Tool: contact_list
+	contactList := mcp.NewTool("contact_list",
+		mcp.WithDescription("List all trusted contacts in your address book"),
+	)
+	contactList.InputSchema = mcp.ToolInputSchema{
+		Type:       "object",
+		Properties: map[string]interface{}{},
+	}
+	s.AddTool(contactList, contactListHandler)
+
 	return s
 }
 
@@ -657,6 +683,43 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Identity publish failed: %s", string(out))), nil
+	}
+
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	petname := request.GetString("petname", "")
+	kemPub := request.GetString("kem_pub", "")
+	sigPub := request.GetString("sig_pub", "")
+	note := request.GetString("note", "")
+
+	args := []string{"contact", "add", petname, "--kem-pub", kemPub, "--json"}
+	if sigPub != "" {
+		args = append(args, "--sig-pub", sigPub)
+	}
+	if note != "" {
+		args = append(args, "--note", note)
+	}
+
+	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
+	cmd.Env = getMaknoonEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Contact add failed: %s", string(out))), nil
+	}
+
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+func contactListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "contact", "list", "--json")
+	cmd.Env = getMaknoonEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Contact list failed: %s", string(out))), nil
 	}
 
 	return mcp.NewToolResultText(string(out)), nil

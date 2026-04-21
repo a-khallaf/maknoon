@@ -235,7 +235,19 @@ func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, pass
 
 	for _, path := range pubKeyPaths {
 		if strings.HasPrefix(path, "@") {
-			// Resolve handle from Global Registry (dPKI POC)
+			// 1. Check local contacts (Petnames)
+			cm, err := crypto.NewContactManager()
+			if err == nil {
+				contact, err := cm.Get(path)
+				if err == nil {
+					opts.PublicKeys = append(opts.PublicKeys, contact.KEMPubKey)
+					cm.Close()
+					continue
+				}
+				cm.Close()
+			}
+
+			// 2. Fallback to Global Registry (dPKI Discovery)
 			record, err := crypto.GlobalRegistry.Resolve(context.Background(), path)
 			if err != nil {
 				return fmt.Errorf("failed to resolve handle %s: %w", path, err)

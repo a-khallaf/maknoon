@@ -269,6 +269,30 @@ def publish_maknoon_identity(handle: str) -> Dict[str, Any]:
     return _parse_json_result(result)
 
 @tool
+def add_maknoon_contact(
+    petname: str,
+    kem_pub: str,
+    sig_pub: Optional[str] = None,
+    note: Optional[str] = None
+) -> Dict[str, Any]:
+    """Adds a new trusted contact (Petname) to the local address book."""
+    cmd = ["MAKNOON_PLACEHOLDER", "contact", "add", petname, "--kem-pub", kem_pub]
+    if sig_pub:
+        cmd.extend(["--sig-pub", sig_pub])
+    if note:
+        cmd.extend(["--note", note])
+    
+    result = _run_maknoon(cmd, {}, timeout=10)
+    return _parse_json_result(result)
+
+@tool
+def list_maknoon_contacts() -> List[Dict[str, Any]]:
+    """Lists all trusted contacts in the local address book."""
+    cmd = ["MAKNOON_PLACEHOLDER", "contact", "list"]
+    result = _run_maknoon(cmd, {}, timeout=10)
+    return _parse_json_result(result)
+
+@tool
 def recover_maknoon_vault(
     shards: List[str],
     vault_name: str = "default",

@@ -90,6 +90,10 @@ func main() {
 	profilesCmd.GroupID = "utils"
 	rootCmd.AddCommand(profilesCmd)
 
+	contactCmd := commands.ContactCmd()
+	contactCmd.GroupID = "identity"
+	rootCmd.AddCommand(contactCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
