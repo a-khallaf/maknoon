@@ -265,10 +265,10 @@ func createServer() *server.MCPServer {
 	contactAdd.InputSchema = mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
-			"petname":  map[string]interface{}{"type": "string", "description": "Local alias (e.g., @boss)"},
-			"kem_pub":  map[string]interface{}{"type": "string", "description": "Path to the contact's ML-KEM public key file"},
-			"sig_pub":  map[string]interface{}{"type": "string", "description": "Optional path to the contact's ML-DSA public key file"},
-			"note":     map[string]interface{}{"type": "string", "description": "Optional note"},
+			"petname": map[string]interface{}{"type": "string", "description": "Local alias (e.g., @boss)"},
+			"kem_pub": map[string]interface{}{"type": "string", "description": "Path to the contact's ML-KEM public key file"},
+			"sig_pub": map[string]interface{}{"type": "string", "description": "Optional path to the contact's ML-DSA public key file"},
+			"note":    map[string]interface{}{"type": "string", "description": "Optional note"},
 		},
 		Required: []string{"petname", "kem_pub"},
 	}

@@ -31,7 +31,7 @@ func TestIdentityShardingCLI(t *testing.T) {
 	}
 
 	// Mock output of mnemonics (manual extraction from JSON not easy in Go test without more effort)
-	// Instead, let's test the logic by calling the internal functions if possible, 
+	// Instead, let's test the logic by calling the internal functions if possible,
 	// or just verify the split command produced some output.
 	if !strings.Contains(splitOut.String(), "shares") {
 		t.Errorf("Expected shares in output, got: %s", splitOut.String())
@@ -41,7 +41,7 @@ func TestIdentityShardingCLI(t *testing.T) {
 func TestVaultShardingCLI(t *testing.T) {
 	SetJSONOutput(false)
 	tmpDir := t.TempDir()
-	
+
 	// Set custom home
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -81,7 +81,7 @@ func TestVaultShardingCLI(t *testing.T) {
 func TestDPKIPocCLI(t *testing.T) {
 	SetJSONOutput(false)
 	tmpDir := t.TempDir()
-	
+
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
@@ -114,7 +114,7 @@ func TestDPKIPocCLI(t *testing.T) {
 	// 3. Encrypt using handle
 	inputFile := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(inputFile, []byte("dpki test"), 0644)
-	
+
 	enc := EncryptCmd()
 	enc.SetArgs([]string{inputFile, "-o", inputFile + ".makn", "-p", "@tester", "--quiet"})
 	if err := enc.Execute(); err != nil {
@@ -129,7 +129,7 @@ func TestDPKIPocCLI(t *testing.T) {
 func TestContactResolutionCLI(t *testing.T) {
 	SetJSONOutput(false)
 	tmpDir := t.TempDir()
-	
+
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
@@ -155,7 +155,7 @@ func TestContactResolutionCLI(t *testing.T) {
 	// 3. Encrypt using contact alias
 	inputFile := filepath.Join(tmpDir, "secret.txt")
 	os.WriteFile(inputFile, []byte("contact test"), 0644)
-	
+
 	enc := EncryptCmd()
 	enc.SetArgs([]string{inputFile, "-o", inputFile + ".makn", "-p", "@buddy", "--quiet"})
 	if err := enc.Execute(); err != nil {

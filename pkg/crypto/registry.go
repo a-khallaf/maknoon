@@ -75,7 +75,7 @@ const registryBucket = "identities"
 func NewBoltRegistry() (*BoltRegistry, error) {
 	home, _ := os.UserHomeDir()
 	path := filepath.Join(home, MaknoonDir, "registry.db")
-	
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (r *BoltRegistry) Resolve(_ context.Context, handle string) (*IdentityRecor
 	if record.Revoked {
 		return nil, errors.New("identity has been revoked")
 	}
-	
+
 	// Crucial: Verify integrity
 	if !record.Verify() {
 		return nil, errors.New("identity record signature verification failed")
@@ -165,7 +165,7 @@ func (r *BoltRegistry) Revoke(_ context.Context, handle string, proof []byte) er
 var GlobalRegistry IdentityRegistry
 
 func init() {
-	// Attempt to initialize the Bolt registry. 
+	// Attempt to initialize the Bolt registry.
 	// If it fails (e.g. permission issues in restricted environments), we could fallback.
 	reg, err := NewBoltRegistry()
 	if err == nil {

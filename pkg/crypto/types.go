@@ -2,19 +2,19 @@ package crypto
 
 // EncryptResult is the standard JSON output for the encrypt command.
 type EncryptResult struct {
-	Status       string             `json:"status"`
-	Path         string             `json:"path"`
-	Output       string             `json:"output,omitempty"`
-	Type         string             `json:"type"` // "symmetric" or "asymmetric"
-	ProfileID    byte               `json:"profile_id"`
-	Compressed   bool               `json:"compressed"`
-	IsArchive    bool               `json:"is_archive"`
-	IsSigned     bool               `json:"is_signed"`
-	IsStealth    bool               `json:"is_stealth"`
-	KEMAlgorithm string             `json:"kem_algorithm,omitempty"`
-	SIGAlgorithm string             `json:"sig_algorithm,omitempty"`
-	KDFDetails   string             `json:"kdf_details,omitempty"`
-	SignedBy     *SignedByEvidence  `json:"signed_by,omitempty"`
+	Status       string            `json:"status"`
+	Path         string            `json:"path"`
+	Output       string            `json:"output,omitempty"`
+	Type         string            `json:"type"` // "symmetric" or "asymmetric"
+	ProfileID    byte              `json:"profile_id"`
+	Compressed   bool              `json:"compressed"`
+	IsArchive    bool              `json:"is_archive"`
+	IsSigned     bool              `json:"is_signed"`
+	IsStealth    bool              `json:"is_stealth"`
+	KEMAlgorithm string            `json:"kem_algorithm,omitempty"`
+	SIGAlgorithm string            `json:"sig_algorithm,omitempty"`
+	KDFDetails   string            `json:"kdf_details,omitempty"`
+	SignedBy     *SignedByEvidence `json:"signed_by,omitempty"`
 }
 
 // SignedByEvidence provides information about the signer of a file.
@@ -40,14 +40,14 @@ type IdentityResult struct {
 
 // VaultResult is the standard JSON output for vault operations.
 type VaultResult struct {
-	Status           string             `json:"status"`
-	Vault            string             `json:"vault,omitempty"`
-	Deleted          string             `json:"deleted,omitempty"`
-	Threshold        int                `json:"threshold,omitempty"`
-	Shares           []string           `json:"shares,omitempty"`
-	RecoveredEntries int                `json:"recovered_entries,omitempty"`
-	Output           string             `json:"output,omitempty"`
-	Entries          []VaultListEntry   `json:"entries,omitempty"`
+	Status           string           `json:"status"`
+	Vault            string           `json:"vault,omitempty"`
+	Deleted          string           `json:"deleted,omitempty"`
+	Threshold        int              `json:"threshold,omitempty"`
+	Shares           []string         `json:"shares,omitempty"`
+	RecoveredEntries int              `json:"recovered_entries,omitempty"`
+	Output           string           `json:"output,omitempty"`
+	Entries          []VaultListEntry `json:"entries,omitempty"`
 }
 
 // VaultListEntry is a simplified vault entry for listing.

@@ -202,4 +202,3 @@ func TestStealthAsymmetricRoundTrip(t *testing.T) {
 		t.Errorf("Content mismatch. Got %q", decrypted.String())
 	}
 }
-

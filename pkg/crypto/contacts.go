@@ -13,10 +13,10 @@ import (
 
 // Contact represents a locally trusted identity (Petname).
 type Contact struct {
-	Petname   string    `json:"petname"`    // Local alias (e.g., "@alice")
-	KEMPubKey []byte    `json:"kem_pub"`    // ML-KEM Public Key
-	SIGPubKey []byte    `json:"sig_pub"`    // ML-DSA Public Key
-	Nickname  string    `json:"nickname"`   // Peer's suggested name
+	Petname   string    `json:"petname"`  // Local alias (e.g., "@alice")
+	KEMPubKey []byte    `json:"kem_pub"`  // ML-KEM Public Key
+	SIGPubKey []byte    `json:"sig_pub"`  // ML-DSA Public Key
+	Nickname  string    `json:"nickname"` // Peer's suggested name
 	AddedAt   time.Time `json:"added_at"`
 	Notes     string    `json:"notes,omitempty"`
 }
