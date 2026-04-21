@@ -35,6 +35,7 @@ func IdentityCmd() *cobra.Command {
 }
 
 func identityPublishCmd() *cobra.Command {
+	var passphrase string
 	cmd := &cobra.Command{
 		Use:   "publish [handle]",
 		Short: "Anchor your active identity to the global registry (dPKI)",
@@ -46,7 +47,6 @@ func identityPublishCmd() *cobra.Command {
 			}
 
 			// 1. Get active identity
-			// (Assuming logic to find active identity exists or we default to 'default')
 			name := "default" // Simplified for POC
 
 			basePath, _, err := resolveBaseKeyPath(name)
@@ -63,7 +63,30 @@ func identityPublishCmd() *cobra.Command {
 				return err
 			}
 
-			// 2. Create the record
+			// 2. Load and unlock SIG private key to sign the record
+			sigKeyPath := basePath + ".sig.key"
+			sigKeyBytes, err := os.ReadFile(sigKeyPath)
+			if err != nil {
+				return err
+			}
+			
+			var sigPriv []byte
+			if len(sigKeyBytes) > 4 && string(sigKeyBytes[:4]) == crypto.MagicHeader {
+				pass, err := unlockPrivateKey([]byte(passphrase), sigKeyPath, false)
+				if err != nil {
+					return err
+				}
+				var unlocked bytes.Buffer
+				if _, err := crypto.DecryptStream(bytes.NewReader(sigKeyBytes), &unlocked, pass, 1, false); err != nil {
+					return err
+				}
+				sigPriv = unlocked.Bytes()
+			} else {
+				sigPriv = sigKeyBytes
+			}
+			defer crypto.SafeClear(sigPriv)
+
+			// 3. Create and sign the record
 			record := &crypto.IdentityRecord{
 				Handle:    handle,
 				KEMPubKey: kemPub,
@@ -71,22 +94,26 @@ func identityPublishCmd() *cobra.Command {
 				Timestamp: time.Now(),
 			}
 
-			// 3. In a real scenario, we'd sign this record with the private key.
-			// For the POC, we'll just publish it.
+			if err := record.Sign(sigPriv); err != nil {
+				return fmt.Errorf("failed to sign identity record: %w", err)
+			}
+
+			// 4. Publish to Registry
 			if err := crypto.GlobalRegistry.Publish(context.Background(), record); err != nil {
 				return err
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"status": "success", "handle": handle, "registry": "mock"})
+				printJSON(map[string]string{"status": "success", "handle": handle, "registry": "bolt"})
 			} else {
 				fmt.Printf("🚀 Identity published to Global Registry as %s\n", handle)
-				fmt.Println("Note: This is currently using a mock session-based registry.")
+				fmt.Println("Note: This is currently using a local persistent bbolt database.")
 			}
 
 			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase to unlock your signing key")
 	return cmd
 }
 

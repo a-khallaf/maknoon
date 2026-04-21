@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
+	"strings"
 	"time"
+
+	"go.etcd.io/bbolt"
 )
 
 // IdentityRecord represents a globally discoverable identity anchored to a registry.
@@ -21,83 +23,152 @@ type IdentityRecord struct {
 	Revoked   bool      `json:"revoked"`   // Revocation status
 }
 
+// Sign self-signs the record using an ML-DSA private key.
+func (r *IdentityRecord) Sign(privKey []byte) error {
+	// Reset signature before signing
+	r.Signature = nil
+	data, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	sig, err := SignData(data, privKey)
+	if err != nil {
+		return err
+	}
+	r.Signature = sig
+	return nil
+}
+
+// Verify checks the record's self-signature against its public signing key.
+func (r *IdentityRecord) Verify() bool {
+	if len(r.Signature) == 0 {
+		return false
+	}
+	sig := r.Signature
+	r.Signature = nil
+	defer func() { r.Signature = sig }()
+
+	data, _ := json.Marshal(r)
+	return VerifySignature(data, sig, r.SIGPubKey)
+}
+
 // IdentityRegistry defines the bridge between Maknoon and a decentralized ledger (dPKI).
 type IdentityRegistry interface {
 	// Resolve fetches an identity record by its handle.
 	Resolve(ctx context.Context, handle string) (*IdentityRecord, error)
 
 	// Publish anchors a new identity or updates an existing one.
-	// requires proof of ownership (self-signature).
 	Publish(ctx context.Context, record *IdentityRecord) error
 
 	// Revoke marks an identity as compromised or inactive.
 	Revoke(ctx context.Context, handle string, proof []byte) error
 }
 
-// MockRegistry is a persistent, file-based implementation for development and testing.
-type MockRegistry struct {
-	mu      sync.RWMutex
-	records map[string]*IdentityRecord
-	path    string
+// BoltRegistry is a persistent, bbolt-based implementation simulating a blockchain ledger.
+type BoltRegistry struct {
+	db   *bbolt.DB
+	path string
 }
 
-func NewMockRegistry() *MockRegistry {
+const registryBucket = "identities"
+
+func NewBoltRegistry() (*BoltRegistry, error) {
 	home, _ := os.UserHomeDir()
-	path := filepath.Join(home, MaknoonDir, "registry.json")
-	m := &MockRegistry{
-		records: make(map[string]*IdentityRecord),
-		path:    path,
+	path := filepath.Join(home, MaknoonDir, "registry.db")
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
 	}
-	m.load()
-	return m
-}
 
-func (m *MockRegistry) load() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	data, err := os.ReadFile(m.path)
-	if err == nil {
-		_ = json.Unmarshal(data, &m.records)
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open registry database: %w", err)
 	}
+
+	err = db.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(registryBucket))
+		return err
+	})
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return &BoltRegistry{db: db, path: path}, nil
 }
 
-func (m *MockRegistry) save() {
-	data, _ := json.MarshalIndent(m.records, "", "  ")
-	_ = os.WriteFile(m.path, data, 0600)
+func (r *BoltRegistry) Close() error {
+	return r.db.Close()
 }
 
-func (m *MockRegistry) Resolve(_ context.Context, handle string) (*IdentityRecord, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	record, ok := m.records[handle]
-	if !ok {
-		return nil, fmt.Errorf("handle '%s' not found in registry", handle)
+func (r *BoltRegistry) Resolve(_ context.Context, handle string) (*IdentityRecord, error) {
+	var record IdentityRecord
+	err := r.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(registryBucket))
+		v := b.Get([]byte(strings.ToLower(handle)))
+		if v == nil {
+			return fmt.Errorf("handle '%s' not found", handle)
+		}
+		return json.Unmarshal(v, &record)
+	})
+	if err != nil {
+		return nil, err
 	}
 	if record.Revoked {
 		return nil, errors.New("identity has been revoked")
 	}
-	return record, nil
-}
-
-func (m *MockRegistry) Publish(_ context.Context, record *IdentityRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.records[record.Handle] = record
-	m.save()
-	return nil
-}
-
-func (m *MockRegistry) Revoke(_ context.Context, handle string, _ []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if record, ok := m.records[handle]; ok {
-		record.Revoked = true
-		m.save()
-		return nil
+	
+	// Crucial: Verify integrity
+	if !record.Verify() {
+		return nil, errors.New("identity record signature verification failed")
 	}
-	return fmt.Errorf("handle '%s' not found", handle)
+
+	return &record, nil
 }
 
-// GlobalRegistry is the active dPKI provider. 
-// Defaulting to nil/Mock allows for incremental adoption.
-var GlobalRegistry IdentityRegistry = NewMockRegistry()
+func (r *BoltRegistry) Publish(_ context.Context, record *IdentityRecord) error {
+	if !record.Verify() {
+		return errors.New("cannot publish unverified record")
+	}
+
+	return r.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(registryBucket))
+		data, _ := json.Marshal(record)
+		return b.Put([]byte(strings.ToLower(record.Handle)), data)
+	})
+}
+
+func (r *BoltRegistry) Revoke(_ context.Context, handle string, proof []byte) error {
+	return r.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(registryBucket))
+		v := b.Get([]byte(strings.ToLower(handle)))
+		if v == nil {
+			return fmt.Errorf("handle '%s' not found", handle)
+		}
+		var record IdentityRecord
+		json.Unmarshal(v, &record)
+
+		// In a real scenario, 'proof' would be a signed revocation message.
+		// For POC, we verify the proof against the existing SIG key.
+		if !VerifySignature([]byte("REVOKE:"+handle), proof, record.SIGPubKey) {
+			return errors.New("invalid revocation proof")
+		}
+
+		record.Revoked = true
+		data, _ := json.Marshal(record)
+		return b.Put([]byte(strings.ToLower(handle)), data)
+	})
+}
+
+// GlobalRegistry is the active dPKI provider.
+var GlobalRegistry IdentityRegistry
+
+func init() {
+	// Attempt to initialize the Bolt registry. 
+	// If it fails (e.g. permission issues in restricted environments), we could fallback.
+	reg, err := NewBoltRegistry()
+	if err == nil {
+		GlobalRegistry = reg
+	}
+}
