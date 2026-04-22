@@ -75,7 +75,16 @@ func GetProfile(id byte, r io.Reader) (Profile, error) {
 		return p, nil
 	}
 
-	// Automatic Discovery for Secret Profiles (3-127)
+	// 1. Try to load from Global Config (where custom named profiles are stored)
+	_ = GetGlobalConfig() // This triggers LoadConfig which registers profiles
+	mu.RLock()
+	p, ok = profiles[id]
+	mu.RUnlock()
+	if ok {
+		return p, nil
+	}
+
+	// 2. Automatic Discovery for Secret Profiles (3-127) in legacy separate files
 	if id > 2 && id < 128 {
 		home, err := os.UserHomeDir()
 		if err == nil {
