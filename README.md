@@ -68,6 +68,10 @@ maknoon info secret.pdf.makn
 
 # Securely delete original file after successful encryption
 maknoon encrypt secret.pdf -s "my-pass" --shred
+
+# Use Hyper-Conservative (Non-Lattice) profile for archive data
+maknoon keygen -o id_archive --profile conservative
+maknoon encrypt secret.pdf -p id_archive.kem.pub --profile conservative
 ```
 
 ### 3. Fingerprint Resistance (Stealth Mode)

@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"crypto/cipher"
-	"crypto/hpke"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -115,15 +114,8 @@ func EncryptStreamWithPublicKeysAndSigner(r io.Reader, w io.Writer, pubKeys [][]
 		flags |= FlagSigned
 	}
 
-	kem := hpke.MLKEM768X25519()
-
 	for _, pkBytes := range pubKeys {
-		pubKey, err := kem.NewPublicKey(pkBytes)
-		if err != nil {
-			return fmt.Errorf("invalid recipient public key: %w", err)
-		}
-
-		wrappedMaterial, err := profile.WrapFEK(pubKey, flags, fekEnclave)
+		wrappedMaterial, err := profile.WrapFEK(pkBytes, flags, fekEnclave)
 		if err != nil {
 			return fmt.Errorf("failed to encapsulate for a recipient: %w", err)
 		}

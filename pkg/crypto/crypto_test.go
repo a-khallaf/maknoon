@@ -36,12 +36,10 @@ func TestSymmetricRoundTrip(t *testing.T) {
 func TestAsymmetricRoundTrip(t *testing.T) {
 	data := []byte("Post-Quantum Asymmetric Encryption Test Data")
 	profile := DefaultProfile()
-	priv, pub, err := profile.GenerateHybridKeyPair()
+	privBytes, pubBytes, err := profile.GenerateHybridKeyPair()
 	if err != nil {
 		t.Fatal(err)
 	}
-	pubBytes := pub.Bytes()
-	privBytes, _ := priv.Bytes()
 
 	// 1. Encrypt
 	var encrypted bytes.Buffer
@@ -65,9 +63,7 @@ func TestIntegratedSignThenEncryptUnit(t *testing.T) {
 	profile := DefaultProfile()
 
 	// Recipient keys
-	priv, pub, _ := profile.GenerateHybridKeyPair()
-	pubBytes := pub.Bytes()
-	privBytes, _ := priv.Bytes()
+	privBytes, pubBytes, _ := profile.GenerateHybridKeyPair()
 	// Sender keys
 	spub, spriv, _ := profile.GenerateSIGKeyPair()
 
@@ -172,12 +168,10 @@ func TestStealthSymmetricRoundTrip(t *testing.T) {
 func TestStealthAsymmetricRoundTrip(t *testing.T) {
 	data := []byte("Stealth Asymmetric Test")
 	profile := DefaultProfile()
-	priv, pub, err := profile.GenerateHybridKeyPair()
+	privBytes, pubBytes, err := profile.GenerateHybridKeyPair()
 	if err != nil {
 		t.Fatal(err)
 	}
-	pubBytes := pub.Bytes()
-	privBytes, _ := priv.Bytes()
 
 	// 1. Encrypt with Stealth
 	var encrypted bytes.Buffer

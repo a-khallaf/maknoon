@@ -2,10 +2,8 @@ package crypto
 
 import (
 	"crypto/cipher"
-	"crypto/hpke"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"runtime"
 	"sync"
@@ -99,21 +97,16 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		return 0, nil, err
 	}
 
-	kem := hpke.MLKEM768X25519()
-	// Hybrid enc size: 1120. Wrapped FEK: 32. Total recipient block payload: 1152.
-	const encSize = 1120
-	const recipientPayloadSize = encSize + 32
-
-	privKey, err := kem.NewPrivateKey(privKeyBytes)
-	if err != nil {
-		return 0, nil, fmt.Errorf("invalid private key: %w", err)
-	}
+	recipientPayloadSize := profile.RecipientBlockSize()
 
 	var fekEnclave *memguard.Enclave
 
 	// Search for our recipient block
 	found := false
-	pubKeyBytes := privKey.PublicKey().Bytes()
+	pubKeyBytes, err := profile.DeriveKEMPublic(privKeyBytes)
+	if err != nil {
+		return 0, nil, err
+	}
 	myHash := Sha256Sum(pubKeyBytes)[:4]
 
 	for i := 0; i < recipientCount; i++ {
@@ -128,7 +121,7 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 		}
 
 		if !found && string(h) == string(myHash) {
-			enclave, err := profile.UnwrapFEK(privKey, flags, payload)
+			enclave, err := profile.UnwrapFEK(privKeyBytes, flags, payload)
 			if err == nil {
 				fekEnclave = enclave
 				found = true

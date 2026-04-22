@@ -19,7 +19,7 @@ func KeygenCmd() *cobra.Command {
 	var passphrase string
 	var useFido2 bool
 	var quiet bool
-	var profile int
+	var profileStr string
 	var profileFile string
 
 	// KDF overrides
@@ -36,10 +36,25 @@ func KeygenCmd() *cobra.Command {
 			var err error
 
 			if profileFile != "" {
-				if err := loadCustomProfile(profileFile, &profile); err != nil {
+				var profileID int
+				if err := loadCustomProfile(profileFile, &profileID); err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
 						return err
+					}
+					return err
+				}
+				profileStr = fmt.Sprintf("%d", profileID)
+			}
+
+			profileID := byte(1)
+			if profileStr != "" {
+				var err error
+				profileID, err = resolveProfile(profileStr)
+				if err != nil {
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
 					}
 					return err
 				}
@@ -83,9 +98,13 @@ func KeygenCmd() *cobra.Command {
 			}
 
 			if !JSONOutput && !quiet {
-				fmt.Println("Generating bleeding-edge Hybrid Post-Quantum identity (ML-KEM-768-X25519 + ML-DSA-87 + Nostr)...")
+				pName := "Hybrid Post-Quantum"
+				if profileID == 3 {
+					pName = "Conservative (Non-Lattice)"
+				}
+				fmt.Printf("Generating bleeding-edge %s identity...\n", pName)
 			}
-			kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, err := crypto.GeneratePQKeyPair()
+			kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, err := crypto.GeneratePQKeyPair(profileID)
 			if err != nil {
 				err := fmt.Errorf("failed to generate keypairs: %w", err)
 				if JSONOutput {
@@ -110,7 +129,7 @@ func KeygenCmd() *cobra.Command {
 				}
 				return err
 			}
-			if err := writeIdentityKeys(basePath, baseName, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, password, byte(profile)); err != nil {
+			if err := writeIdentityKeys(basePath, baseName, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, password, profileID); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
 					return err
@@ -162,7 +181,7 @@ func KeygenCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase to protect the keys")
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key to protect the private keys")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress informational output")
-	cmd.Flags().IntVar(&profile, "profile", 1, "Cryptographic profile ID to protect the keys")
+	cmd.Flags().StringVar(&profileStr, "profile", "nist", "Cryptographic profile (nist, aes, conservative)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file to protect the keys")
 
 	// KDF Flags

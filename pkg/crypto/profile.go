@@ -3,7 +3,6 @@ package crypto
 
 import (
 	"crypto/cipher"
-	"crypto/hpke"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,13 +30,17 @@ type Profile interface {
 	// KEMName returns the name of the Key Encapsulation Mechanism.
 	KEMName() string
 
-	// V2 Hybrid HPKE methods
-	// GenerateHybridKeyPair generates a new hybrid key pair (ML-KEM-768 + X25519).
-	GenerateHybridKeyPair() (hpke.PrivateKey, hpke.PublicKey, error)
+	// KEM methods
+	// GenerateHybridKeyPair generates a new hybrid key pair.
+	GenerateHybridKeyPair() (priv, pub []byte, err error)
+	// DeriveKEMPublic derives the public key from a private key.
+	DeriveKEMPublic(priv []byte) ([]byte, error)
+	// RecipientBlockSize returns the total size of an encrypted FEK block for one recipient.
+	RecipientBlockSize() int
 	// WrapFEK encapsulates an ephemeral symmetric key (FEK) for a recipient.
-	WrapFEK(recipientPub hpke.PublicKey, flags byte, fekEnclave *memguard.Enclave) ([]byte, error)
+	WrapFEK(recipientPub []byte, flags byte, fekEnclave *memguard.Enclave) ([]byte, error)
 	// UnwrapFEK decapsulates the FEK from the header material.
-	UnwrapFEK(recipientPriv hpke.PrivateKey, flags byte, headerData []byte) (*memguard.Enclave, error)
+	UnwrapFEK(recipientPriv []byte, flags byte, headerData []byte) (*memguard.Enclave, error)
 
 	// SIGName returns the name of the digital signature algorithm.
 	SIGName() string

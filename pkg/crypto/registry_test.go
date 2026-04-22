@@ -11,7 +11,7 @@ import (
 
 func TestNostrRegistry(t *testing.T) {
 	// 1. Generate keys for an identity
-	kpub, kpriv, spub, spriv, npub, npriv, err := GeneratePQKeyPair()
+	kpub, kpriv, spub, spriv, npub, npriv, err := GeneratePQKeyPair(1)
 	if err != nil {
 		t.Fatalf("GeneratePQKeyPair failed: %v", err)
 	}

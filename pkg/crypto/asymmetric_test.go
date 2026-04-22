@@ -6,7 +6,7 @@ import (
 )
 
 func TestPublicKeyDerivation(t *testing.T) {
-	kpub, kpriv, spub, spriv, _, npriv, err := GeneratePQKeyPair()
+	kpub, kpriv, spub, spriv, _, npriv, err := GeneratePQKeyPair(1)
 	if err != nil {
 		t.Fatalf("GeneratePQKeyPair failed: %v", err)
 	}

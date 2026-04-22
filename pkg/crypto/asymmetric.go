@@ -10,20 +10,17 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// GeneratePQKeyPair generates a fresh Hybrid (ML-KEM + X25519), ML-DSA, and Secp256k1 (Nostr) keypair.
-func GeneratePQKeyPair() (kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv []byte, err error) {
-	profile := DefaultProfile()
+// GeneratePQKeyPair generates a fresh Hybrid KEM, SIG, and Secp256k1 (Nostr) keypair using the specified profile.
+func GeneratePQKeyPair(profileID byte) (kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv []byte, err error) {
+	profile, err := GetProfile(profileID, nil)
+	if err != nil {
+		profile = DefaultProfile()
+	}
 
-	priv, pub, err := profile.GenerateHybridKeyPair()
+	kemPriv, kemPub, err = profile.GenerateHybridKeyPair()
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
-
-	kemPriv, err = priv.Bytes()
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
-	}
-	kemPub = pub.Bytes()
 
 	sigPub, sigPriv, err = profile.GenerateSIGKeyPair()
 	if err != nil {

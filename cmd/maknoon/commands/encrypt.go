@@ -23,7 +23,7 @@ func EncryptCmd() *cobra.Command {
 	var quiet bool
 	var verbose bool
 	var stealth bool
-	var profile int
+	var profileStr string
 	var profileFile string
 	var tofu bool
 	var shred bool
@@ -66,7 +66,22 @@ func EncryptCmd() *cobra.Command {
 			}
 
 			if profileFile != "" {
-				if err := loadCustomProfile(profileFile, &profile); err != nil {
+				var profileID int
+				if err := loadCustomProfile(profileFile, &profileID); err != nil {
+					if JSONOutput {
+						printErrorJSON(err)
+						return nil
+					}
+					return err
+				}
+				profileStr = fmt.Sprintf("%d", profileID)
+			}
+
+			profileID := byte(0)
+			if profileStr != "" {
+				var err error
+				profileID, err = resolveProfile(profileStr)
+				if err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
 						return nil
@@ -79,7 +94,7 @@ func EncryptCmd() *cobra.Command {
 				Compress:    compress,
 				IsArchive:   isDir,
 				Concurrency: concurrency,
-				ProfileID:   byte(profile),
+				ProfileID:   profileID,
 				Verbose:     verbose,
 				Stealth:     stealth,
 			}
@@ -162,7 +177,7 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&stealth, "stealth", false, "Enable fingerprint resistance (headerless)")
 	cmd.Flags().BoolVar(&tofu, "trust-on-first-use", false, "Automatically add unknown signers to contacts")
 	cmd.Flags().BoolVar(&shred, "shred", false, "Securely delete original file after successful encryption")
-	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID (1: NIST PQC, 2: AES-GCM)")
+	cmd.Flags().StringVar(&profileStr, "profile", "nist", "Cryptographic profile (nist, aes, conservative)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 
 	// KDF overrides

@@ -59,6 +59,25 @@ func SetJSONOutput(enabled bool) {
 	GlobalContext.JSONOutput = enabled
 }
 
+// resolveProfile maps a profile name or ID string to a byte ID.
+func resolveProfile(p string) (byte, error) {
+	switch p {
+	case "1", "nist", "pq":
+		return 1, nil
+	case "2", "aes", "legacy":
+		return 2, nil
+	case "3", "conservative", "hardened":
+		return 3, nil
+	default:
+		// Attempt to parse as direct ID
+		var id byte
+		if _, err := fmt.Sscanf(p, "%d", &id); err == nil {
+			return id, nil
+		}
+		return 0, fmt.Errorf("unknown profile: %s (supported: nist, aes, conservative)", p)
+	}
+}
+
 // validatePath ensures a path is safe to use.
 // In JSON mode, it restricts all file operations to the user's home directory.
 func validatePath(path string) error {

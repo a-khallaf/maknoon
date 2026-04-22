@@ -50,19 +50,51 @@ func (p *ProfileV1) NewAEAD(key []byte) (cipher.AEAD, error) {
 // KEMName returns the KEM algorithm name.
 func (p *ProfileV1) KEMName() string { return "Hybrid ML-KEM-768+X25519" }
 
+// RecipientBlockSize returns the total size of an encrypted FEK block (1120 + 32 = 1152).
+func (p *ProfileV1) RecipientBlockSize() int { return 1152 }
+
 // GenerateHybridKeyPair generates a new hybrid key pair (ML-KEM-768 + X25519).
-func (p *ProfileV1) GenerateHybridKeyPair() (hpke.PrivateKey, hpke.PublicKey, error) {
-	return maknooncrypto.GenerateKeys()
+func (p *ProfileV1) GenerateHybridKeyPair() (priv, pub []byte, err error) {
+	sk, pk, err := maknooncrypto.GenerateKeys()
+	if err != nil {
+		return nil, nil, err
+	}
+	priv, err = sk.Bytes()
+	if err != nil {
+		return nil, nil, err
+	}
+	pub = pk.Bytes()
+	return priv, pub, nil
+}
+
+// DeriveKEMPublic derives the public key from a Hybrid KEM private key.
+func (p *ProfileV1) DeriveKEMPublic(privKeyBytes []byte) ([]byte, error) {
+	kem := hpke.MLKEM768X25519()
+	sk, err := kem.NewPrivateKey(privKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid KEM private key: %w", err)
+	}
+	return sk.PublicKey().Bytes(), nil
 }
 
 // WrapFEK encapsulates the FEK using HPKE.
-func (p *ProfileV1) WrapFEK(recipientPub hpke.PublicKey, flags byte, fekEnclave *memguard.Enclave) ([]byte, error) {
-	return maknooncrypto.WrapEphemeralKey(recipientPub, p.ID(), flags, fekEnclave)
+func (p *ProfileV1) WrapFEK(recipientPub []byte, flags byte, fekEnclave *memguard.Enclave) ([]byte, error) {
+	kem := hpke.MLKEM768X25519()
+	pk, err := kem.NewPublicKey(recipientPub)
+	if err != nil {
+		return nil, err
+	}
+	return maknooncrypto.WrapEphemeralKey(pk, p.ID(), flags, fekEnclave)
 }
 
 // UnwrapFEK decapsulates the FEK using HPKE.
-func (p *ProfileV1) UnwrapFEK(recipientPriv hpke.PrivateKey, flags byte, headerData []byte) (*memguard.Enclave, error) {
-	return maknooncrypto.UnwrapEphemeralKey(recipientPriv, p.ID(), flags, headerData)
+func (p *ProfileV1) UnwrapFEK(recipientPriv []byte, flags byte, headerData []byte) (*memguard.Enclave, error) {
+	kem := hpke.MLKEM768X25519()
+	sk, err := kem.NewPrivateKey(recipientPriv)
+	if err != nil {
+		return nil, err
+	}
+	return maknooncrypto.UnwrapEphemeralKey(sk, p.ID(), flags, headerData)
 }
 
 // SIGName returns the signature algorithm name.
