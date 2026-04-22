@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/schollz/progressbar/v3"
@@ -12,7 +13,6 @@ import (
 	"golang.org/x/term"
 )
 
-// EncryptCmd returns the cobra command for encrypting files and directories.
 func EncryptCmd() *cobra.Command {
 	var output string
 	var pubKeyPaths []string
@@ -25,6 +25,7 @@ func EncryptCmd() *cobra.Command {
 	var stealth bool
 	var profile int
 	var profileFile string
+	var tofu bool
 
 	// KDF overrides
 	var argonTime uint32
@@ -82,12 +83,7 @@ func EncryptCmd() *cobra.Command {
 				Stealth:     stealth,
 			}
 
-			// Apply KDF overrides to the profile if it's ProfileV1
-			// REFACTOR: This currently only works for symmetric encryption using the default profile.
-			// For a production-grade tool, these would be packed into the header.
-			// For now, we'll focus on the architecture.
-
-			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath); err != nil {
+			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath, tofu); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
 					return err
@@ -155,13 +151,14 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress bars and informational messages")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable internal pipeline tracing (slog)")
 	cmd.Flags().BoolVar(&stealth, "stealth", false, "Enable fingerprint resistance (headerless)")
+	cmd.Flags().BoolVar(&tofu, "trust-on-first-use", false, "Automatically add unknown signers to contacts")
 	cmd.Flags().IntVar(&profile, "profile", 0, "Cryptographic profile ID (1: NIST PQC, 2: AES-GCM)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 
-	// KDF Flags
-	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
-	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")
-	cmd.Flags().Uint8Var(&argonThrd, "argon-threads", 4, "Argon2id parallel threads")
+	// KDF overrides
+	cmd.Flags().Uint32Var(&argonTime, "argon-time", 0, "Argon2id iterations")
+	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 0, "Argon2id memory in KB")
+	cmd.Flags().Uint8Var(&argonThrd, "argon-threads", 0, "Argon2id parallel threads")
 
 	return cmd
 }
@@ -170,37 +167,33 @@ func resolveEncryptInput(path string) (io.Reader, string, int64, bool, error) {
 	if path == "-" {
 		return os.Stdin, "stdin", -1, false, nil
 	}
-	if err := validatePath(path); err != nil {
-		return nil, "", 0, false, err
-	}
-	stat, err := os.Stat(path)
+
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, "", 0, false, err
 	}
-	isDir := stat.IsDir()
-	var totalSize int64
-	if isDir {
-		totalSize = 0
-	} else {
-		totalSize = stat.Size()
+
+	if info.IsDir() {
+		return nil, filepath.Base(path), -1, true, nil
 	}
-	return nil, path, totalSize, isDir, nil
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", 0, false, err
+	}
+	return f, info.Name(), info.Size(), false, nil
 }
 
-func resolveEncryptOutput(output, inputPath string) (io.Writer, string, error) {
-	if output == "-" {
+func resolveEncryptOutput(outPath, inPath string) (io.Writer, string, error) {
+	if outPath == "-" {
 		return os.Stdout, "stdout", nil
 	}
-	outPath := output
-	if outPath == "" {
-		if inputPath == "-" {
-			return nil, "", fmt.Errorf("output path required when reading from stdin (use -o)")
-		}
-		outPath = inputPath + ".makn"
-	}
 
-	if err := validatePath(outPath); err != nil {
-		return nil, "", err
+	if outPath == "" {
+		if inPath == "-" {
+			return nil, "", fmt.Errorf("output path required when reading from stdin")
+		}
+		outPath = inPath + ".makn"
 	}
 
 	f, err := os.Create(outPath)
@@ -228,7 +221,8 @@ func loadCustomProfile(path string, profileID *int) error {
 	}
 	return nil
 }
-func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, passphrase, inputPath string) error {
+
+func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, passphrase, inputPath string, tofu bool) error {
 	m := crypto.NewIdentityManager()
 	if len(pubKeyPaths) == 0 {
 		if env := os.Getenv("MAKNOON_PUBLIC_KEY"); env != "" {
@@ -237,7 +231,7 @@ func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, pass
 	}
 
 	for _, path := range pubKeyPaths {
-		pk, err := m.ResolvePublicKey(path)
+		pk, err := m.ResolvePublicKey(path, tofu)
 		if err != nil {
 			return err
 		}

@@ -8,6 +8,7 @@ Encrypts a single file or an entire directory.
 -   `--public-key`, `-p`: Encrypt for specific Post-Quantum recipients.
 -   `--sign-key`: Integrated digital signature.
 -   `--stealth`: Omit magic header bytes.
+-   `--trust-on-first-use`: Automatically save resolved public keys to local contacts.
 
 ### `maknoon decrypt [file]`
 Decrypts and restores data.
@@ -22,6 +23,7 @@ Sends data via secure ephemeral P2P (Magic Wormhole style).
 -   `--text`: Send raw text instead of a file (Zero-Disk).
 -   `--public-key`, `-p`: Encrypt for a specific recipient (Asymmetric mode).
 -   `--stealth`: Enable stealth mode for the transfer.
+-   `--trust-on-first-use`: Automatically save resolved public keys to local contacts.
 
 ### `maknoon receive [code]`
 Receives data from a peer using a wormhole code.

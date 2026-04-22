@@ -26,9 +26,12 @@ func configListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all active configuration settings",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
-			conf, _ := crypto.LoadConfig()
+			conf, err := crypto.LoadConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
 			if JSONOutput {
 				printJSON(conf)
@@ -50,6 +53,7 @@ func configListCmd() *cobra.Command {
 				fmt.Printf("    Keys:             %s\n", conf.Paths.KeysDir)
 				fmt.Printf("    Vaults:           %s\n", conf.Paths.VaultsDir)
 			}
+			return nil
 		},
 	}
 }
@@ -73,7 +77,11 @@ Keys:
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
-			conf, _ := crypto.LoadConfig()
+			conf, err := crypto.LoadConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load config for update: %w", err)
+			}
+
 			key := args[0]
 			val := args[1]
 
@@ -107,6 +115,10 @@ Keys:
 				conf.Paths.VaultsDir = val
 			default:
 				return fmt.Errorf("unknown configuration key: %s", key)
+			}
+
+			if err := conf.Validate(); err != nil {
+				return fmt.Errorf("invalid configuration value: %w", err)
 			}
 
 			if err := conf.Save(); err != nil {

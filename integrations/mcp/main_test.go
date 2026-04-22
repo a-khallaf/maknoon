@@ -296,7 +296,7 @@ func TestMCPServerTools(t *testing.T) {
 
 		res := s.HandleMessage(ctx, req)
 		resRaw, _ := json.Marshal(res)
-		if !strings.Contains(string(resRaw), "success") || !strings.Contains(string(resRaw), "bolt") {
+		if !strings.Contains(string(resRaw), "success") || !strings.Contains(string(resRaw), "contacts") {
 			t.Errorf("Identity publish local failed. Result: %s", string(resRaw))
 		}
 	})

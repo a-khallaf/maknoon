@@ -23,6 +23,7 @@ var (
 	sendPublicKey  string
 	rendezvousURL  string
 	transitRelay   string
+	sendTofu       bool
 )
 
 // SendCmd returns the cobra command for sending files via ephemeral P2P.
@@ -82,13 +83,10 @@ func SendCmd() *cobra.Command {
 			}
 
 			if sendPublicKey != "" {
-				pk := crypto.ResolveKeyPath(sendPublicKey, "")
-				if pk == "" {
-					return fmt.Errorf("public key not found: %s", sendPublicKey)
-				}
-				pkBytes, err := os.ReadFile(pk)
+				im := crypto.NewIdentityManager()
+				pkBytes, err := im.ResolvePublicKey(sendPublicKey, sendTofu)
 				if err != nil {
-					return fmt.Errorf("failed to read public key: %w", err)
+					return err
 				}
 				opts.PublicKey = pkBytes
 				opts.Passphrase = nil // Clear passphrase for asymmetric mode
@@ -212,6 +210,7 @@ func SendCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&quietSend, "quiet", "q", false, "Suppress informational messages")
 	cmd.Flags().StringVar(&sendText, "text", "", "Send raw text instead of a file")
 	cmd.Flags().StringVarP(&sendPublicKey, "public-key", "p", "", "Encrypt for a specific recipient's identity (bypasses passphrase)")
+	cmd.Flags().BoolVar(&sendTofu, "trust-on-first-use", false, "Automatically add unknown signers to contacts")
 	cmd.Flags().StringVar(&rendezvousURL, "rendezvous-url", "", "Custom Magic Wormhole rendezvous server URL")
 	cmd.Flags().StringVar(&transitRelay, "transit-relay", "", "Custom Magic Wormhole transit relay address (host:port)")
 

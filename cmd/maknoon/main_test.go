@@ -719,12 +719,12 @@ func TestIntegrationIdentity(t *testing.T) {
 	runRootCmd("keygen", "-o", keyBase, "--no-password")
 
 	// 2. List identities
-	output := runRootCmd("identity", "list")
+	output := runRootCmd("identity", "active")
 	if !strings.Contains(output, keyBase) {
-		t.Errorf("Identity list mismatch. Got: %s", output)
+		t.Errorf("Identity active mismatch. Got: %s", output)
 	}
 
-	// 3. Test 'active' command (Identity Discovery)
+	// 3. Test 'active' command (Identity Discovery JSON)
 	outputActive := runRootCmd("identity", "active", "--json")
 	if !strings.Contains(outputActive, "test_id.kem.pub") {
 		t.Errorf("Identity active discovery failed. Output: %s", outputActive)
@@ -734,9 +734,9 @@ func TestIntegrationIdentity(t *testing.T) {
 	newBase := "renamed_id"
 	runRootCmd("identity", "rename", keyBase, newBase)
 
-	outputNew := runRootCmd("identity", "list")
+	outputNew := runRootCmd("identity", "active")
 	if !strings.Contains(outputNew, newBase) || strings.Contains(outputNew, keyBase) {
-		t.Errorf("Identity rename failed. List output: %s", outputNew)
+		t.Errorf("Identity rename failed. Active output: %s", outputNew)
 	}
 }
 

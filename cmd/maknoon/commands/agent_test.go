@@ -39,7 +39,7 @@ func TestAgentIdentityFlow(t *testing.T) {
 	if err := json.Unmarshal(pubOut.Bytes(), &pubRes); err != nil {
 		t.Fatalf("Failed to parse publish JSON (output: %s): %v", pubOut.String(), err)
 	}
-	if pubRes["status"] != "success" || pubRes["registry"] != "bolt" {
+	if pubRes["status"] != "success" || pubRes["registry"] != "contacts" {
 		t.Errorf("Unexpected publish result: %v", pubRes)
 	}
 

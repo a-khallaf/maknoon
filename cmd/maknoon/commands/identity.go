@@ -12,22 +12,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// IdentityCmd returns the cobra command for managing cryptographic identities.
 func IdentityCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "identity",
 		Short: "Manage Post-Quantum cryptographic identities",
 	}
 
-	cmd.PersistentFlags().BoolVar(&JSONOutput, "json", false, "Output results in JSON format")
-
-	cmd.AddCommand(identityListCmd())
 	cmd.AddCommand(identityActiveCmd())
-	cmd.AddCommand(identityShowCmd())
-	cmd.AddCommand(identityRenameCmd())
+	cmd.AddCommand(identityPublishCmd())
 	cmd.AddCommand(identitySplitCmd())
 	cmd.AddCommand(identityCombineCmd())
-	cmd.AddCommand(identityPublishCmd())
+	cmd.AddCommand(identityInfoCmd())
+	cmd.AddCommand(identityRenameCmd())
 
 	return cmd
 }
@@ -79,9 +75,21 @@ func identityPublishCmd() *cobra.Command {
 
 			domain := strings.TrimPrefix(handle, "@")
 
-			// 4. Handle Local publishing
+			// 4. Handle Local pinning to Contacts
 			if useLocal {
-				if err := crypto.GlobalRegistry.Publish(context.Background(), record); err != nil {
+				cm, err := crypto.NewContactManager()
+				if err != nil {
+					return err
+				}
+				defer cm.Close()
+
+				err = cm.Add(&crypto.Contact{
+					Petname:   handle,
+					KEMPubKey: record.KEMPubKey,
+					SIGPubKey: record.SIGPubKey,
+					AddedAt:   time.Now(),
+				})
+				if err != nil {
 					return err
 				}
 
@@ -89,10 +97,10 @@ func identityPublishCmd() *cobra.Command {
 					printJSON(crypto.IdentityResult{
 						Status:   "success",
 						Handle:   handle,
-						Registry: "bolt",
+						Registry: "contacts",
 					})
 				} else {
-					fmt.Printf("🚀 Identity published to Local Registry as %s\n", handle)
+					fmt.Printf("🚀 Identity pinned to Local Contacts as %s\n", handle)
 				}
 				return nil
 			}
@@ -128,11 +136,11 @@ func identityPublishCmd() *cobra.Command {
 					token = os.Getenv("DESEC_TOKEN")
 				}
 				if token == "" {
-					return fmt.Errorf("deSEC token is required (use --desec-token or DESEC_TOKEN env)")
+					return fmt.Errorf("deSEC token required for automated publishing")
 				}
 
 				dnsReg := crypto.NewDNSRegistry()
-				if err := dnsReg.PublishToDesec(context.Background(), domain, token, record); err != nil {
+				if err := dnsReg.PublishWithKey(context.Background(), record, []byte(token)); err != nil {
 					return fmt.Errorf("deSEC publishing failed: %w", err)
 				}
 
@@ -140,7 +148,7 @@ func identityPublishCmd() *cobra.Command {
 					printJSON(map[string]string{
 						"status":   "success",
 						"registry": "desec",
-						"domain":   domain,
+						"handle":   handle,
 					})
 				} else {
 					fmt.Printf("🚀 Identity successfully published to deSEC.io for %s\n", handle)
@@ -148,7 +156,7 @@ func identityPublishCmd() *cobra.Command {
 				return nil
 			}
 
-			// 6. Handle DNS mode (Manual)
+			// 7. Handle DNS mode (Manual)
 			if useDNS {
 				txt, err := crypto.GetDNSRecordString(record)
 				if err != nil {
@@ -158,60 +166,48 @@ func identityPublishCmd() *cobra.Command {
 				if JSONOutput {
 					printJSON(map[string]string{
 						"status":   "success",
-						"registry": "dns",
+						"registry": "dns_manual",
 						"hostname": "_maknoon." + domain,
-						"record":   txt,
+						"value":    txt,
 					})
 				} else {
 					fmt.Printf("🛡️  DNS Discovery Record for %s:\n\n", handle)
 					fmt.Printf("Hostname: _maknoon.%s\n", domain)
 					fmt.Printf("Type:     TXT\n")
 					fmt.Printf("Value:    %s\n\n", txt)
-					fmt.Println("Note: You must manually add this record to your DNS provider.")
+					fmt.Printf("Add this record to your DNS provider to enable global discovery.\n")
 				}
 				return nil
-			}
-
-			// 7. Publish to local Bolt Registry (POC)
-			if err := crypto.GlobalRegistry.Publish(context.Background(), record); err != nil {
-				return err
-			}
-
-			if JSONOutput {
-				printJSON(crypto.IdentityResult{
-					Status:   "success",
-					Handle:   handle,
-					Registry: "bolt",
-				})
-			} else {
-				fmt.Printf("🚀 Identity published to Local Registry as %s\n", handle)
-				fmt.Println("Note: This is currently using a local persistent bbolt database.")
 			}
 
 			return nil
 		},
 	}
+
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase to unlock your signing key")
 	cmd.Flags().StringVarP(&identityName, "name", "i", "", "Name of the local identity to publish")
 	cmd.Flags().BoolVar(&useDNS, "dns", false, "Generate a DNS TXT record for decentralized discovery")
 	cmd.Flags().BoolVar(&useDesec, "desec", false, "Automatically publish to deSEC.io (requires --desec-token or DESEC_TOKEN)")
 	cmd.Flags().BoolVar(&useNostr, "nostr", false, "Automatically publish to Nostr relays (Default)")
-	cmd.Flags().BoolVar(&useLocal, "local", false, "Publish to local persistent registry only")
+	cmd.Flags().BoolVar(&useLocal, "local", false, "Pin identity to local contacts only")
 	cmd.Flags().StringVar(&desecToken, "desec-token", "", "deSEC.io API token")
+
 	return cmd
 }
 
 func identitySplitCmd() *cobra.Command {
-	var threshold, shares int
+	var threshold int
+	var shares int
 	var passphrase string
 
 	cmd := &cobra.Command{
 		Use:   "split [name]",
-		Short: "Shard a private identity using Shamir's Secret Sharing",
+		Short: "Shard an identity using Shamir's Secret Sharing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			name := args[0]
+
 			m := crypto.NewIdentityManager()
 			id, err := m.LoadIdentity(name, []byte(passphrase), false)
 			if err != nil {
@@ -241,15 +237,13 @@ func identitySplitCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				var jsonShards []string
+				var shareStrings []string
 				for _, s := range shards {
-					jsonShards = append(jsonShards, s.ToMnemonic())
+					shareStrings = append(shareStrings, s.ToMnemonic())
 				}
-				printJSON(crypto.IdentityResult{
-					Status:    "success",
-					Identity:  name,
-					Threshold: threshold,
-					Shares:    jsonShards,
+				printJSON(map[string]interface{}{
+					"status": "success",
+					"shares": shareStrings,
 				})
 			} else {
 				fmt.Printf("🛡️  Identity '%s' sharded into %d parts (Threshold: %d)\n", name, shares, threshold)
@@ -258,13 +252,12 @@ func identitySplitCmd() *cobra.Command {
 					fmt.Printf("\nShare %d:\n%s\n", i+1, s.ToMnemonic())
 				}
 			}
-
 			return nil
 		},
 	}
 
-	cmd.Flags().IntVarP(&threshold, "threshold", "m", 2, "Minimum shares required for reconstruction")
-	cmd.Flags().IntVarP(&shares, "shares", "n", 3, "Total number of shares to generate")
+	cmd.Flags().IntVarP(&threshold, "threshold", "m", 2, "Minimum shares required")
+	cmd.Flags().IntVarP(&shares, "shares", "n", 3, "Total shares to generate")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase to unlock the identity")
 
 	return cmd
@@ -277,12 +270,10 @@ func identityCombineCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "combine [mnemonics...]",
-		Short: "Reconstruct a private identity from shards",
+		Short: "Recover an identity from mnemonic shards",
+		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
-			if len(args) == 0 {
-				return fmt.Errorf("at least one shard mnemonic is required")
-			}
 
 			var shards []crypto.Share
 			for _, mn := range args {
@@ -295,7 +286,7 @@ func identityCombineCmd() *cobra.Command {
 
 			blob, err := crypto.CombineShares(shards)
 			if err != nil {
-				return fmt.Errorf("failed to reconstruct secret: %w", err)
+				return err
 			}
 			defer crypto.SafeClear(blob)
 
@@ -340,7 +331,7 @@ func identityCombineCmd() *cobra.Command {
 			}
 
 			m := crypto.NewIdentityManager()
-			basePath, baseName, err := m.ResolveBaseKeyPath(output)
+			basePath, _, err := m.ResolveBaseKeyPath(output)
 			if err != nil {
 				return err
 			}
@@ -355,7 +346,7 @@ func identityCombineCmd() *cobra.Command {
 			}
 			defer crypto.SafeClear(pass)
 
-			if err := writeIdentityKeys(basePath, baseName, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, pass, 1); err != nil {
+			if err := writeIdentityKeys(basePath, output, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, pass, 1); err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
 					return nil
@@ -364,30 +355,58 @@ func identityCombineCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(crypto.IdentityResult{
-					Status:   "success",
-					BasePath: basePath,
+				printJSON(map[string]string{
+					"status":    "success",
+					"base_path": basePath,
 				})
 			} else {
 				fmt.Printf("Successfully reconstructed and saved identity to %s\n", basePath)
 			}
-
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "restored_id", "Name for the restored identity")
+	cmd.Flags().StringVarP(&output, "output", "o", "recovered", "Name for the recovered identity")
 	cmd.Flags().StringVarP(&protectPassphrase, "passphrase", "s", "", "Passphrase to protect the restored identity")
-	cmd.Flags().BoolVarP(&noPassword, "no-password", "n", false, "Save unprotected (Automation Mode)")
+	cmd.Flags().BoolVarP(&noPassword, "no-password", "n", false, "Do not protect the restored identity with a passphrase")
 
 	return cmd
 }
 
+func identityInfoCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "info [name]",
+		Short: "Show details about a local identity",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
+			name := args[0]
+			m := crypto.NewIdentityManager()
+			basePath, _, err := m.ResolveBaseKeyPath(name)
+			if err != nil {
+				return err
+			}
+
+			if JSONOutput {
+				printJSON(map[string]string{
+					"identity": name,
+					"path":     basePath,
+				})
+			} else {
+				fmt.Printf("Identity: %s\n", name)
+				fmt.Printf("Path:     %s\n", basePath)
+			}
+			return nil
+		},
+	}
+}
+
 func identityActiveCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "active",
 		Short: "List absolute paths of available public keys for encryption",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
 			m := crypto.NewIdentityManager()
 			keys, err := m.ListActiveIdentities()
 			if err != nil {
@@ -399,10 +418,7 @@ func identityActiveCmd() *cobra.Command {
 					"active_keys": keys,
 				})
 			} else {
-				fmt.Println("🛡️  Active Public Keys (Absolute Paths):")
-				if len(keys) == 0 {
-					fmt.Println("  No identities found.")
-				}
+				fmt.Println("Available Public Keys:")
 				for _, k := range keys {
 					fmt.Printf("  - %s\n", k)
 				}
@@ -410,110 +426,19 @@ func identityActiveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	return cmd
-}
-
-func identityListCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List all local identities",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			m := crypto.NewIdentityManager()
-			if _, err := os.Stat(m.KeysDir); os.IsNotExist(err) {
-				if JSONOutput {
-					printJSON([]string{})
-					return nil
-				}
-				fmt.Println("No identities found.")
-				return nil
-			}
-
-			files, err := os.ReadDir(m.KeysDir)
-			if err != nil {
-				return err
-			}
-
-			var identities []string
-			seen := make(map[string]bool)
-			for _, f := range files {
-				name := f.Name()
-				if strings.HasSuffix(name, ".kem.pub") {
-					base := strings.TrimSuffix(name, ".kem.pub")
-					if !seen[base] {
-						identities = append(identities, base)
-						seen[base] = true
-					}
-				}
-			}
-
-			if JSONOutput {
-				printJSON(identities)
-			} else {
-				fmt.Println("🛡️  Maknoon Identities:")
-				if len(identities) == 0 {
-					fmt.Println("  No identities found.")
-				}
-				for _, id := range identities {
-					fmt.Printf("  - %s\n", id)
-				}
-			}
-			return nil
-		},
-	}
-	return cmd
-}
-
-func identityShowCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "show [name]",
-		Short: "Show details for a specific identity",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			name := args[0]
-			m := crypto.NewIdentityManager()
-
-			basePath, _, err := m.ResolveBaseKeyPath(name)
-			if err != nil {
-				return err
-			}
-
-			pubKeyPath := basePath + ".kem.pub"
-			if _, err := os.Stat(pubKeyPath); err != nil {
-				return fmt.Errorf("identity '%s' not found", name)
-			}
-
-			// Check for hardware binding
-			hasFido2 := false
-			if _, err := os.Stat(basePath + ".fido2"); err == nil {
-				hasFido2 = true
-			}
-
-			if JSONOutput {
-				printJSON(map[string]interface{}{
-					"name":     name,
-					"path":     basePath,
-					"hardware": hasFido2,
-				})
-			} else {
-				fmt.Printf("Identity: %s\n", name)
-				fmt.Printf("Path:     %s\n", basePath)
-				fmt.Printf("Hardware: %v\n", hasFido2)
-			}
-			return nil
-		},
-	}
-	return cmd
 }
 
 func identityRenameCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "rename [old_name] [new_name]",
-		Short: "Rename an identity",
+		Use:   "rename [old] [new]",
+		Short: "Rename a local identity",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			oldName, newName := args[0], args[1]
-			m := crypto.NewIdentityManager()
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkJSONMode(cmd)
+			oldName := args[0]
+			newName := args[1]
 
+			m := crypto.NewIdentityManager()
 			oldBase, _, err := m.ResolveBaseKeyPath(oldName)
 			if err != nil {
 				return err
@@ -523,7 +448,8 @@ func identityRenameCmd() *cobra.Command {
 				return err
 			}
 
-			suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2"}
+			// 1. Rename Local Files
+			suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2", ".nostr.key", ".nostr.pub"}
 			renamed := 0
 			for _, s := range suffixes {
 				oldPath := oldBase + s
@@ -538,6 +464,18 @@ func identityRenameCmd() *cobra.Command {
 
 			if renamed == 0 {
 				return fmt.Errorf("identity '%s' not found", oldName)
+			}
+
+			// 2. Rename in Local Contacts
+			cm, err := crypto.NewContactManager()
+			if err == nil {
+				contact, err := cm.Get(oldName)
+				if err == nil {
+					contact.Petname = newName
+					cm.Add(contact)
+					cm.Delete(oldName)
+				}
+				cm.Close()
 			}
 
 			if JSONOutput {

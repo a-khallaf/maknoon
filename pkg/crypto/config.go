@@ -2,6 +2,9 @@ package crypto
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,7 +38,7 @@ type PerformanceConfig struct {
 type NostrConfig struct {
 	Relays          []string `json:"relays"`
 	BootstrapRelays []string `json:"bootstrap_relays"`
-	PublishMetadata bool     `json:"publish_metadata"` // Toggle the "Maknoon Enabled" about note
+	PublishMetadata bool     `json:"publish_metadata"`
 }
 
 type PathConfig struct {
@@ -55,12 +58,12 @@ func DefaultConfig() *Config {
 		DefaultIdentity: "default",
 		Security: SecurityConfig{
 			ArgonTime:    3,
-			ArgonMemory:  64 * 1024, // 64MB
+			ArgonMemory:  64 * 1024,
 			ArgonThreads: 4,
 		},
 		Performance: PerformanceConfig{
-			Concurrency:      0, // Auto
-			CompressionLevel: 3, // Zstd default
+			Concurrency:      0,
+			CompressionLevel: 3,
 			DefaultStealth:   false,
 		},
 		Nostr: NostrConfig{
@@ -82,7 +85,33 @@ func DefaultConfig() *Config {
 	}
 }
 
-// LoadConfig reads the config from ~/.maknoon/config.json or returns defaults.
+// Validate checks for logical errors in the configuration.
+func (c *Config) Validate() error {
+	if c.Security.ArgonMemory < 1024 {
+		return errors.New("security.argon_memory must be at least 1024 KB")
+	}
+	if c.Security.ArgonTime < 1 {
+		return errors.New("security.argon_time must be at least 1")
+	}
+	if c.Security.ArgonThreads < 1 {
+		return errors.New("security.argon_threads must be at least 1")
+	}
+
+	for _, r := range c.Nostr.Relays {
+		u, err := url.Parse(r)
+		if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") {
+			return fmt.Errorf("invalid nostr relay URL: %s (must be ws:// or wss://)", r)
+		}
+	}
+
+	if c.Paths.KeysDir == "" || c.Paths.VaultsDir == "" {
+		return errors.New("system paths cannot be empty")
+	}
+
+	return nil
+}
+
+// LoadConfig reads the config from ~/.maknoon/config.json.
 func LoadConfig() (*Config, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -93,21 +122,24 @@ func LoadConfig() (*Config, error) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		globalConfig = DefaultConfig()
-		return globalConfig, nil
+		return DefaultConfig(), nil
 	}
 
 	path := filepath.Join(home, MaknoonDir, ConfigFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		globalConfig = DefaultConfig()
-		return globalConfig, nil
+		// If file doesn't exist, return memory default without error
+		return DefaultConfig(), nil
 	}
 
 	conf := DefaultConfig()
 	if err := json.Unmarshal(data, conf); err != nil {
-		globalConfig = DefaultConfig()
-		return globalConfig, nil
+		return nil, fmt.Errorf("config file is corrupted (invalid JSON): %w", err)
+	}
+
+	// Validate the loaded config
+	if err := conf.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	globalConfig = conf
@@ -137,5 +169,8 @@ func (c *Config) Save() error {
 // GetGlobalConfig is a thread-safe helper to get the active config.
 func GetGlobalConfig() *Config {
 	c, _ := LoadConfig()
+	if c == nil {
+		return DefaultConfig()
+	}
 	return c
 }

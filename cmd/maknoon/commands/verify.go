@@ -49,7 +49,7 @@ func VerifyCmd() *cobra.Command {
 			}
 
 			im := crypto.NewIdentityManager()
-			pubKeyBytes, err := im.ResolvePublicKey(pubKeyPath)
+			pubKeyBytes, err := im.ResolvePublicKey(pubKeyPath, false)
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)

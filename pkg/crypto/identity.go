@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/awnumar/memguard"
 	"golang.org/x/term"
@@ -202,7 +203,7 @@ func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, resolv
 }
 
 // ResolvePublicKey handles handle resolution (@name) and local file paths.
-func (m *IdentityManager) ResolvePublicKey(input string) ([]byte, error) {
+func (m *IdentityManager) ResolvePublicKey(input string, tofu bool) ([]byte, error) {
 	if strings.HasPrefix(input, "@") {
 		// 1. Check local contacts (Petnames)
 		cm, err := NewContactManager()
@@ -215,32 +216,39 @@ func (m *IdentityManager) ResolvePublicKey(input string) ([]byte, error) {
 			cm.Close()
 		}
 
-		// 2. Fallback to Global Registry (Local Bolt Prototype)
-		if GlobalRegistry != nil {
-			record, err := GlobalRegistry.Resolve(context.Background(), input)
-			if err == nil {
-				return record.KEMPubKey, nil
-			}
-		}
+		var record *IdentityRecord
 
-		// 3. Try Nostr if it's a nostr handle
+		// 2. Try Nostr if it's a nostr handle
 		if strings.HasPrefix(input, "@nostr:") || strings.HasPrefix(input, "npub1") {
 			nostrReg := NewNostrRegistry()
-			record, err := nostrReg.Resolve(context.Background(), input)
-			if err == nil {
-				return record.KEMPubKey, nil
-			}
-			return nil, fmt.Errorf("failed to resolve nostr handle: %w", err)
+			record, err = nostrReg.Resolve(context.Background(), input)
+		} else {
+			// 3. Try DNS resolution directly
+			dnsReg := NewDNSRegistry()
+			record, err = dnsReg.Resolve(context.Background(), input)
 		}
 
-		// 4. Last resort: Try DNS resolution directly
-		dnsReg := NewDNSRegistry()
-		record, err := dnsReg.Resolve(context.Background(), input)
-		if err == nil {
+		if err == nil && record != nil {
+			// Handle TOFU (Trust On First Use)
+			if tofu {
+				cm, _ := NewContactManager()
+				if cm != nil {
+					cm.Add(&Contact{
+						Petname:   input,
+						KEMPubKey: record.KEMPubKey,
+						SIGPubKey: record.SIGPubKey,
+						AddedAt:   time.Now(),
+					})
+					cm.Close()
+				}
+			}
 			return record.KEMPubKey, nil
 		}
 
-		return nil, fmt.Errorf("failed to resolve handle: %s (tried local, registry, and dns)", input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve handle %s: %w", input, err)
+		}
+		return nil, fmt.Errorf("failed to resolve handle: %s", input)
 	}
 
 	resolvedPath := m.ResolveKeyPath(input, "")
