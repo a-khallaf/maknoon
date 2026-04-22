@@ -13,11 +13,12 @@ This allows agents to use Maknoon without being configured with the `--json` fla
 Maknoon includes a native Go-based MCP server in `integrations/mcp`. 
 
 ### Available Tools
-*   `inspect_file`: Returns JSON metadata about an encrypted file (Type, Profile, KEM, SIG, KDF).
+*   `inspect_file`: Returns JSON metadata about an encrypted file.
 *   `encrypt_file` / `decrypt_file`: Direct file-to-file or file-to-stdout protection.
 *   `gen_password` / `gen_passphrase`: Generates high-entropy secrets for the agent to use.
 *   `vault_get` / `vault_set`: Manage credentials in the secure bbolt-backed vault.
 *   `identity_active`: Automatically lists public keys found on the system.
+*   `identity_publish`: Anchors the agent's identity to a global handle (Nostr/DNS).
 
 ### Configuration for Claude Desktop
 Add the following to your `claude_desktop_config.json`:
@@ -28,20 +29,22 @@ Add the following to your `claude_desktop_config.json`:
       "command": "go",
       "args": ["run", "/path/to/maknoon/integrations/mcp/main.go"],
       "env": {
-        "MAKNOON_BINARY": "/path/to/maknoon/maknoon"
+        "MAKNOON_BINARY": "/path/to/maknoon/maknoon",
+        "MAKNOON_AGENT_MODE": "1"
       }
     }
   }
 }
 ```
 
-## 🐍 LangChain Integration
-A complete toolkit is provided in `integrations/langchain/maknoon_agent_tool.py`. It uses the `@tool` decorator from `langchain-core` and automatically handles the environment-based "Agent Handshake".
+## 🏗 Self-Describing CLI (Schema)
+The most powerful tool for agents is the `maknoon schema` command. It outputs a recursive JSON-Schema of every available command, flag, and argument.
 
-### Key Features
-- **JSON Parsing**: Automatically parses CLI output into Python dictionaries.
-- **Safety**: Passphrases and passwords are passed via environment variables to avoid process list exposure.
-- **Raw Data Support**: `decrypt_maknoon_file` correctly returns raw strings by suppressing the JSON status metadata.
+### Usage
+```bash
+maknoon schema
+```
+Agents should run this command when first interacting with Maknoon to build an internal map of supported flags (e.g., `--nostr`, `--stealth`, `--compress`) without requiring a manual README lookup.
 
 ## 🛠 Automation Variables
 *   `MAKNOON_AGENT_MODE`: Set to `1` to enable the Agent Handshake.

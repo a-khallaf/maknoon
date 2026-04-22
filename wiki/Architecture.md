@@ -21,5 +21,6 @@ When a directory is provided as input, Maknoon streams it through an internal **
 ## 🛡 Global Identity & Recovery (v1.5)
 The architecture includes a decentralized discovery and recovery layer:
 *   **dPKI Bridge**: An abstract registry interface that maps human-readable handles (`@name`) to PQC public keys. It enforces local **Petname** overrides for zero-server trust.
-*   **Self-Signed Records**: All identity records are signed using **ML-DSA-87**, providing cryptographic proof of ownership that persists even on untrusted discovery layers (like Nostr or IPFS).
-*   **Shamir's Recovery**: High-value secrets are sharded using SSS over $GF(2^8)$. Shards are encoded as **BIP-39 mnemonics**, enabling offline "Break Glass" recovery of identities and vaults.
+*   **Self-Signed Records**: All identity records are signed using **ML-DSA-87**, providing cryptographic proof of ownership that persists even on untrusted discovery layers.
+*   **Nostr Discovery**: Maknoon leverages the global **Nostr** relay network as its primary decentralized discovery layer. Because PQC keys are large (~5KB), Nostr's metadata events (Kind 0) provide a much more robust transport than traditional DHTs.
+*   **Shamir's Recovery**: High-value secrets are sharded using SSS over $GF(2^8)$. Shards are encoded as **BIP-39 mnemonics**, enabling offline "Break Glass" recovery of identities (including PQC and Nostr keys) and vaults.

@@ -50,6 +50,14 @@ Generates a NIST-standard Post-Quantum identity.
 ### `maknoon identity active`
 Lists all public keys available on the system. Optimized for AI agent discovery.
 
+### `maknoon identity publish [handle]`
+Anchors your active identity to a global registry for trustless discovery.
+-   Defaults to **Nostr** relays.
+-   `--nostr`: Explicitly publish to Nostr (Kind 0).
+-   `--dns`: Generate a DNS TXT record.
+-   `--desec`: Automatically publish to deSEC.io.
+-   `--local`: Register only in the local database.
+
 ### `maknoon identity split [name]`
 Shards a private identity using Shamir's Secret Sharing.
 -   `-m`, `--threshold`: Minimum shares required (default: 2).
@@ -82,3 +90,14 @@ Shards the vault's master access key.
 ### `maknoon vault recover [shards...]`
 Recovers vault contents using reconstructed access material.
 -   `-o`, `--output`: Path to save recovered entries as a new vault.
+
+## System Utilities
+
+### `maknoon config [subcommand]`
+Manages global Maknoon settings (relays, gateways, default identity).
+-   `list`: View active settings.
+-   `set [key] [value]`: Update a specific setting.
+-   `init`: Initialize default config file.
+
+### `maknoon schema`
+Outputs a recursive JSON-Schema of every command and flag. Designed for autonomous AI agents to dynamically discover Maknoon's capabilities.
