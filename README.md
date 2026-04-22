@@ -135,8 +135,29 @@ maknoon chat
 maknoon chat 4-giant-pigeon
 ```
 
+### ⚙️ Universal Configuration
+Manage relays, default identities, and system paths via a machine-readable JSON config.
+
+```bash
+# Initialize defaults
+maknoon config init
+
+# List active settings
+maknoon config list
+
+# Customize Nostr relays
+maknoon config set nostr.relays "wss://my-relay.com,wss://nos.lol"
+```
+
 ## 🤖 Agentic AI Integration
-Maknoon is **Agent-Ready** with strict JSON output, non-interactive environment triggers, and a comprehensive integration suite.
+Maknoon is the first **Agent-Native** Post-Quantum tool, providing dynamic self-description and structured interfaces.
+
+### Self-Describing CLI (Schema)
+Agents can discover Maknoon's full capabilities dynamically using the `schema` command, which outputs a recursive JSON-Schema of every command and flag.
+
+```bash
+maknoon schema
+```
 
 ### Agent Handshake
 If `MAKNOON_AGENT_MODE=1` is set, Maknoon automatically switches to JSON mode whenever its output is piped or redirected (not a TTY), allowing for seamless "zero-config" agent integration.
