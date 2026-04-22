@@ -178,15 +178,6 @@ Maknoon includes a native Go-based MCP server for deep integration with **Claude
 - `vault_get` / `vault_set`: Secure secret management.
 - `identity_active`: Automated key discovery.
 
-### 🐍 LangChain Integration
-A Python-based toolkit is available in `integrations/langchain/` for building autonomous agents that can manage encryption and secrets.
-
-```python
-from maknoon_agent_tool import encrypt_maknoon_file, get_maknoon_file_info
-# Agents can now autonomously verify file security before processing
-info = get_maknoon_file_info.invoke({"file_path": "data.makn"})
-```
-
 ---
 
 ## 🏗 Security Architecture

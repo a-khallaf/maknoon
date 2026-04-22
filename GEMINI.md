@@ -6,7 +6,7 @@ Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on e
 
 - **`cmd/maknoon/`**: Entry point (`main.go`) and CLI command definitions using Cobra. CLI commands should remain "thin," delegating logic to the service layer.
 - **`pkg/crypto/`**: Core library implementing the cryptographic pipeline, streaming logic, and FIDO2 integration.
-- **`integrations/`**: Third-party wrappers and tools (e.g., Python/LangChain, MCP Server).
+- **`integrations/`**: Third-party wrappers and tools (e.g., MCP Server).
 - **`pkg/crypto/shares.go`**: Core Shamir's Secret Sharing engine with mnemonic support.
 - **`pkg/crypto/registry.go`**: Identity Bridge interface and Bolt-based local registry.
 - **`pkg/crypto/registry_nostr.go`**: Global discovery via Nostr Kind 0 metadata events.
@@ -66,19 +66,17 @@ Maknoon MUST remain self-describing for autonomous agents.
 
 ### Prerequisites
 - Go 1.25 or higher.
-- `uv` for Python integration tasks.
 
 ### Key Commands
 - **Build**: `go build -o maknoon ./cmd/maknoon`
 - **Test**: `go test ./...`
-- **Python Tests**: `uv run python3 integrations/langchain/test_maknoon_agent_tool.py`
 
 ## 🚀 Development Workflow
 
 1.  **Dedicated Branching**: ALWAYS create a new feature branch (`feat/...`, `fix/...`) BEFORE committing.
 2.  **Pre-Push Requirements**:
     *   **Update Documentation**: Sync `README.md`, `maknoon.1`, and `wiki/`.
-    *   **Verify Tests**: Ensure 100% pass rate on all Go and Python integration tests.
+    *   **Verify Tests**: Ensure 100% pass rate on all Go tests.
     *   **Formatting**: Run `gofmt -w .` project-wide.
 3.  **Mandatory Pull Requests**: Direct commits to `main` are restricted. Changes must be verified via CI/CD before merging.
 

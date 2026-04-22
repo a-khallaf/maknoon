@@ -1,6 +1,6 @@
 # AI Agent Integration
 
-Maknoon is a first-class citizen for AI agents and LLM-based assistants. It follows the **Model Context Protocol (MCP)** and provides native automated discovery and toolkits for Python-based agentic workflows.
+Maknoon is a first-class citizen for AI agents and LLM-based assistants. It follows the **Model Context Protocol (MCP)** and provides native automated discovery and toolkits for agentic workflows.
 
 ## 🤖 Agent Handshake
 Maknoon automatically switches to JSON mode if:
