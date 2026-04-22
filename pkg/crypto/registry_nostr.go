@@ -101,7 +101,7 @@ func (r *NostrRegistry) Resolve(ctx context.Context, handle string) (*IdentityRe
 }
 
 func (r *NostrRegistry) Publish(ctx context.Context, record *IdentityRecord) error {
-	return fmt.Errorf("Nostr publishing requires a private Secp256k1 key (use PublishWithKey)")
+	return fmt.Errorf("nostr publishing requires a private Secp256k1 key (use PublishWithKey)")
 }
 
 func (r *NostrRegistry) PublishWithKey(ctx context.Context, record *IdentityRecord, nostrPrivKey []byte) error {
@@ -196,5 +196,5 @@ func (r *NostrRegistry) PublishWithKey(ctx context.Context, record *IdentityReco
 
 func (r *NostrRegistry) Revoke(ctx context.Context, handle string, proof []byte) error {
 	// In Nostr, we'd probably just publish a new event with revoked=true or deleted
-	return fmt.Errorf("Nostr revocation not implemented in POC")
+	return fmt.Errorf("nostr revocation not implemented in POC")
 }
