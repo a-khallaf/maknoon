@@ -26,7 +26,7 @@ func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concur
 }
 
 // EncryptStreamWithEvents is the extended version of EncryptStream that supports telemetry.
-func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte, eventStream chan<- EngineEvent) error {
+func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte, emitter EventEmitter) error {
 	profile := DefaultProfile()
 	if profileID != 0 {
 		var err error
@@ -73,7 +73,7 @@ func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags by
 	}
 
 	// 5. Stream Encrypt Chunks
-	return streamEncrypt(r, w, aead, baseNonce, concurrency, eventStream)
+	return streamEncrypt(r, w, aead, baseNonce, concurrency, emitter)
 }
 
 // EncryptStreamWithPublicKeys encrypts data from r to w for one or more recipients.
@@ -82,7 +82,7 @@ func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, fla
 }
 
 // EncryptStreamWithPublicKeysAndEvents is the extended version of EncryptStreamWithPublicKeys that supports telemetry.
-func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte, eventStream chan<- EngineEvent) error {
+func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte, emitter EventEmitter) error {
 	profile := DefaultProfile()
 	if profileID != 0 {
 		var err error
@@ -204,7 +204,7 @@ func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]
 		return err
 	}
 
-	return streamEncrypt(r, w, aead, baseNonce, concurrency, eventStream)
+	return streamEncrypt(r, w, aead, baseNonce, concurrency, emitter)
 }
 
 // EncryptStreamWithPublicKeysAndSigner is the internal implementation supporting optional integrated signing.
@@ -228,13 +228,13 @@ type encryptResult struct {
 	err   error
 }
 
-func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, eventStream chan<- EngineEvent) error {
+func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, emitter EventEmitter) error {
 	if concurrency <= 0 {
 		concurrency = runtime.NumCPU()
 	}
 
 	if concurrency == 1 {
-		return streamEncryptSequential(r, w, aead, baseNonce, eventStream)
+		return streamEncryptSequential(r, w, aead, baseNonce, emitter)
 	}
 
 	sem := make(chan struct{}, concurrency*4)
@@ -255,7 +255,7 @@ func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 	errChan := make(chan error, 1)
 	go encryptionReader(r, jobs, errChan, sem)
 
-	return encryptionSequencer(w, results, errChan, eventStream)
+	return encryptionSequencer(w, results, errChan, emitter)
 }
 
 func encryptionWorker(wg *sync.WaitGroup, jobs <-chan encryptJob, results chan<- encryptResult, aead cipher.AEAD, baseNonce []byte, sem chan struct{}) {
@@ -315,7 +315,7 @@ func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error,
 	}
 }
 
-func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error, eventStream chan<- EngineEvent) error {
+func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error, emitter EventEmitter) error {
 	// Adapt the channel
 	seqResults := make(chan sequencerResult)
 	go func() {
@@ -331,11 +331,11 @@ func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-ch
 			return err
 		}
 		totalProcessed += int64(len(data))
-		if eventStream != nil {
-			eventStream <- EventChunkProcessed{
+		if emitter != nil {
+			emitter.Emit(EventChunkProcessed{
 				BytesProcessed: int64(len(data)),
 				TotalProcessed: totalProcessed,
-			}
+			})
 		}
 		return nil
 	})
@@ -353,7 +353,7 @@ func writeChunk(w io.Writer, data []byte) error {
 	return nil
 }
 
-func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, eventStream chan<- EngineEvent) error {
+func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, emitter EventEmitter) error {
 	bufPtr := bufferPool.Get().(*[]byte)
 	buf := *bufPtr
 	defer bufferPool.Put(bufPtr)
@@ -380,11 +380,11 @@ func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 				return err
 			}
 			totalProcessed += int64(len(ciphertext))
-			if eventStream != nil {
-				eventStream <- EventChunkProcessed{
+			if emitter != nil {
+				emitter.Emit(EventChunkProcessed{
 					BytesProcessed: int64(len(ciphertext)),
 					TotalProcessed: totalProcessed,
-				}
+				})
 			}
 			chunkIndex++
 		}

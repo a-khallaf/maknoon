@@ -41,6 +41,11 @@ type EventHandshakeComplete struct{}
 
 func (e EventHandshakeComplete) String() string { return "handshake complete" }
 
+// EventEmitter defines a safe way to push telemetry events.
+type EventEmitter interface {
+	Emit(ev EngineEvent)
+}
+
 // EngineContext carries the execution state, telemetry stream, and policy for an operation.
 type EngineContext struct {
 	context.Context
@@ -60,11 +65,13 @@ func NewEngineContext(ctx context.Context, events chan<- EngineEvent, policy Sec
 	}
 }
 
-// Emit safely sends an event to the telemetry stream.
+// Emit safely sends an event to the telemetry stream, preventing panics on closed channels.
 func (c *EngineContext) Emit(ev EngineEvent) {
-	if c != nil && c.Events != nil {
-		c.Events <- ev
+	if c == nil || c.Events == nil {
+		return
 	}
+	defer func() { _ = recover() }()
+	c.Events <- ev
 }
 
 // Protector handles encryption and decryption pipelines.

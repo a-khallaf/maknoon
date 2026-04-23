@@ -96,12 +96,12 @@ func (t *EncryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
 			if logger != nil {
 				logger.Info("starting asymmetric encryption", "recipients", len(allPublicKeys))
 			}
-			err = EncryptStreamWithPublicKeysAndEvents(r, pw, allPublicKeys, t.Options.SigningKey, flags, t.Options.Concurrency, t.Options.ProfileID, t.Options.EventStream)
+			err = EncryptStreamWithPublicKeysAndEvents(r, pw, allPublicKeys, t.Options.SigningKey, flags, t.Options.Concurrency, t.Options.ProfileID, &t.Options)
 		} else {
 			if logger != nil {
 				logger.Info("starting symmetric encryption")
 			}
-			err = EncryptStreamWithEvents(r, pw, t.Options.Passphrase, flags, t.Options.Concurrency, t.Options.ProfileID, t.Options.EventStream)
+			err = EncryptStreamWithEvents(r, pw, t.Options.Passphrase, flags, t.Options.Concurrency, t.Options.ProfileID, &t.Options)
 		}
 
 		if err != nil {
@@ -127,9 +127,9 @@ func (t *DecryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
 		defer pw.Close()
 		var dErr error
 		if t.Magic == MagicHeaderAsym {
-			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(t.Input, pw, t.Options.LocalPrivateKey, t.Options.PublicKey, t.Options.Concurrency, t.Options.Stealth, t.Options.EventStream)
+			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(t.Input, pw, t.Options.LocalPrivateKey, t.Options.PublicKey, t.Options.Concurrency, t.Options.Stealth, &t.Options)
 		} else {
-			_, _, dErr = DecryptStreamWithEvents(t.Input, pw, t.Options.Passphrase, t.Options.Concurrency, t.Options.Stealth, t.Options.EventStream)
+			_, _, dErr = DecryptStreamWithEvents(t.Input, pw, t.Options.Passphrase, t.Options.Concurrency, t.Options.Stealth, &t.Options)
 		}
 
 		if dErr != nil {
@@ -159,10 +159,15 @@ type Options struct {
 	Stealth         bool               // Enables fingerprint resistance (headerless)
 }
 
-func (o *Options) emit(ev EngineEvent) {
+func (o *Options) Emit(ev EngineEvent) {
 	if o.EventStream != nil {
+		defer func() { _ = recover() }()
 		o.EventStream <- ev
 	}
+}
+
+func (o *Options) emit(ev EngineEvent) {
+	o.Emit(ev)
 }
 
 // Protect handles the full encryption pipeline under the active policy.

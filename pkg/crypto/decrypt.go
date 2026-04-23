@@ -17,7 +17,7 @@ func DecryptStream(r io.Reader, w io.Writer, password []byte, concurrency int, i
 }
 
 // DecryptStreamWithEvents is the extended version of DecryptStream that supports telemetry.
-func DecryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, concurrency int, isStealth bool, eventStream chan<- EngineEvent) (byte, []byte, error) {
+func DecryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, concurrency int, isStealth bool, emitter EventEmitter) (byte, []byte, error) {
 	magic, profileID, flags, _, err := ReadHeader(r, isStealth)
 	if err != nil {
 		return 0, nil, err
@@ -50,7 +50,7 @@ func DecryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, concurre
 		return 0, nil, err
 	}
 
-	return flags, nil, streamDecrypt(r, w, aead, baseNonce, concurrency, eventStream)
+	return flags, nil, streamDecrypt(r, w, aead, baseNonce, concurrency, emitter)
 }
 
 // ReadHeader reads the magic bytes (if not stealth) and the profile/flags header.
@@ -88,7 +88,7 @@ func DecryptStreamWithPrivateKey(r io.Reader, w io.Writer, privKeyBytes []byte, 
 }
 
 // DecryptStreamWithPrivateKeyAndEvents is the extended version of DecryptStreamWithPrivateKey that supports telemetry.
-func DecryptStreamWithPrivateKeyAndEvents(r io.Reader, w io.Writer, privKeyBytes []byte, senderPubKey []byte, concurrency int, isStealth bool, eventStream chan<- EngineEvent) (byte, []byte, error) {
+func DecryptStreamWithPrivateKeyAndEvents(r io.Reader, w io.Writer, privKeyBytes []byte, senderPubKey []byte, concurrency int, isStealth bool, emitter EventEmitter) (byte, []byte, error) {
 	if !isStealth {
 		magic := make([]byte, 4)
 		if _, err := io.ReadFull(r, magic); err != nil {
@@ -192,7 +192,7 @@ func DecryptStreamWithPrivateKeyAndEvents(r io.Reader, w io.Writer, privKeyBytes
 	}
 	fekBuf.Destroy()
 
-	return flags, senderPubKey, streamDecrypt(r, w, aead, baseNonce, concurrency, eventStream)
+	return flags, senderPubKey, streamDecrypt(r, w, aead, baseNonce, concurrency, emitter)
 }
 
 // DecryptStreamWithPrivateKeyAndVerifier is the internal implementation supporting optional signature verification.
@@ -200,13 +200,13 @@ func DecryptStreamWithPrivateKeyAndVerifier(r io.Reader, w io.Writer, privKeyByt
 	return DecryptStreamWithPrivateKeyAndEvents(r, w, privKeyBytes, senderPubKey, concurrency, isStealth, nil)
 }
 
-func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, eventStream chan<- EngineEvent) error {
+func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, emitter EventEmitter) error {
 	if concurrency <= 0 {
 		concurrency = runtime.NumCPU()
 	}
 
 	if concurrency == 1 {
-		return streamDecryptSequential(r, w, aead, baseNonce, eventStream)
+		return streamDecryptSequential(r, w, aead, baseNonce, emitter)
 	}
 
 	type decryptJob struct {
@@ -302,18 +302,18 @@ func streamDecrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 			return err
 		}
 		totalProcessed += int64(len(b))
-		if eventStream != nil {
-			eventStream <- EventChunkProcessed{
+		if emitter != nil {
+			emitter.Emit(EventChunkProcessed{
 				BytesProcessed: int64(len(b)),
 				TotalProcessed: totalProcessed,
-			}
+			})
 		}
 		SafeClear(b)
 		return nil
 	})
 }
 
-func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, eventStream chan<- EngineEvent) error {
+func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, emitter EventEmitter) error {
 	chunkIndex := uint64(0)
 	totalProcessed := int64(0)
 	nonce := make([]byte, aead.NonceSize())
@@ -353,11 +353,11 @@ func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 		}
 
 		totalProcessed += int64(len(plaintext))
-		if eventStream != nil {
-			eventStream <- EventChunkProcessed{
+		if emitter != nil {
+			emitter.Emit(EventChunkProcessed{
 				BytesProcessed: int64(len(plaintext)),
 				TotalProcessed: totalProcessed,
-			}
+			})
 		}
 
 		SafeClear(plaintext)
