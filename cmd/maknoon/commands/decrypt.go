@@ -102,7 +102,7 @@ func DecryptCmd() *cobra.Command {
 			}
 
 			// 2. Handle Passphrase/Identity logic
-			password, finalKey, err := resolveDecryptionKey(magic, passphrase, keyPath, useFido2, inputFile == "-")
+			password, finalKey, finalPriv, err := resolveDecryptionKey(magic, passphrase, keyPath, useFido2, inputFile == "-")
 			if err != nil {
 				if JSONOutput {
 					printErrorJSON(err)
@@ -142,6 +142,7 @@ func DecryptCmd() *cobra.Command {
 				}
 				if magic == crypto.MagicHeaderAsym {
 					crypto.SafeClear(finalKey)
+					crypto.SafeClear(finalPriv)
 				}
 			}()
 
@@ -169,13 +170,14 @@ func DecryptCmd() *cobra.Command {
 			// 5. Initialize the Event Stream and Telemetry
 			events := make(chan crypto.EngineEvent, 100)
 			opts := crypto.Options{
-				Passphrase:  finalKey,
-				PublicKey:   senderKey,
-				Concurrency: concurrency,
-				Stealth:     stealth,
-				TotalSize:   totalSize,
-				EventStream: events,
-				Verbose:     verbose,
+				Passphrase:      finalKey,
+				LocalPrivateKey: finalPriv,
+				PublicKey:       senderKey,
+				Concurrency:     concurrency,
+				Stealth:         stealth,
+				TotalSize:       totalSize,
+				EventStream:     events,
+				Verbose:         verbose,
 			}
 
 			done := make(chan struct{})
@@ -325,7 +327,7 @@ func resolveDecryptionOutputPath(output, inputFile string, flags byte) (string, 
 	return outPath, nil
 }
 
-func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isStdin bool) ([]byte, []byte, error) {
+func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isStdin bool) ([]byte, []byte, []byte, error) {
 	var password []byte
 	if manualPass != "" {
 		password = []byte(manualPass)
@@ -335,23 +337,23 @@ func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isSt
 
 	if magic == crypto.MagicHeader {
 		if useFido2 {
-			return nil, nil, fmt.Errorf("FIDO2-backed symmetric encryption is currently only supported via the 'vault' command")
+			return nil, nil, nil, fmt.Errorf("FIDO2-backed symmetric encryption is currently only supported via the 'vault' command")
 		}
 		if len(password) == 0 {
 			var err error
 			password, _, err = getPassphrase("Enter passphrase: ")
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
-		return password, password, nil
+		return password, password, nil, nil
 	}
 
 	if magic == crypto.MagicHeaderAsym {
 		m := crypto.NewIdentityManager()
 		resolvedPath := m.ResolveKeyPath(keyPath, "MAKNOON_PRIVATE_KEY")
 		if resolvedPath == "" {
-			return nil, nil, fmt.Errorf("private key required via -k or MAKNOON_PRIVATE_KEY")
+			return nil, nil, nil, fmt.Errorf("private key required via -k or MAKNOON_PRIVATE_KEY")
 		}
 
 		// Check for FIDO2 and get PIN if needed
@@ -360,16 +362,16 @@ func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isSt
 			var err2 error
 			pin, err2 = getPIN()
 			if err2 != nil {
-				return nil, nil, err2
+				return nil, nil, nil, err2
 			}
 		}
 
 		priv, err := m.LoadPrivateKey(resolvedPath, password, pin, isStdin)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		return password, priv, nil
+		return password, nil, priv, nil
 	}
 
-	return nil, nil, fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
+	return nil, nil, nil, fmt.Errorf("unsupported or invalid maknoon file header: %s", magic)
 }

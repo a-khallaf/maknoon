@@ -260,10 +260,10 @@ func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, pass
 		if err != nil {
 			return err
 		}
-		opts.PublicKeys = append(opts.PublicKeys, pk)
+		opts.Recipients = append(opts.Recipients, pk)
 	}
 
-	if len(opts.PublicKeys) > 0 {
+	if len(opts.Recipients) > 0 {
 		return nil
 	}
 

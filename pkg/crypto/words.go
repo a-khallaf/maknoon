@@ -7,6 +7,43 @@ import (
 	"strings"
 )
 
+const (
+	lowerLetters = "abcdefghijklmnopqrstuvwxyz"
+	upperLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digits       = "0123456789"
+	symbols      = "!@#$%^&*()-_=+[]{}|;:,.<>?"
+)
+
+// GeneratePassword generates a high-entropy secure password.
+func GeneratePassword(length int, noSymbols bool) (string, error) {
+	if length <= 0 {
+		return "", fmt.Errorf("length must be greater than 0")
+	}
+
+	charset := lowerLetters + upperLetters + digits
+	if !noSymbols {
+		charset += symbols
+	}
+
+	password := make([]byte, length)
+	for i := 0; i < length; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", fmt.Errorf("entropy failure: %w", err)
+		}
+		password[i] = charset[num.Int64()]
+	}
+
+	result := string(password)
+
+	// Memory Hygiene: Zero out the password bytes immediately after use
+	for i := range password {
+		password[i] = 0
+	}
+
+	return result, nil
+}
+
 // WordList is a curated list of high-frequency, easy-to-type words for passphrases.
 // Based on the EFF Long Wordlist.
 var WordList = []string{

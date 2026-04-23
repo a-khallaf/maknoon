@@ -79,7 +79,7 @@ func (t *EncryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
 		flags |= FlagStealth
 	}
 
-	allPublicKeys := t.Options.PublicKeys
+	allPublicKeys := t.Options.Recipients
 	if len(t.Options.PublicKey) > 0 {
 		allPublicKeys = append(allPublicKeys, t.Options.PublicKey)
 	}
@@ -127,7 +127,7 @@ func (t *DecryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
 		defer pw.Close()
 		var dErr error
 		if t.Magic == MagicHeaderAsym {
-			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(t.Input, pw, t.Options.Passphrase, t.Options.PublicKey, t.Options.Concurrency, t.Options.Stealth, t.Options.EventStream)
+			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(t.Input, pw, t.Options.LocalPrivateKey, t.Options.PublicKey, t.Options.Concurrency, t.Options.Stealth, t.Options.EventStream)
 		} else {
 			_, _, dErr = DecryptStreamWithEvents(t.Input, pw, t.Options.Passphrase, t.Options.Concurrency, t.Options.Stealth, t.Options.EventStream)
 		}
@@ -143,19 +143,20 @@ func (t *DecryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
 
 // Options defines settings for the protection process.
 type Options struct {
-	Passphrase     []byte
-	PublicKey      []byte   // Deprecated: use PublicKeys
-	PublicKeys     [][]byte // Supports multi-recipient encryption
-	SigningKey     []byte   // ML-DSA private key for integrated signing
-	ProfileID      byte     // 0 for default
-	Compress       bool
-	IsArchive      bool
-	Concurrency    int                // 0 for auto (NumCPU), 1 for sequential
-	TotalSize      int64              // Known total size of input for progress tracking
-	EventStream    chan<- EngineEvent // Optional channel for telemetry
-	ProgressReader io.Reader          // Deprecated: use EventStream
-	Verbose        bool               // Enables internal slog tracing
-	Stealth        bool               // Enables fingerprint resistance (headerless)
+	Passphrase      []byte
+	PublicKey       []byte   // Deprecated: use Recipients
+	Recipients      [][]byte // Supports multi-recipient encryption
+	LocalPrivateKey []byte   // Local KEM private key for decryption
+	SigningKey      []byte   // ML-DSA private key for integrated signing
+	ProfileID       byte     // 0 for default
+	Compress        bool
+	IsArchive       bool
+	Concurrency     int                // 0 for auto (NumCPU), 1 for sequential
+	TotalSize       int64              // Known total size of input for progress tracking
+	EventStream     chan<- EngineEvent // Optional channel for telemetry
+	ProgressReader  io.Reader          // Deprecated: use EventStream
+	Verbose         bool               // Enables internal slog tracing
+	Stealth         bool               // Enables fingerprint resistance (headerless)
 }
 
 func (o *Options) emit(ev EngineEvent) {

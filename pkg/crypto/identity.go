@@ -3,11 +3,13 @@ package crypto
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/awnumar/memguard"
 )
@@ -292,6 +294,317 @@ func EnsureMaknoonDirs() error {
 		}
 	}
 	return nil
+}
+
+func (m *IdentityManager) GetIdentityInfo(name string) (string, error) {
+	basePath, _, err := m.ResolveBaseKeyPath(name)
+	if err != nil {
+		return "", err
+	}
+	// Check if at least the KEM key exists
+	if _, err := os.Stat(basePath + ".kem.key"); err != nil {
+		return "", fmt.Errorf("identity '%s' not found", name)
+	}
+	return basePath, nil
+}
+
+func (m *IdentityManager) RenameIdentity(oldName, newName string) error {
+	oldBase, _, err := m.ResolveBaseKeyPath(oldName)
+	if err != nil {
+		return err
+	}
+	newBase, _, err := m.ResolveBaseKeyPath(newName)
+	if err != nil {
+		return err
+	}
+
+	suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2", ".nostr.key", ".nostr.pub"}
+	renamed := 0
+	for _, s := range suffixes {
+		oldPath := oldBase + s
+		newPath := newBase + s
+		if _, err := os.Stat(oldPath); err == nil {
+			if err := os.Rename(oldPath, newPath); err != nil {
+				return err
+			}
+			renamed++
+		}
+	}
+
+	if renamed == 0 {
+		return fmt.Errorf("identity '%s' not found", oldName)
+	}
+
+	// Rename in Contacts too
+	cm, err := NewContactManager()
+	if err == nil {
+		contact, err := cm.Get(oldName)
+		if err == nil {
+			contact.Petname = newName
+			cm.Add(contact)
+			cm.Delete(oldName)
+		}
+		cm.Close()
+	}
+
+	return nil
+}
+
+func (m *IdentityManager) SplitIdentity(name string, threshold, shares int, passphrase string) ([]string, error) {
+	// 1. Load the identity
+	// For simplicity in the library, we assume interaction-less PIN if fido2 exists
+	id, err := m.LoadIdentity(name, []byte(passphrase), "", false)
+	if err != nil {
+		return nil, err
+	}
+	defer id.Wipe()
+
+	// 2. Pack the keys
+	blob := make([]byte, 12+len(id.KEMPriv)+len(id.SIGPriv)+len(id.NostrPriv))
+	offset := 0
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.KEMPriv)))
+	copy(blob[offset+4:offset+4+len(id.KEMPriv)], id.KEMPriv)
+	offset += 4 + len(id.KEMPriv)
+
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.SIGPriv)))
+	copy(blob[offset+4:offset+4+len(id.SIGPriv)], id.SIGPriv)
+	offset += 4 + len(id.SIGPriv)
+
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.NostrPriv)))
+	copy(blob[offset+4:], id.NostrPriv)
+
+	defer SafeClear(blob)
+
+	// 3. Split
+	shards, err := SplitSecret(blob, threshold, shares)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []string
+	for _, s := range shards {
+		results = append(results, s.ToMnemonic())
+	}
+	return results, nil
+}
+
+func (m *IdentityManager) CombineIdentity(mnemonics []string, output, passphrase string, noPassword bool) (string, error) {
+	var shards []Share
+	for _, mn := range mnemonics {
+		s, err := FromMnemonic(mn)
+		if err != nil {
+			return "", fmt.Errorf("invalid mnemonic: %w", err)
+		}
+		shards = append(shards, *s)
+	}
+
+	blob, err := CombineShares(shards)
+	if err != nil {
+		return "", err
+	}
+	defer SafeClear(blob)
+
+	if len(blob) < 12 {
+		return "", fmt.Errorf("reconstructed blob too short")
+	}
+
+	// Unpack
+	kemLen := binary.BigEndian.Uint32(blob[0:4])
+	kemPriv := blob[4 : 4+kemLen]
+	offset := 4 + kemLen
+
+	sigLen := binary.BigEndian.Uint32(blob[offset : offset+4])
+	sigPriv := blob[offset+4 : offset+4+sigLen]
+	offset += 4 + sigLen
+
+	var nostrPriv []byte
+	if uint32(len(blob)) >= offset+4 {
+		nostrLen := binary.BigEndian.Uint32(blob[offset : offset+4])
+		if uint32(len(blob)) == offset+4+nostrLen {
+			nostrPriv = blob[offset+4:]
+		}
+	}
+
+	// Derive public keys
+	kemPub, _ := DeriveKEMPublic(kemPriv)
+	sigPub, _ := DeriveSIGPublic(sigPriv)
+	var nostrPub []byte
+	if len(nostrPriv) > 0 {
+		nostrPub, _ = DeriveNostrPublic(nostrPriv)
+	}
+
+	basePath, _, err := m.ResolveBaseKeyPath(output)
+	if err != nil {
+		return "", err
+	}
+
+	// Write keys
+	err = writeIdentityKeys(basePath, output, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, []byte(passphrase), 1)
+	return basePath, err
+}
+
+func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, password []byte, profileID byte) error {
+	writeKey := func(path string, data []byte, isPrivate bool) error {
+		if len(data) == 0 {
+			return nil
+		}
+		finalData := data
+		if isPrivate && len(password) > 0 {
+			var b bytes.Buffer
+			if err := EncryptStream(bytes.NewReader(data), &b, password, FlagNone, 1, profileID); err != nil {
+				return err
+			}
+			finalData = b.Bytes()
+		}
+		mode := os.FileMode(0644)
+		if isPrivate {
+			mode = 0600
+		}
+		return os.WriteFile(path, finalData, mode)
+	}
+
+	if err := writeKey(basePath+".kem.key", kemPriv, true); err != nil {
+		return err
+	}
+	if err := writeKey(basePath+".kem.pub", kemPub, false); err != nil {
+		return err
+	}
+	if err := writeKey(basePath+".sig.key", sigPriv, true); err != nil {
+		return err
+	}
+	if err := writeKey(basePath+".sig.pub", sigPub, false); err != nil {
+		return err
+	}
+	if err := writeKey(basePath+".nostr.key", nostrPriv, true); err != nil {
+		return err
+	}
+	if err := writeKey(basePath+".nostr.pub", nostrPub, false); err != nil {
+		return err
+	}
+	return nil
+}
+
+type IdentityPublishOptions struct {
+	Passphrase string
+	Name       string
+	Nostr      bool
+	DNS        bool
+	Local      bool
+	Desec      bool
+	DesecToken string
+}
+
+func (m *IdentityManager) IdentityPublish(ctx context.Context, handle string, opts IdentityPublishOptions) error {
+	if !strings.HasPrefix(handle, "@") {
+		return fmt.Errorf("handle must start with @")
+	}
+
+	name := "default"
+	if opts.Name != "" {
+		name = opts.Name
+	}
+
+	// 1. Get active identity
+	basePath, _, _ := m.ResolveBaseKeyPath(name)
+	var pin string
+	if _, err := os.Stat(basePath + ".fido2"); err == nil {
+		// PIN might be required, but library-first assumes non-interactive for now
+	}
+
+	id, err := m.LoadIdentity(name, []byte(opts.Passphrase), pin, false)
+	if err != nil {
+		return err
+	}
+	defer id.Wipe()
+
+	// 2. Create and sign record
+	record := &IdentityRecord{
+		Handle:    handle,
+		KEMPubKey: id.KEMPub,
+		SIGPubKey: id.SIGPub,
+		Timestamp: time.Now(),
+	}
+
+	if err := record.Sign(id.SIGPriv); err != nil {
+		return fmt.Errorf("failed to sign identity record: %w", err)
+	}
+
+	// 3. Dispatch to registries
+	if opts.Local {
+		cm, err := NewContactManager()
+		if err != nil {
+			return err
+		}
+		defer cm.Close()
+
+		return cm.Add(&Contact{
+			Petname:   handle,
+			KEMPubKey: record.KEMPubKey,
+			SIGPubKey: record.SIGPubKey,
+			AddedAt:   time.Now(),
+		})
+	}
+
+	if opts.Desec {
+		token := opts.DesecToken
+		if token == "" {
+			token = os.Getenv("DESEC_TOKEN")
+		}
+		if token == "" {
+			return fmt.Errorf("deSEC token required")
+		}
+
+		dnsReg := NewDNSRegistry()
+		return dnsReg.PublishWithKey(ctx, record, []byte(token))
+	}
+
+	// Default to Nostr
+	if opts.Nostr || (!opts.DNS && !opts.Desec) {
+		nostrReg := NewNostrRegistry()
+		if len(id.NostrPriv) == 0 {
+			return fmt.Errorf("nostr private key not found")
+		}
+		return nostrReg.PublishWithKey(ctx, record, id.NostrPriv)
+	}
+
+	return nil
+}
+
+func (m *IdentityManager) IdentitySplit(name string, threshold, shares int, passphrase string) ([]string, error) {
+	// 1. Load the identity
+	id, err := m.LoadIdentity(name, []byte(passphrase), "", false)
+	if err != nil {
+		return nil, err
+	}
+	defer id.Wipe()
+
+	// 2. Pack the keys
+	blob := make([]byte, 12+len(id.KEMPriv)+len(id.SIGPriv)+len(id.NostrPriv))
+	offset := 0
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.KEMPriv)))
+	copy(blob[offset+4:offset+4+len(id.KEMPriv)], id.KEMPriv)
+	offset += 4 + len(id.KEMPriv)
+
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.SIGPriv)))
+	copy(blob[offset+4:offset+4+len(id.SIGPriv)], id.SIGPriv)
+	offset += 4 + len(id.SIGPriv)
+
+	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.NostrPriv)))
+	copy(blob[offset+4:], id.NostrPriv)
+
+	defer SafeClear(blob)
+
+	// 3. Split
+	shards, err := SplitSecret(blob, threshold, shares)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []string
+	for _, s := range shards {
+		results = append(results, s.ToMnemonic())
+	}
+	return results, nil
 }
 
 func (id *Identity) Wipe() {

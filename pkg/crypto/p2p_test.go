@@ -213,7 +213,7 @@ func TestP2PAsymmetric(t *testing.T) {
 	// 2. Encrypt for recipient (Simulate 'send --public-key')
 	var encrypted bytes.Buffer
 	opts := Options{
-		PublicKeys: [][]byte{pubBytes},
+		Recipients: [][]byte{pubBytes},
 		Compress:   true,
 	}
 	_, err = Protect("asym", strings.NewReader(content), &encrypted, opts)

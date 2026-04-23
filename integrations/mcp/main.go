@@ -1,12 +1,14 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -101,6 +103,18 @@ func createServer() *server.MCPServer {
 		Required: []string{"service"},
 	}
 	s.AddTool(vaultGet, vaultGetHandler)
+
+	// Tool: vault_list
+	vaultList := mcp.NewTool("vault_list",
+		mcp.WithDescription("List services in a vault"),
+	)
+	vaultList.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"vault": map[string]interface{}{"type": "string", "description": "Vault name (default: default)"},
+		},
+	}
+	s.AddTool(vaultList, vaultListHandler)
 
 	// Tool: vault_set
 	vaultSet := mcp.NewTool("vault_set",
@@ -245,6 +259,33 @@ func createServer() *server.MCPServer {
 	}
 	s.AddTool(identityActive, identityActiveHandler)
 
+	// Tool: identity_info
+	identityInfo := mcp.NewTool("identity_info",
+		mcp.WithDescription("Show details about a local identity"),
+	)
+	identityInfo.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"name": map[string]interface{}{"type": "string", "description": "Identity name"},
+		},
+		Required: []string{"name"},
+	}
+	s.AddTool(identityInfo, identityInfoHandler)
+
+	// Tool: identity_rename
+	identityRename := mcp.NewTool("identity_rename",
+		mcp.WithDescription("Rename a local identity"),
+	)
+	identityRename.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"old": map[string]interface{}{"type": "string", "description": "Old name"},
+			"new": map[string]interface{}{"type": "string", "description": "New name"},
+		},
+		Required: []string{"old", "new"},
+	}
+	s.AddTool(identityRename, identityRenameHandler)
+
 	// Tool: identity_split
 	identitySplit := mcp.NewTool("identity_split",
 		mcp.WithDescription("Shard a private identity into mnemonic parts (Agent Mode)"),
@@ -379,24 +420,6 @@ func createServer() *server.MCPServer {
 	return s
 }
 
-func getMaknoonBinary() string {
-	if b := os.Getenv("MAKNOON_BINARY"); b != "" {
-		return b
-	}
-	return "maknoon"
-}
-
-func getMaknoonEnv() []string {
-	env := []string{"MAKNOON_JSON=1", "MAKNOON_AGENT_MODE=1"}
-	vars := []string{"MAKNOON_PASSPHRASE", "MAKNOON_PUBLIC_KEY", "MAKNOON_PRIVATE_KEY", "HOME", "PATH"}
-	for _, v := range vars {
-		if val := os.Getenv(v); val != "" {
-			env = append(env, v+"="+val)
-		}
-	}
-	return env
-}
-
 func vaultGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	service := request.GetString("service", "")
 	_ = request.GetString("vault", "default")
@@ -443,307 +466,383 @@ func vaultSetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 func encryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	input := request.GetString("input", "")
 	output := request.GetString("output", "")
-	pubKey := request.GetString("public_key", "")
+	pubKeyPath := request.GetString("public_key", "")
 
-	args := []string{"encrypt", input, "-o", output, "--json"}
-	if pubKey != "" {
-		args = append(args, "-p", pubKey)
+	// 1. Resolve keys if needed
+	var pubKey []byte
+	if pubKeyPath != "" {
+		// Use core identity manager for resolution
+		im := crypto.NewIdentityManager()
+		base, _, err := im.ResolveBaseKeyPath(pubKeyPath)
+		if err != nil {
+			return formatError(err, "encrypt_file")
+		}
+		pk, err := os.ReadFile(base + ".kem.pub")
+		if err != nil {
+			// Try without suffix if it was already a full path
+			pk, err = os.ReadFile(pubKeyPath)
+			if err != nil {
+				return formatError(err, "encrypt_file")
+			}
+		}
+		pubKey = pk
 	}
 
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
+	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
 
-	out, err := cmd.CombinedOutput()
+	opts := crypto.Options{
+		Passphrase:  passphrase,
+		Recipients:  [][]byte{pubKey},
+		Concurrency: engine.GetConfig().AgentLimits.MaxWorkers,
+	}
+
+	// 2. Open output file
+	outF, err := os.Create(output)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Encryption failed: %s", string(out))), nil
+		return formatError(err, "encrypt_file")
+	}
+	defer outF.Close()
+
+	// 3. Protect
+	flags, err := engine.Protect(input, nil, outF, opts)
+	if err != nil {
+		return formatError(err, "encrypt_file")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","path":"%s","flags":%d}`, output, flags)), nil
 }
 
 func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	input := request.GetString("input", "")
 	output := request.GetString("output", "")
-	privKey := request.GetString("private_key", "")
-	tofu := request.GetBool("trust_on_first_use", false)
+	privKeyPath := request.GetString("private_key", "")
 
-	args := []string{"decrypt", input, "-o", output, "--json"}
-	if privKey != "" {
-		args = append(args, "-k", privKey)
+	// 1. Resolve keys
+	var privKey []byte
+	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+
+	if privKeyPath != "" {
+		im := crypto.NewIdentityManager()
+		base, _, err := im.ResolveBaseKeyPath(privKeyPath)
+		if err != nil {
+			return formatError(err, "decrypt_file")
+		}
+		pk, err := im.LoadPrivateKey(base+".kem.key", passphrase, "", false)
+		if err != nil {
+			return formatError(err, "decrypt_file")
+		}
+		privKey = pk
+		defer crypto.SafeClear(privKey)
 	}
-	if tofu {
-		args = append(args, "--trust-on-first-use")
+
+	opts := crypto.Options{
+		Passphrase:      passphrase,
+		LocalPrivateKey: privKey,
+		Concurrency:     engine.GetConfig().AgentLimits.MaxWorkers,
 	}
 
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	// 2. Open input
+	inF, err := os.Open(input)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Decryption failed: %s", string(out))), nil
+		return formatError(err, "decrypt_file")
+	}
+	defer inF.Close()
+
+	// 3. Unprotect
+	var outW io.Writer
+	if output == "-" {
+		// Caution: stdout might be used for MCP comms, but inToolResultText is safe.
+		// However, returning raw bytes via MCP text is better than actual os.Stdout.
+		var buf bytes.Buffer
+		outW = &buf
+		_, err = engine.Unprotect(inF, outW, "", opts)
+		if err != nil {
+			return formatError(err, "decrypt_file")
+		}
+		return mcp.NewToolResultText(buf.String()), nil
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	_, err = engine.Unprotect(inF, nil, output, opts)
+	if err != nil {
+		return formatError(err, "decrypt_file")
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","path":"%s"}`, output)), nil
 }
 
 func genPasswordHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	length := request.GetInt("length", 32)
 	noSymbols := request.GetBool("no_symbols", false)
 
-	args := []string{"gen", "password", "--length", fmt.Sprintf("%d", length), "--json"}
-	if noSymbols {
-		args = append(args, "--no-symbols")
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	p, err := engine.GeneratePassword(length, noSymbols)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Password generation failed: %s", string(out))), nil
+		return formatError(err, "gen_password")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"password":"%s"}`, p)), nil
 }
 
 func genPassphraseHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	words := request.GetInt("words", 4)
 	separator := request.GetString("separator", "-")
 
-	args := []string{"gen", "passphrase", "--words", fmt.Sprintf("%d", words), "--separator", separator, "--json"}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	p, err := engine.GeneratePassphrase(words, separator)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Passphrase generation failed: %s", string(out))), nil
+		return formatError(err, "gen_passphrase")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"passphrase":"%s"}`, p)), nil
 }
 
 func inspectHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := request.GetString("path", "")
 	stealth := request.GetBool("stealth", false)
 
-	args := []string{"info", path, "--json"}
-	if stealth {
-		args = append(args, "--stealth")
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	f, err := os.Open(path)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("File inspection failed: %s", string(out))), nil
+		return formatError(err, "inspect_file")
+	}
+	defer f.Close()
+
+	magic, profileID, flags, _, err := crypto.ReadHeader(f, stealth)
+	if err != nil {
+		return formatError(err, "inspect_file")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]interface{}{
+		"magic":      magic,
+		"profile_id": profileID,
+		"flags":      flags,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := request.GetString("path", "")
 	text := request.GetString("text", "")
-	publicKey := request.GetString("public_key", "")
+	publicKeyPath := request.GetString("public_key", "")
 	stealth := request.GetBool("stealth", false)
 	rendURL := request.GetString("rendezvous_url", "")
 	transit := request.GetString("transit_relay", "")
 
-	args := []string{"send", "--json"}
+	var inputName string
+	var inputReader io.Reader
+	var isDir bool
+
 	if text != "" {
-		args = append(args, "--text", text)
+		inputReader = strings.NewReader(text)
+		inputName = "text-message"
 	} else if path != "" {
-		args = append(args, path)
+		f, err := os.Open(path)
+		if err != nil {
+			return formatError(err, "send_file")
+		}
+		defer f.Close()
+		inputReader = f
+		inputName = filepath.Base(path)
+		fi, _ := f.Stat()
+		isDir = fi.IsDir()
 	} else {
 		return mcp.NewToolResultError("Either 'path' or 'text' must be provided"), nil
 	}
 
-	if publicKey != "" {
-		args = append(args, "--public-key", publicKey)
-	}
-	if stealth {
-		args = append(args, "--stealth")
-	}
-	if rendURL != "" {
-		args = append(args, "--rendezvous-url", rendURL)
-	}
-	if transit != "" {
-		args = append(args, "--transit-relay", transit)
+	var pubKey []byte
+	if publicKeyPath != "" {
+		im := crypto.NewIdentityManager()
+		pk, err := im.ResolvePublicKey(publicKeyPath, false)
+		if err != nil {
+			return formatError(err, "send_file")
+		}
+		pubKey = pk
 	}
 
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
+	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
 
-	out, err := cmd.CombinedOutput()
+	opts := crypto.P2PSendOptions{
+		Passphrase:    passphrase,
+		PublicKey:     pubKey,
+		Stealth:       stealth,
+		IsDirectory:   isDir,
+		RendezvousURL: rendURL,
+		TransitRelay:  transit,
+	}
+
+	code, _, err := engine.P2PSend(ctx, inputName, inputReader, opts)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Send failed: %s", string(out))), nil
+		return formatError(err, "send_file")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	// For MCP tools, we usually want to return the code immediately,
+	// but the transfer needs to stay alive until the peer connects.
+	// Since MCP tool calls are synchronous, we'll wait for the completion or a timeout.
+	// In a real production system, this might be handled via a background process and a separate 'p2p_status' tool.
+	// For now, we'll wait for the 'success' or 'error' phase.
+
+	// Actually, the AI needs the code to share it. If we wait, the AI can't get the code until it's finished.
+	// RESOLUTION: Return the code immediately. The transfer will continue in the background until the context (ctx) is canceled.
+	// Wait, engine.P2PSend starts a goroutine to monitor wStatus.
+
+	res := map[string]string{
+		"code":   code,
+		"status": "established",
+	}
+	if len(passphrase) > 0 {
+		res["passphrase"] = string(passphrase)
+	}
+
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func receiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	code := request.GetString("code", "")
-	passphrase := request.GetString("passphrase", "")
-	privateKey := request.GetString("private_key", "")
+	passphraseStr := request.GetString("passphrase", "")
+	privKeyPath := request.GetString("private_key", "")
 	output := request.GetString("output", "")
 	stealth := request.GetBool("stealth", false)
 	rendURL := request.GetString("rendezvous_url", "")
 	transit := request.GetString("transit_relay", "")
 
-	args := []string{"receive", code, "--json"}
-	if passphrase != "" {
-		args = append(args, "--passphrase", passphrase)
-	}
-	if privateKey != "" {
-		args = append(args, "--private-key", privateKey)
-	}
-	if output != "" {
-		args = append(args, "--output", output)
-	}
-	if stealth {
-		args = append(args, "--stealth")
-	}
-	if rendURL != "" {
-		args = append(args, "--rendezvous-url", rendURL)
-	}
-	if transit != "" {
-		args = append(args, "--transit-relay", transit)
+	var privKey []byte
+	var passphrase []byte
+
+	if passphraseStr != "" {
+		passphrase = []byte(passphraseStr)
 	}
 
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
+	if privKeyPath != "" {
+		im := crypto.NewIdentityManager()
+		resolved := im.ResolveKeyPath(privKeyPath, "")
+		pk, err := im.LoadPrivateKey(resolved, passphrase, "", false)
+		if err != nil {
+			return formatError(err, "receive_file")
+		}
+		privKey = pk
+		defer crypto.SafeClear(privKey)
+	}
 
-	out, err := cmd.CombinedOutput()
+	opts := crypto.P2PReceiveOptions{
+		Passphrase:    passphrase,
+		PrivateKey:    privKey,
+		Stealth:       stealth,
+		OutputDir:     output,
+		RendezvousURL: rendURL,
+		TransitRelay:  transit,
+	}
+
+	statusChan, err := engine.P2PReceive(ctx, code, opts)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Receive failed: %s", string(out))), nil
+		return formatError(err, "receive_file")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	// Wait for completion (unlike Send, Receive needs to finish to show the output path)
+	var lastStatus crypto.P2PStatus
+	for s := range statusChan {
+		lastStatus = s
+		if s.Phase == "success" || s.Phase == "error" {
+			break
+		}
+	}
+
+	if lastStatus.Error != nil {
+		return formatError(lastStatus.Error, "receive_file")
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","path":"%s"}`, lastStatus.FileName)), nil
 }
 
 func startChatHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// We run 'chat --json' to get the code, then we can kill it.
-	// The agent will then use the code to join or the user will use it.
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "chat", "--json")
-	cmd.Env = getMaknoonEnv()
-
-	stdout, err := cmd.StdoutPipe()
+	session := crypto.NewChatSession("maknoon-mcp")
+	code, err := session.StartHost(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to open pipe: %v", err)), nil
+		return formatError(err, "start_chat")
 	}
 
-	if err := cmd.Start(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to start chat: %v", err)), nil
-	}
+	// We don't need to keep the session alive in this handler because
+	// the purpose of 'start_chat' is just to generate a code for the user.
+	// In a real P2P chat, the user would then join via the CLI.
+	session.Close()
 
-	// Read the first JSON line (the established status with code)
-	scanner := bufio.NewScanner(stdout)
-	if scanner.Scan() {
-		line := scanner.Text()
-		// We have the code! Now we kill the process because this tool is just for starting.
-		_ = cmd.Process.Kill()
-		return mcp.NewToolResultText(line), nil
-	}
-
-	return mcp.NewToolResultError("Failed to get chat code"), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"established","code":"%s"}`, code)), nil
 }
 
 func identityActiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "identity", "active", "--json")
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	keys, err := engine.IdentityActive()
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Identity active failed: %s", string(out))), nil
+		return formatError(err, "identity_active")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]interface{}{
+		"active_keys": keys,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func identitySplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("name", "")
-	threshold := request.GetInt("threshold", 0)
-	shares := request.GetInt("shares", 0)
+	threshold := request.GetInt("threshold", 2)
+	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	args := []string{"identity", "split", name, "--json"}
-	if threshold > 0 {
-		args = append(args, "--threshold", fmt.Sprintf("%d", threshold))
-	}
-	if shares > 0 {
-		args = append(args, "--shares", fmt.Sprintf("%d", shares))
-	}
-	if passphrase != "" {
-		args = append(args, "--passphrase", passphrase)
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	shards, err := engine.IdentitySplit(name, threshold, shares, passphrase)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Identity split failed: %s", string(out))), nil
+		return formatError(err, "identity_split")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]interface{}{
+		"status": "success",
+		"shares": shards,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
+}
+
+func vaultListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	vault := request.GetString("vault", "default")
+	services, err := engine.VaultList("")
+	if err != nil {
+		return formatError(err, "vault_list")
+	}
+
+	res := map[string]interface{}{
+		"vault":    vault,
+		"services": services,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func vaultSplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	vault := request.GetString("vault", "default")
-	threshold := request.GetInt("threshold", 0)
-	shares := request.GetInt("shares", 0)
+	threshold := request.GetInt("threshold", 2)
+	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	args := []string{"vault", "split", "--vault", vault, "--json"}
-	if threshold > 0 {
-		args = append(args, "--threshold", fmt.Sprintf("%d", threshold))
-	}
-	if shares > 0 {
-		args = append(args, "--shares", fmt.Sprintf("%d", shares))
-	}
-	if passphrase != "" {
-		args = append(args, "--passphrase", passphrase)
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	shards, err := engine.VaultSplit("", threshold, shares, passphrase)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Vault split failed: %s", string(out))), nil
+		return formatError(err, "vault_split")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]interface{}{
+		"status": "success",
+		"shares": shards,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func vaultRecoverHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	shards := request.GetStringSlice("shards", nil)
-	vault := request.GetString("vault", "default")
-	output := request.GetString("output", "")
+	output := request.GetString("output", "recovered")
 	passphrase := request.GetString("passphrase", "")
 
-	args := []string{"vault", "recover"}
-	args = append(args, shards...)
-	args = append(args, "--vault", vault, "--json")
-	if output != "" {
-		args = append(args, "--output", output)
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-	if passphrase != "" {
-		cmd.Env = append(cmd.Env, "MAKNOON_PASSPHRASE="+passphrase)
-	}
-
-	out, err := cmd.CombinedOutput()
+	path, err := engine.VaultRecover(shards, "", output, passphrase)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Vault recover failed: %s", string(out))), nil
+		return formatError(err, "vault_recover")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","path":"%s"}`, path)), nil
 }
 
 func identityCombineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -752,25 +851,17 @@ func identityCombineHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	passphrase := request.GetString("passphrase", "")
 	noPassword := request.GetBool("no_password", false)
 
-	args := []string{"identity", "combine"}
-	args = append(args, shards...)
-	args = append(args, "--output", output, "--json")
-	if noPassword {
-		args = append(args, "--no-password")
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-	if passphrase != "" {
-		cmd.Env = append(cmd.Env, "MAKNOON_PASSPHRASE="+passphrase)
-	}
-
-	out, err := cmd.CombinedOutput()
+	path, err := engine.IdentityCombine(shards, output, passphrase, noPassword)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Identity combine failed: %s", string(out))), nil
+		return formatError(err, "identity_combine")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]string{
+		"status":    "success",
+		"base_path": path,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -782,35 +873,49 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	desec := request.GetBool("desec", false)
 	desecToken := request.GetString("desec_token", "")
 
-	args := []string{"identity", "publish", handle, "--json"}
-	if name != "" {
-		args = append(args, "--name", name)
-	}
-	if nostr {
-		args = append(args, "--nostr")
-	}
-	if dns {
-		args = append(args, "--dns")
-	}
-	if local {
-		args = append(args, "--local")
-	}
-	if desec {
-		args = append(args, "--desec")
-	}
-	if desecToken != "" {
-		args = append(args, "--desec-token", desecToken)
+	opts := crypto.IdentityPublishOptions{
+		Passphrase: os.Getenv("MAKNOON_PASSPHRASE"),
+		Name:       name,
+		Nostr:      nostr,
+		DNS:        dns,
+		Local:      local,
+		Desec:      desec,
+		DesecToken: desecToken,
 	}
 
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	err := engine.IdentityPublish(ctx, handle, opts)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Identity publish failed: %s", string(out))), nil
+		return formatError(err, "identity_publish")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","handle":"%s"}`, handle)), nil
+}
+
+func identityInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := request.GetString("name", "")
+	path, err := engine.IdentityInfo(name)
+	if err != nil {
+		return formatError(err, "identity_info")
+	}
+
+	res := map[string]string{
+		"identity": name,
+		"path":     path,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
+}
+
+func identityRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	oldName := request.GetString("old", "")
+	newName := request.GetString("new", "")
+
+	err := engine.IdentityRename(oldName, newName)
+	if err != nil {
+		return formatError(err, "identity_rename")
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","from":"%s","to":"%s"}`, oldName, newName)), nil
 }
 
 func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -819,58 +924,83 @@ func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	sigPub := request.GetString("sig_pub", "")
 	note := request.GetString("note", "")
 
-	args := []string{"contact", "add", petname, "--kem-pub", kemPub, "--json"}
-	if sigPub != "" {
-		args = append(args, "--sig-pub", sigPub)
-	}
-	if note != "" {
-		args = append(args, "--note", note)
-	}
-
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), args...)
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	err := engine.ContactAdd(petname, kemPub, sigPub, note)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Contact add failed: %s", string(out))), nil
+		return formatError(err, "contact_add")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","petname":"%s"}`, petname)), nil
 }
 
 func contactListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "contact", "list", "--json")
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
+	contacts, err := engine.ContactList()
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Contact list failed: %s", string(out))), nil
+		return formatError(err, "contact_list")
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	raw, _ := json.Marshal(contacts)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func profilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "profiles", "list", "--json")
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Profiles list failed: %s", string(out))), nil
+	conf := engine.GetConfig()
+	var profiles []string
+	for name := range conf.Profiles {
+		profiles = append(profiles, name)
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	res := map[string]interface{}{
+		"custom_profiles": profiles,
+		"built_in":        []string{"nist", "aes", "conservative"},
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
 
 func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("name", "")
-	cmd := exec.CommandContext(ctx, getMaknoonBinary(), "profiles", "gen", name, "--json")
-	cmd.Env = getMaknoonEnv()
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Profiles generation failed: %s", string(out))), nil
+	if name == "" {
+		return mcp.NewToolResultError("Profile name is required"), nil
 	}
 
-	return mcp.NewToolResultText(string(out)), nil
+	// 1. Find available ID
+	conf := engine.GetConfig()
+	usedIDs := make(map[byte]bool)
+	for _, p := range conf.Profiles {
+		usedIDs[p.ID()] = true
+	}
+	var nextID byte
+	for i := byte(4); i < 128; i++ {
+		if !usedIDs[i] {
+			nextID = i
+			break
+		}
+	}
+
+	if nextID == 0 {
+		return mcp.NewToolResultError("No available profile IDs (limit reached)"), nil
+	}
+
+	// 2. Generate and validate
+	dp := engine.GenerateRandomProfile(nextID)
+	if err := engine.ValidateProfile(dp); err != nil {
+		return formatError(err, "profiles_gen")
+	}
+
+	// 3. Save if policy allows
+	if !engine.GetPolicy().AllowConfigModification() {
+		// Return ephemeral JSON for the AI to use
+		raw, _ := json.Marshal(dp)
+		return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","ephemeral_profile":%s,"warning":"could not save to config (policy restriction)"}`, string(raw))), nil
+	}
+
+	if conf.Profiles == nil {
+		conf.Profiles = make(map[string]*crypto.DynamicProfile)
+	}
+	conf.Profiles[name] = dp
+	if err := conf.Save(); err != nil {
+		return formatError(err, "profiles_gen")
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","name":"%s","id":%d}`, name, nextID)), nil
 }

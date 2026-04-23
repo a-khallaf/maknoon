@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -185,6 +186,151 @@ func (e *AuditEngine) VaultDelete(name string) error {
 	}, err)
 
 	return err
+}
+
+func (e *AuditEngine) VaultList(vaultPath string) ([]string, error) {
+	return e.Engine.VaultList(vaultPath)
+}
+
+func (e *AuditEngine) VaultSplit(vaultPath string, threshold, shares int, passphrase string) ([]string, error) {
+	start := time.Now()
+	shards, err := e.Engine.VaultSplit(vaultPath, threshold, shares, passphrase)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("vault_split", map[string]any{
+		"vault":       vaultPath,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return shards, err
+}
+
+func (e *AuditEngine) VaultRecover(mnemonics []string, vaultPath string, output string, passphrase string) (string, error) {
+	start := time.Now()
+	path, err := e.Engine.VaultRecover(mnemonics, vaultPath, output, passphrase)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("vault_recover", map[string]any{
+		"vault":       vaultPath,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return path, err
+}
+
+func (e *AuditEngine) P2PSend(ctx context.Context, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error) {
+	start := time.Now()
+	code, status, err := e.Engine.P2PSend(ctx, inputName, r, opts)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("p2p_send_init", map[string]any{
+		"input":       inputName,
+		"duration_ms": duration.Milliseconds(),
+		"code":        code,
+	}, err)
+
+	return code, status, err
+}
+
+func (e *AuditEngine) P2PReceive(ctx context.Context, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error) {
+	start := time.Now()
+	status, err := e.Engine.P2PReceive(ctx, code, opts)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("p2p_receive_init", map[string]any{
+		"code":        code,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return status, err
+}
+
+func (e *AuditEngine) IdentityActive() ([]string, error) {
+	return e.Engine.IdentityActive()
+}
+
+func (e *AuditEngine) IdentityInfo(name string) (string, error) {
+	return e.Engine.IdentityInfo(name)
+}
+
+func (e *AuditEngine) IdentityRename(oldName, newName string) error {
+	start := time.Now()
+	err := e.Engine.IdentityRename(oldName, newName)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("identity_rename", map[string]any{
+		"old":         oldName,
+		"new":         newName,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}
+
+func (e *AuditEngine) IdentitySplit(name string, threshold, shares int, passphrase string) ([]string, error) {
+	start := time.Now()
+	shards, err := e.Engine.IdentitySplit(name, threshold, shares, passphrase)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("identity_split", map[string]any{
+		"name":        name,
+		"threshold":   threshold,
+		"shares":      shares,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return shards, err
+}
+
+func (e *AuditEngine) IdentityCombine(mnemonics []string, output, passphrase string, noPassword bool) (string, error) {
+	start := time.Now()
+	path, err := e.Engine.IdentityCombine(mnemonics, output, passphrase, noPassword)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("identity_combine", map[string]any{
+		"output":      output,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return path, err
+}
+
+func (e *AuditEngine) IdentityPublish(ctx context.Context, handle string, opts IdentityPublishOptions) error {
+	start := time.Now()
+	err := e.Engine.IdentityPublish(ctx, handle, opts)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("identity_publish", map[string]any{
+		"handle":      handle,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}
+
+func (e *AuditEngine) ContactAdd(petname, kemPub, sigPub, note string) error {
+	start := time.Now()
+	err := e.Engine.ContactAdd(petname, kemPub, sigPub, note)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("contact_add", map[string]any{
+		"petname":     petname,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}
+
+func (e *AuditEngine) ContactList() ([]*Contact, error) {
+	return e.Engine.ContactList()
+}
+
+func (e *AuditEngine) GeneratePassword(length int, noSymbols bool) (string, error) {
+	return e.Engine.GeneratePassword(length, noSymbols)
+}
+
+func (e *AuditEngine) GeneratePassphrase(words int, separator string) (string, error) {
+	return e.Engine.GeneratePassphrase(words, separator)
 }
 
 func (e *AuditEngine) GetPolicy() SecurityPolicy {
