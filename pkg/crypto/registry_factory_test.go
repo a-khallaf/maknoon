@@ -14,13 +14,12 @@ func TestRegistryFactory(t *testing.T) {
 		return &MockRegistry{}
 	})
 
-	// Backup and override config for test
-	conf := GetGlobalConfig()
-	old := conf.IdentityRegistries
-	conf.IdentityRegistries = []string{"mock-factory-test"}
-	defer func() { conf.IdentityRegistries = old }()
+	// Create isolated config
+	conf := &Config{
+		IdentityRegistries: []string{"mock-factory-test"},
+	}
 
-	reg := NewIdentityRegistry()
+	reg := NewIdentityRegistry(conf)
 	mr, ok := reg.(*MultiRegistry)
 	if !ok {
 		t.Fatal("expected MultiRegistry")

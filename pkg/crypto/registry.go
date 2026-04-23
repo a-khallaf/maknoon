@@ -134,8 +134,11 @@ func RegisterRegistry(name string, factory func() IdentityRegistry) {
 }
 
 // NewIdentityRegistry returns a multi-registry based on configuration.
-func NewIdentityRegistry() IdentityRegistry {
-	conf := GetGlobalConfig()
+// If conf is nil, the global configuration is used.
+func NewIdentityRegistry(conf *Config) IdentityRegistry {
+	if conf == nil {
+		conf = GetGlobalConfig()
+	}
 	active := conf.IdentityRegistries
 	if len(active) == 0 {
 		active = []string{"dns", "nostr"} // Default fallback

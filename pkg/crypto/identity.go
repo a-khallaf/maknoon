@@ -239,7 +239,7 @@ func (m *IdentityManager) ResolvePublicKey(input string, tofu bool) ([]byte, err
 		}
 
 		// 2. Check Global Discovery Registry
-		reg := NewIdentityRegistry()
+		reg := NewIdentityRegistry(nil)
 		record, err := reg.Resolve(context.Background(), input)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve identity handle: %w", err)
