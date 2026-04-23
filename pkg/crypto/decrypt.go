@@ -24,7 +24,7 @@ func DecryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, concurre
 	}
 
 	if !isStealth && magic != MagicHeader {
-		return 0, nil, errors.New("not a valid Maknoon file (symmetric)")
+		return 0, nil, &ErrFormat{Reason: "not a valid Maknoon file (symmetric)"}
 	}
 
 	profile, err := GetProfile(profileID, r)
@@ -145,7 +145,7 @@ func DecryptStreamWithPrivateKeyAndEvents(r io.Reader, w io.Writer, privKeyBytes
 	}
 
 	if !found {
-		return 0, nil, errors.New("no matching recipient block found or decryption failed")
+		return 0, nil, &ErrAuthentication{Reason: "no matching recipient block found or decryption failed"}
 	}
 
 	// Signature verification
@@ -344,7 +344,7 @@ func streamDecryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 
 		plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
 		if err != nil {
-			return errors.New("authentication failed: incorrect key or corrupted data")
+			return &ErrAuthentication{Reason: "incorrect key or corrupted data"}
 		}
 
 		if _, err := w.Write(plaintext); err != nil {

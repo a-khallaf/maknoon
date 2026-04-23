@@ -68,3 +68,33 @@ func (e *ErrState) Error() string {
 }
 
 func (e *ErrState) IsSecurityViolation() bool { return false }
+
+// ErrFormat occurs when data does not match the expected wire format.
+type ErrFormat struct {
+	Reason string
+}
+
+func (e *ErrFormat) Error() string             { return fmt.Sprintf("format error: %s", e.Reason) }
+func (e *ErrFormat) IsSecurityViolation() bool { return false }
+
+// ErrNetwork occurs when a network-based operation (P2P, Registry) fails.
+type ErrNetwork struct {
+	Reason string
+	Source string // e.g., "nostr", "dns"
+}
+
+func (e *ErrNetwork) Error() string {
+	return fmt.Sprintf("network error (%s): %s", e.Source, e.Reason)
+}
+func (e *ErrNetwork) IsSecurityViolation() bool { return false }
+
+// ErrIO occurs when a file system operation fails.
+type ErrIO struct {
+	Path   string
+	Reason string
+}
+
+func (e *ErrIO) Error() string {
+	return fmt.Sprintf("I/O error at '%s': %s", e.Path, e.Reason)
+}
+func (e *ErrIO) IsSecurityViolation() bool { return false }

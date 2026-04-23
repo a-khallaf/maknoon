@@ -46,6 +46,9 @@ func (e *Engine) VaultGet(vaultPath string, service string, passphrase []byte, p
 }
 
 func (e *Engine) VaultDelete(name string) error {
+	if !e.Policy.HasCapability(CapVaultDelete) {
+		return &ErrPolicyViolation{Reason: "vault deletion is prohibited under the active policy"}
+	}
 	path, err := e.resolveVaultPath(name)
 	if err != nil {
 		return err
@@ -74,10 +77,10 @@ func (e *Engine) VaultRename(oldName, newName string) error {
 	}
 
 	if _, err := os.Stat(oldPath); err != nil {
-		return fmt.Errorf("vault '%s' not found", oldName)
+		return &ErrState{Reason: fmt.Sprintf("vault '%s' not found", oldName)}
 	}
 	if _, err := os.Stat(newPath); err == nil {
-		return fmt.Errorf("target vault '%s' already exists", newName)
+		return &ErrState{Reason: fmt.Sprintf("target vault '%s' already exists", newName)}
 	}
 
 	return os.Rename(oldPath, newPath)
@@ -158,7 +161,7 @@ func GetVaultEntry(path string, service string, passphrase []byte) (*VaultEntry,
 	defer SafeClear(masterKey)
 
 	if ciphertext == nil {
-		return nil, fmt.Errorf("service not found")
+		return nil, &ErrState{Reason: "service not found"}
 	}
 
 	return OpenEntry(ciphertext, masterKey)
@@ -217,7 +220,7 @@ func SplitVault(path string, threshold, shares int, passphrase string) ([]string
 		return nil, err
 	}
 	if salt == nil {
-		return nil, fmt.Errorf("vault not initialized")
+		return nil, &ErrState{Reason: "vault not initialized"}
 	}
 
 	masterKey := DeriveVaultKey([]byte(passphrase), salt)

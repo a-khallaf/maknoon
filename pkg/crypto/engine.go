@@ -41,23 +41,43 @@ type EventHandshakeComplete struct{}
 
 func (e EventHandshakeComplete) String() string { return "handshake complete" }
 
-// MaknoonEngine defines the high-level operations for the Maknoon system.
-type MaknoonEngine interface {
+// EngineContext carries the execution state, telemetry stream, and policy for an operation.
+type EngineContext struct {
+	context.Context
+	Events chan<- EngineEvent
+	Policy SecurityPolicy
+}
+
+// NewEngineContext creates a new context with an optional event stream.
+func NewEngineContext(ctx context.Context, events chan<- EngineEvent, policy SecurityPolicy) *EngineContext {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &EngineContext{
+		Context: ctx,
+		Events:  events,
+		Policy:  policy,
+	}
+}
+
+// Emit safely sends an event to the telemetry stream.
+func (c *EngineContext) Emit(ev EngineEvent) {
+	if c != nil && c.Events != nil {
+		c.Events <- ev
+	}
+}
+
+// Protector handles encryption and decryption pipelines.
+type Protector interface {
 	Protect(inputName string, r io.Reader, w io.Writer, opts Options) (byte, error)
 	Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, error)
 	LoadCustomProfile(path string) (*DynamicProfile, error)
 	GenerateRandomProfile(id byte) *DynamicProfile
 	ValidateProfile(p *DynamicProfile) error
-	ValidateWormholeURL(u string) error
-	VaultGet(vaultPath string, service string, passphrase []byte, pin string) (*VaultEntry, error)
-	VaultSet(vaultPath string, entry *VaultEntry, passphrase []byte, pin string) error
-	VaultRename(oldName, newName string) error
-	VaultDelete(name string) error
-	VaultList(vaultPath string) ([]string, error)
-	GeneratePassword(length int, noSymbols bool) (string, error)
-	GeneratePassphrase(words int, separator string) (string, error)
-	P2PSend(ctx context.Context, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error)
-	P2PReceive(ctx context.Context, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error)
+}
+
+// IdentityService handles identity lifecycle and discovery.
+type IdentityService interface {
 	IdentityActive() ([]string, error)
 	IdentityInfo(name string) (string, error)
 	IdentityRename(oldName, newName string) error
@@ -66,10 +86,46 @@ type MaknoonEngine interface {
 	IdentityPublish(ctx context.Context, handle string, opts IdentityPublishOptions) error
 	ContactAdd(petname, kemPub, sigPub, note string) error
 	ContactList() ([]*Contact, error)
+}
+
+// VaultManager handles secure secret storage.
+type VaultManager interface {
+	VaultGet(vaultPath string, service string, passphrase []byte, pin string) (*VaultEntry, error)
+	VaultSet(vaultPath string, entry *VaultEntry, passphrase []byte, pin string) error
+	VaultRename(oldName, newName string) error
+	VaultDelete(name string) error
+	VaultList(vaultPath string) ([]string, error)
 	VaultSplit(vaultPath string, threshold, shares int, passphrase string) ([]string, error)
 	VaultRecover(mnemonics []string, vaultPath string, output string, passphrase string) (string, error)
+}
+
+// P2PService handles peer-to-peer transfers.
+type P2PService interface {
+	P2PSend(ctx context.Context, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error)
+	P2PReceive(ctx context.Context, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error)
+	ValidateWormholeURL(u string) error
+}
+
+// Utils provides secure generation helpers.
+type Utils interface {
+	GeneratePassword(length int, noSymbols bool) (string, error)
+	GeneratePassphrase(words int, separator string) (string, error)
+}
+
+// StateProvider exposes the engine's internal configuration and policy.
+type StateProvider interface {
 	GetPolicy() SecurityPolicy
 	GetConfig() *Config
+}
+
+// MaknoonEngine is the unified facade for the Maknoon system, composing all specialized services.
+type MaknoonEngine interface {
+	Protector
+	IdentityService
+	VaultManager
+	P2PService
+	Utils
+	StateProvider
 }
 
 // Engine is the central stateful service for Maknoon operations.

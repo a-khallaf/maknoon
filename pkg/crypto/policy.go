@@ -7,10 +7,26 @@ import (
 	"strings"
 )
 
+// Capability defines a specific permission within the Maknoon system.
+type Capability string
+
+const (
+	CapProtect     Capability = "protect"
+	CapUnprotect   Capability = "unprotect"
+	CapVaultRead   Capability = "vault_read"
+	CapVaultWrite  Capability = "vault_write"
+	CapVaultDelete Capability = "vault_delete"
+	CapIdentity    Capability = "identity"
+	CapConfig      Capability = "config"
+	CapP2P         Capability = "p2p"
+)
+
 // SecurityPolicy dictates the operational constraints for the Maknoon Engine.
 type SecurityPolicy interface {
 	// Name returns a human-readable name for the policy.
 	Name() string
+	// HasCapability checks if the policy permits a specific action.
+	HasCapability(cap Capability) bool
 
 	// ValidatePath ensures a filesystem path is permitted under the policy.
 	ValidatePath(path string) error
@@ -37,7 +53,10 @@ type SecurityPolicy interface {
 // HumanPolicy represents an unrestricted user-driven session.
 type HumanPolicy struct{}
 
-func (p *HumanPolicy) Name() string                                   { return "human" }
+func (p *HumanPolicy) Name() string { return "human" }
+
+func (p *HumanPolicy) HasCapability(cap Capability) bool { return true }
+
 func (p *HumanPolicy) ValidatePath(path string) error                 { return nil }
 func (p *HumanPolicy) ValidateWormholeURL(u string, a []string) error { return nil }
 func (p *HumanPolicy) ClampConcurrency(req, max int) int {
@@ -59,6 +78,15 @@ func (p *HumanPolicy) IsAgent() bool                 { return false }
 type AgentPolicy struct{}
 
 func (p *AgentPolicy) Name() string { return "agent" }
+
+func (p *AgentPolicy) HasCapability(cap Capability) bool {
+	switch cap {
+	case CapVaultDelete, CapConfig:
+		return false
+	default:
+		return true
+	}
+}
 
 func (p *AgentPolicy) ValidatePath(path string) error {
 	return ValidatePath(path, true)
