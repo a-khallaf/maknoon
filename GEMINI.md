@@ -2,13 +2,14 @@
 
 Maknoon is a high-performance, post-quantum CLI encryption tool. It focuses on efficiency, security, and future-proofing against quantum computing threats.
 
-## 🏗 Project Architecture (v2.0 - Policy Driven)
+## 🏗 Project Architecture (v3.0 - Industrial-Grade)
 
-- **`cmd/maknoon/`**: Entry point (`main.go`). Now uses a centralized `Engine` instantiated with either a `HumanPolicy` or `AgentPolicy` at startup.
+- **`cmd/maknoon/`**: Entry point (`main.go`). Uses a centralized `Engine` and consumes `EngineEvent` streams for UI decoupling.
 - **`pkg/crypto/engine.go`**: The central stateful service. Owns the `SecurityPolicy`, `Config`, and `IdentityManager`. All high-level crypto operations (Protect, Unprotect) are methods of this struct.
 - **`pkg/crypto/policy.go`**: Implementation of the **Policy Provider Pattern**. Dictates capability-based security (path validation, resource limits).
-- **`pkg/crypto/`**: Core library implementing the cryptographic pipeline, streaming logic, and FIDO2 integration.
-- **`integrations/mcp/`**: MCP Server for AI Agent interaction. Now fully integrated with the Agent Sandbox.
+- **`pkg/crypto/pipeline.go`**: Implementation of the **Decorator Pattern**. Uses a chain of `Transformer` middleware (Archive, Compress, Encrypt/Decrypt) for processing.
+- **`pkg/crypto/errors.go`**: Implementation of **Strong Error Typing**. Define concrete structs for actionable error handling.
+- **`integrations/mcp/`**: MCP Server for AI Agent interaction. Fully integrated with the Agent Sandbox and uses typed errors for structured responses.
 
 ## 🛡 Cryptographic Stack
 
@@ -32,18 +33,29 @@ Maknoon implements a strict **Capability-Based Sandbox** for autonomous environm
 
 ### 1. The Engine Pattern
 All business logic must be invoked via the `Engine` struct. Do not call low-level crypto functions directly from CLI commands.
-- **`engine.Protect`**: Orchestrates "Archive -> Compress -> Encrypt" under active policy.
-- **`engine.Unprotect`**: Orchestrates "Decrypt -> Decompress -> Extract" under active policy.
+- **`engine.Protect`**: Orchestrates "Archive -> Compress -> Encrypt" using a `Transformer` chain.
+- **`engine.Unprotect`**: Orchestrates "Decrypt -> Decompress -> Extract" using a `Transformer` chain.
 
-### 2. Policy Provider Pattern
+### 2. The Decorator Pattern (Middleware)
+Processing pipelines MUST be implemented as interchangeable `Transformer` middleware. This ensures logical isolation between archiving, compression, and encryption.
+
+### 3. The Observer Pattern (Telemetry)
+The `Engine` must not have any UI dependencies. Use the `EventStream` (`chan<- EngineEvent`) to emit telemetry for progress bars, logging, or monitoring.
+
+### 4. Strong Error Typing
+Avoid generic errors. All new failure modes must be defined as typed structs in `pkg/crypto/errors.go` and wrapped using `%w`. This allows programmatic consumers (like the MCP server) to handle failures reliably.
+
+### 5. Registry Factory (Extensibility)
+Identity Discovery is pluggable. New registry types (e.g., LDAP, Keybase) should be implemented as an `IdentityRegistry` and registered via `RegisterRegistry` in an `init()` function.
+
+### 6. Policy Provider Pattern
 Avoid "Mode-Based" logic (`if IsAgentMode`). Instead, query the `engine.Policy` object for permissions (e.g., `engine.Policy.ValidatePath(path)`).
 
-### 3. Centralized Security Validation
+### 7. Centralized Security Validation
 All file system operations MUST be validated using the engine's policy. The sandbox is enforced at the entry point of the `Engine` methods.
 
-### 4. Memory Hygiene
-Use `crypto.SafeClear` (aliased to `memguard.WipeBytes`) immediately after sensitive data use.
-deterministic wiping is mandatory for FEKs and private keys.
+### 8. Memory Hygiene
+Use `crypto.SafeClear` (aliased to `memguard.WipeBytes`) immediately after sensitive data use. Deterministic wiping is mandatory for FEKs and private keys.
 
 ## 🛠 Building and Running
 
@@ -52,15 +64,8 @@ deterministic wiping is mandatory for FEKs and private keys.
 - **Test (Quick)**: `go test -v -short ./...` (Skips flaky network tests)
 - **Schema**: `maknoon schema` (Generates JSON metadata for agents)
 
-## 🚀 v3.0 Roadmap (Industrial-Grade Refactor)
-*The following tasks are pending implementation (see `.agents/plans/v3-architecture-roadmap.md`):*
-
-1.  **Strong Error Typing**: Transition from `fmt.Errorf` to concrete error structs (e.g., `ErrPolicyViolation`) in `pkg/crypto/errors.go`.
-2.  **The Observer Pattern**: Replace `ProgressReader` with an asynchronous `EngineEvent` stream for decoupled telemetry.
-3.  **The Decorator Pattern**: Refactor monolithic pipelines into a chain of `Transformer` middleware (Archive, Compress, Encrypt).
-4.  **Registry Factory**: Replace hardcoded identity registries with a pluggable registration system.
-
 ## 🧪 Current Status
+- **Architecture**: V3 (Industrial-Grade) completed.
+- **Design Patterns**: Fully implemented (Engine, Policy, Decorator, Observer, Factory, Strong Typing).
 - **Agent Sandbox**: Fully Sealed (v1.5 Security Audit verified).
-- **Architecture**: V2 (Policy-Driven Engine) completed.
-- **Phase 1 of V3**: Started (Errors defined, migration pending).
+- **Build Integrity**: Pre-flight checks (gofmt, vet, staticcheck, agent-schema) enforced on commit.
