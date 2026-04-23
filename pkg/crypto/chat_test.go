@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -9,8 +10,8 @@ import (
 const ChatAppIDForTest = "maknoon.io/ghost-chat/test"
 
 func TestChatSession_BasicFlow(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
+	if testing.Short() || os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Skip("skipping network test in short mode or CI")
 	}
 
 	host := NewChatSession(ChatAppIDForTest)

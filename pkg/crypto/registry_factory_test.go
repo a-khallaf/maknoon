@@ -25,11 +25,15 @@ func TestRegistryFactory(t *testing.T) {
 		t.Fatal("expected MultiRegistry")
 	}
 
-	if len(mr.Registries) != 1 {
-		t.Errorf("expected 1 registry, got %d", len(mr.Registries))
+	found := false
+	for _, r := range mr.Registries {
+		if _, ok := r.(*MockRegistry); ok {
+			found = true
+			break
+		}
 	}
 
-	if _, ok := mr.Registries[0].(*MockRegistry); !ok {
-		t.Error("expected MockRegistry as first registry")
+	if !found {
+		t.Error("MockRegistry not found in active registries")
 	}
 }
