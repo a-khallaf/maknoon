@@ -13,6 +13,7 @@ import (
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/viper"
 )
 
 var engine crypto.MaknoonEngine
@@ -29,6 +30,11 @@ func main() {
 }
 
 func initEngine() error {
+	// Initialize Viper for the MCP server
+	viper.SetEnvPrefix("MAKNOON")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
 	policy := &crypto.AgentPolicy{}
 	core, err := crypto.NewEngine(policy)
 	if err != nil {
@@ -425,7 +431,7 @@ func vaultGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	_ = request.GetString("vault", "default")
 
 	// Get master passphrase from environment (Agent convention)
-	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	passRaw := viper.GetString("passphrase")
 	if passRaw == "" {
 		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
 	}
@@ -465,7 +471,7 @@ func vaultSetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	_ = request.GetString("vault", "default")
 
 	// Get master passphrase from environment
-	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	passRaw := viper.GetString("passphrase")
 	if passRaw == "" {
 		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
 	}
@@ -511,7 +517,7 @@ func encryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		pubKey = pk
 	}
 
-	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	passRaw := viper.GetString("passphrase")
 	if passRaw == "" && pubKeyPath == "" {
 		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE (or use public_key)","code":401}`), nil
 	}
@@ -545,7 +551,7 @@ func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	privKeyPath := request.GetString("private_key", "")
 
 	// 1. Resolve keys
-	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	passRaw := viper.GetString("passphrase")
 	if passRaw == "" && privKeyPath == "" {
 		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE (or provide private_key)","code":401}`), nil
 	}
@@ -688,7 +694,7 @@ func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		pubKey = pk
 	}
 
-	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	passRaw := viper.GetString("passphrase")
 	if passRaw == "" {
 		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
 	}
@@ -915,7 +921,7 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	desecToken := request.GetString("desec_token", "")
 
 	opts := crypto.IdentityPublishOptions{
-		Passphrase: os.Getenv("MAKNOON_PASSPHRASE"),
+		Passphrase: viper.GetString("passphrase"),
 		Name:       name,
 		Nostr:      nostr,
 		DNS:        dns,
@@ -1029,23 +1035,18 @@ func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		return formatError(err, "profiles_gen")
 	}
 
-	// 3. Save if policy allows
-	if !engine.GetPolicy().AllowConfigModification() {
-		// Return ephemeral JSON for the AI to use
-		res := map[string]interface{}{
-			"status":            "success",
-			"ephemeral_profile": dp,
-			"warning":           "could not save to config (policy restriction)",
+	// 3. Register via engine (Handles policy check internally)
+	if err := engine.RegisterProfile(nil, name, dp); err != nil {
+		if crypto.As(err, new(*crypto.ErrPolicyViolation)) {
+			// Return ephemeral JSON for the AI to use
+			res := map[string]interface{}{
+				"status":            "success",
+				"ephemeral_profile": dp,
+				"warning":           "could not save to config (policy restriction)",
+			}
+			raw, _ := json.Marshal(res)
+			return mcp.NewToolResultText(string(raw)), nil
 		}
-		raw, _ := json.Marshal(res)
-		return mcp.NewToolResultText(string(raw)), nil
-	}
-
-	if conf.Profiles == nil {
-		conf.Profiles = make(map[string]*crypto.DynamicProfile)
-	}
-	conf.Profiles[name] = dp
-	if err := conf.Save(); err != nil {
 		return formatError(err, "profiles_gen")
 	}
 

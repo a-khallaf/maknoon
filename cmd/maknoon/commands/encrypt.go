@@ -9,6 +9,7 @@ import (
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
 
@@ -106,7 +107,7 @@ func EncryptCmd() *cobra.Command {
 				return err
 			}
 
-			if signKeyPath != "" || os.Getenv("MAKNOON_PRIVATE_KEY") != "" {
+			if signKeyPath != "" || viper.GetString("private_key") != "" {
 				m := crypto.NewIdentityManager()
 				resolvedSignPath := m.ResolveKeyPath(signKeyPath, "MAKNOON_PRIVATE_KEY")
 				if resolvedSignPath != "" {
@@ -191,6 +192,10 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileStr, "profile", "nist", "Cryptographic profile (nist, aes, conservative)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 
+	_ = cmd.RegisterFlagCompletionFunc("public-key", completeIdentities)
+	_ = cmd.RegisterFlagCompletionFunc("sign-key", completeIdentities)
+	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
+
 	// KDF overrides
 	cmd.Flags().Uint32Var(&argonTime, "argon-time", 0, "Argon2id iterations")
 	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 0, "Argon2id memory in KB")
@@ -250,7 +255,7 @@ func resolveEncryptOutput(outPath, inPath string) (io.Writer, string, error) {
 func resolveEncryptionKeysMulti(opts *crypto.Options, pubKeyPaths []string, passphrase, inputPath string, tofu bool) error {
 	m := crypto.NewIdentityManager()
 	if len(pubKeyPaths) == 0 {
-		if env := os.Getenv("MAKNOON_PUBLIC_KEY"); env != "" {
+		if env := viper.GetString("public_key"); env != "" {
 			pubKeyPaths = append(pubKeyPaths, env)
 		}
 	}

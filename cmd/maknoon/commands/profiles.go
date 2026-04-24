@@ -172,15 +172,14 @@ func profilesGenCmd() *cobra.Command {
 				return fmt.Errorf("saving profiles to config is prohibited under the active policy (%s) (use --json to generate an ephemeral profile)", GlobalContext.Engine.GetPolicy().Name())
 			}
 
-			// Save to config (Only if policy allows)
-			if GlobalContext.Engine.GetPolicy().AllowConfigModification() {
-				if conf.Profiles == nil {
-					conf.Profiles = make(map[string]*crypto.DynamicProfile)
+			// Register/Save to config (Engine handles policy check)
+			if err := GlobalContext.Engine.RegisterProfile(nil, name, dp); err != nil {
+				// If policy blocked it, we still want to output the ephemeral profile if in JSON mode
+				if JSONOutput && crypto.As(err, new(*crypto.ErrPolicyViolation)) {
+					printJSON(dp)
+					return nil
 				}
-				conf.Profiles[name] = dp
-				if err := conf.Save(); err != nil {
-					return fmt.Errorf("failed to save config: %w", err)
-				}
+				return fmt.Errorf("failed to register profile: %w", err)
 			}
 
 			if JSONOutput {
@@ -199,20 +198,11 @@ func profilesRmCmd() *cobra.Command {
 		Use:   "rm <name>",
 		Short: "Remove a custom profile from config",
 		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: completeProfiles,
 		RunE: func(_ *cobra.Command, args []string) error {
-			if !GlobalContext.Engine.GetPolicy().AllowConfigModification() {
-				return fmt.Errorf("config modification is prohibited under the active policy (%s)", GlobalContext.Engine.GetPolicy().Name())
-			}
 			name := args[0]
-			conf := crypto.GetGlobalConfig()
-
-			if _, exists := conf.Profiles[name]; !exists {
-				return fmt.Errorf("profile '%s' not found", name)
-			}
-
-			delete(conf.Profiles, name)
-			if err := conf.Save(); err != nil {
-				return fmt.Errorf("failed to save config: %w", err)
+			if err := GlobalContext.Engine.RemoveProfile(nil, name); err != nil {
+				return err
 			}
 
 			if JSONOutput {

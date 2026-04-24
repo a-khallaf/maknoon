@@ -10,6 +10,7 @@ import (
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // DecryptCmd returns the cobra command for decrypting .makn files.
@@ -74,7 +75,7 @@ func DecryptCmd() *cobra.Command {
 				flags = header[1]
 
 				// Infer magic based on provided decryption params
-				if keyPath != "" || useFido2 || os.Getenv("MAKNOON_PRIVATE_KEY") != "" {
+				if keyPath != "" || useFido2 || viper.GetString("private_key") != "" {
 					magic = crypto.MagicHeaderAsym
 				} else {
 					magic = crypto.MagicHeader
@@ -273,6 +274,10 @@ func DecryptCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path or directory (use - for stdout)")
 	cmd.Flags().StringVarP(&keyPath, "private-key", "k", "", "Path to your private key")
 	cmd.Flags().StringVar(&senderKeyPath, "sender-key", "", "Path to the sender's public key (required for signed files)")
+
+	_ = cmd.RegisterFlagCompletionFunc("private-key", completeIdentities)
+	_ = cmd.RegisterFlagCompletionFunc("sender-key", completeIdentities)
+
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "s", "", "Passphrase for decryption")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "j", 0, "Number of parallel workers (0 for auto)")
 	cmd.Flags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
@@ -331,7 +336,7 @@ func resolveDecryptionKey(magic, manualPass, keyPath string, useFido2 bool, isSt
 	var password []byte
 	if manualPass != "" {
 		password = []byte(manualPass)
-	} else if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
+	} else if env := viper.GetString("passphrase"); env != "" {
 		password = []byte(env)
 	}
 

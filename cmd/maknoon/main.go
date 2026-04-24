@@ -6,7 +6,7 @@ import (
 
 	"github.com/al-Zamakhshari/maknoon/cmd/maknoon/commands"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
+	"github.com/spf13/viper"
 )
 
 var version = "dev"
@@ -15,100 +15,76 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:     "maknoon",
 		Version: version,
-		Short:   "Maknoon (مكنون): A versatile, ultra-efficient CLI encryption tool.",
-		Long:    `Maknoon uses bleeding-edge hybrid cryptography to protect your files carefully.`,
-		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-			// Auto-detect Agent mode: not a TTY and MAKNOON_AGENT_MODE env var is set
-			isAgent := !term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("MAKNOON_AGENT_MODE") == "1"
-			if commands.JSONOutput || os.Getenv("MAKNOON_JSON") == "1" || isAgent {
-				commands.SetJSONOutput(true)
+		Short:   "Maknoon (مكنون): Enterprise-Grade Post-Quantum Encryption Engine",
+		Long: `Maknoon is a high-performance cryptographic engine and MCP server designed
+to secure data against classical and quantum threats using NIST-standardized
+Post-Quantum Cryptography (PQC).`,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// Initialize Viper for flag binding
+			commands.SetupViper()
+
+			// Bind persistent flags to viper
+			_ = viper.BindPFlag("json", cmd.Flags().Lookup("json"))
+
+			if err := commands.InitEngine(); err != nil {
+				return err
+			}
+
+			// Silence Cobra boilerplate if outputting machine-readable results
+			if viper.GetBool("json") || viper.GetString("agent_mode") == "1" {
 				cmd.SilenceUsage = true
 				cmd.SilenceErrors = true
 			}
 			commands.GlobalContext.JSONWriter = commands.JSONWriter
 
-			if err := commands.InitEngine(); err != nil {
-				os.Stderr.WriteString(err.Error() + "\n")
-				os.Exit(1)
-			}
+			return nil
 		},
 	}
 
 	rootCmd.PersistentFlags().BoolVar(&commands.JSONOutput, "json", false, "Output results in JSON format")
 
 	// Define Command Groups
-	rootCmd.AddGroup(&cobra.Group{ID: "core", Title: "Core Commands:"})
-	rootCmd.AddGroup(&cobra.Group{ID: "identity", Title: "Identity Management:"})
-	rootCmd.AddGroup(&cobra.Group{ID: "security", Title: "Security & Integrity:"})
-	rootCmd.AddGroup(&cobra.Group{ID: "utils", Title: "Utilities & Secrets:"})
+	coreGroup := &cobra.Group{ID: "core", Title: "Cryptographic Operations:"}
+	identityGroup := &cobra.Group{ID: "identity", Title: "Identity & Trust:"}
+	securityGroup := &cobra.Group{ID: "security", Title: "Security & Integrity:"}
+	utilsGroup := &cobra.Group{ID: "utils", Title: "Enterprise & System:"}
+
+	rootCmd.AddGroup(coreGroup, identityGroup, securityGroup, utilsGroup)
+
+	// Helper to add command to group and root
+	addCommand := func(c *cobra.Command, groupID string) {
+		c.GroupID = groupID
+		rootCmd.AddCommand(c)
+	}
 
 	// Assign Commands to Groups
-	encryptCmd := commands.EncryptCmd()
-	encryptCmd.GroupID = "core"
-	rootCmd.AddCommand(encryptCmd)
+	addCommand(commands.EncryptCmd(), "core")
+	addCommand(commands.DecryptCmd(), "core")
+	addCommand(commands.SendCmd(), "core")
+	addCommand(commands.ReceiveCmd(), "core")
+	addCommand(commands.ChatCmd(), "core")
+	addCommand(commands.InfoCmd(), "core")
 
-	decryptCmd := commands.DecryptCmd()
-	decryptCmd.GroupID = "core"
-	rootCmd.AddCommand(decryptCmd)
+	addCommand(commands.KeygenCmd(), "identity")
+	addCommand(commands.IdentityCmd(), "identity")
+	addCommand(commands.ContactCmd(), "identity")
 
-	sendCmd := commands.SendCmd()
-	sendCmd.GroupID = "core"
-	rootCmd.AddCommand(sendCmd)
+	addCommand(commands.SignCmd(), "security")
+	addCommand(commands.VerifyCmd(), "security")
 
-	receiveCmd := commands.ReceiveCmd()
-	receiveCmd.GroupID = "core"
-	rootCmd.AddCommand(receiveCmd)
+	addCommand(commands.VaultCmd(), "utils")
+	addCommand(commands.GenCmd(), "utils")
+	addCommand(commands.ConfigCmd(), "utils")
+	addCommand(commands.ProfilesCmd(), "utils")
 
-	chatCmd := commands.ChatCmd()
-	chatCmd.GroupID = "core"
-	rootCmd.AddCommand(chatCmd)
-
-	infoCmd := commands.InfoCmd()
-	infoCmd.GroupID = "core"
-	rootCmd.AddCommand(infoCmd)
-
-	keygenCmd := commands.KeygenCmd()
-	keygenCmd.GroupID = "identity"
-	rootCmd.AddCommand(keygenCmd)
-
-	identityCmd := commands.IdentityCmd()
-	identityCmd.GroupID = "identity"
-	rootCmd.AddCommand(identityCmd)
-
-	signCmd := commands.SignCmd()
-	signCmd.GroupID = "security"
-	rootCmd.AddCommand(signCmd)
-
-	verifyCmd := commands.VerifyCmd()
-	verifyCmd.GroupID = "security"
-	rootCmd.AddCommand(verifyCmd)
-
-	vaultCmd := commands.VaultCmd()
-	vaultCmd.GroupID = "utils"
-	rootCmd.AddCommand(vaultCmd)
-
-	genCmd := commands.GenCmd()
-	genCmd.GroupID = "utils"
-	rootCmd.AddCommand(genCmd)
-
-	configCmd := commands.ConfigCmd()
-	configCmd.GroupID = "utils"
-	rootCmd.AddCommand(configCmd)
-
-	profilesCmd := commands.ProfilesCmd()
-	profilesCmd.GroupID = "utils"
-	rootCmd.AddCommand(profilesCmd)
-
+	// Automation-only commands (Hidden from standard help)
 	schemaCmd := commands.SchemaCmd()
-	schemaCmd.GroupID = "utils"
+	schemaCmd.Hidden = true
 	rootCmd.AddCommand(schemaCmd)
 
 	manCmd := commands.ManCmd()
+	manCmd.Hidden = true
 	rootCmd.AddCommand(manCmd)
-
-	contactCmd := commands.ContactCmd()
-	contactCmd.GroupID = "identity"
-	rootCmd.AddCommand(contactCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

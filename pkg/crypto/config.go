@@ -7,7 +7,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/spf13/viper"
 )
 
 const (
@@ -16,57 +19,57 @@ const (
 
 // Config represents the global settings for Maknoon.
 type Config struct {
-	DefaultIdentity    string                     `json:"default_identity"`
-	IdentityRegistries []string                   `json:"identity_registries,omitempty"`
-	Audit              AuditConfig                `json:"audit,omitempty"`
-	Security           SecurityConfig             `json:"security"`
-	Performance        PerformanceConfig          `json:"performance"`
-	AgentLimits        AgentLimitsConfig          `json:"agent_limits"`
-	Wormhole           WormholeConfig             `json:"wormhole"`
-	Nostr              NostrConfig                `json:"nostr"`
-	Paths              PathConfig                 `json:"paths"`
-	Profiles           map[string]*DynamicProfile `json:"profiles,omitempty"`
+	DefaultIdentity    string                     `json:"default_identity" mapstructure:"default_identity"`
+	IdentityRegistries []string                   `json:"identity_registries,omitempty" mapstructure:"identity_registries"`
+	Audit              AuditConfig                `json:"audit,omitempty" mapstructure:"audit"`
+	Security           SecurityConfig             `json:"security" mapstructure:"security"`
+	Performance        PerformanceConfig          `json:"performance" mapstructure:"performance"`
+	AgentLimits        AgentLimitsConfig          `json:"agent_limits" mapstructure:"agent_limits"`
+	Wormhole           WormholeConfig             `json:"wormhole" mapstructure:"wormhole"`
+	Nostr              NostrConfig                `json:"nostr" mapstructure:"nostr"`
+	Paths              PathConfig                 `json:"paths" mapstructure:"paths"`
+	Profiles           map[string]*DynamicProfile `json:"profiles,omitempty" mapstructure:"profiles"`
 }
 
 type AuditConfig struct {
-	Enabled bool   `json:"enabled"`
-	LogFile string `json:"log_file"`
+	Enabled bool   `json:"enabled" mapstructure:"enabled"`
+	LogFile string `json:"log_file" mapstructure:"log_file"`
 }
 
 type AgentLimitsConfig struct {
-	MaxMemoryKB uint32   `json:"max_memory_kb"`
-	MaxTime     uint32   `json:"max_time"`
-	MaxThreads  uint8    `json:"max_threads"`
-	MaxWorkers  int      `json:"max_workers"`
-	AllowedURLs []string `json:"allowed_urls"`
+	MaxMemoryKB uint32   `json:"max_memory_kb" mapstructure:"max_memory_kb"`
+	MaxTime     uint32   `json:"max_time" mapstructure:"max_time"`
+	MaxThreads  uint8    `json:"max_threads" mapstructure:"max_threads"`
+	MaxWorkers  int      `json:"max_workers" mapstructure:"max_workers"`
+	AllowedURLs []string `json:"allowed_urls" mapstructure:"allowed_urls"`
 }
 
 type WormholeConfig struct {
-	RendezvousURL string `json:"rendezvous_url"`
-	TransitRelay  string `json:"transit_relay"`
+	RendezvousURL string `json:"rendezvous_url" mapstructure:"rendezvous_url"`
+	TransitRelay  string `json:"transit_relay" mapstructure:"transit_relay"`
 }
 
 type SecurityConfig struct {
-	ArgonTime    uint32 `json:"argon_time"`
-	ArgonMemory  uint32 `json:"argon_memory"`
-	ArgonThreads uint8  `json:"argon_threads"`
+	ArgonTime    uint32 `json:"argon_time" mapstructure:"argon_time"`
+	ArgonMemory  uint32 `json:"argon_memory" mapstructure:"argon_memory"`
+	ArgonThreads uint8  `json:"argon_threads" mapstructure:"argon_threads"`
 }
 
 type PerformanceConfig struct {
-	Concurrency      int  `json:"concurrency"`
-	CompressionLevel int  `json:"compression_level"`
-	DefaultStealth   bool `json:"default_stealth"`
+	Concurrency      int  `json:"concurrency" mapstructure:"concurrency"`
+	CompressionLevel int  `json:"compression_level" mapstructure:"compression_level"`
+	DefaultStealth   bool `json:"default_stealth" mapstructure:"default_stealth"`
 }
 
 type NostrConfig struct {
-	Relays          []string `json:"relays"`
-	BootstrapRelays []string `json:"bootstrap_relays"`
-	PublishMetadata bool     `json:"publish_metadata"`
+	Relays          []string `json:"relays" mapstructure:"relays"`
+	BootstrapRelays []string `json:"bootstrap_relays" mapstructure:"bootstrap_relays"`
+	PublishMetadata bool     `json:"publish_metadata" mapstructure:"publish_metadata"`
 }
 
 type PathConfig struct {
-	KeysDir   string `json:"keys_dir"`
-	VaultsDir string `json:"vaults_dir"`
+	KeysDir   string `json:"keys_dir" mapstructure:"keys_dir"`
+	VaultsDir string `json:"vaults_dir" mapstructure:"vaults_dir"`
 }
 
 var (
@@ -163,7 +166,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// LoadConfig reads the config from ~/.maknoon/config.json.
+// LoadConfig reads the config from ~/.maknoon/config.json, merged with environment variables.
 func LoadConfig() (*Config, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -172,20 +175,31 @@ func LoadConfig() (*Config, error) {
 		return globalConfig, nil
 	}
 
+	v := viper.New()
+	// Setup standard environment variable bindings
+	v.SetEnvPrefix("MAKNOON")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	_ = v.BindEnv("go_test", "GO_TEST")
+	_ = v.BindEnv("desec_token", "DESEC_TOKEN")
+
 	home := GetUserHomeDir()
-	path := filepath.Join(home, MaknoonDir, ConfigFileName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// If file doesn't exist, return memory default without error
-		return DefaultConfig(), nil
+	v.SetConfigFile(filepath.Join(home, MaknoonDir, ConfigFileName))
+
+	// Read from file if it exists
+	if err := v.ReadInConfig(); err != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
 	}
 
 	conf := DefaultConfig()
-	if err := json.Unmarshal(data, conf); err != nil {
-		return nil, fmt.Errorf("config file is corrupted (invalid JSON): %w", err)
+	if err := v.Unmarshal(conf); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Validate the loaded config
+	// Validate the resulting config
 	if err := conf.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}

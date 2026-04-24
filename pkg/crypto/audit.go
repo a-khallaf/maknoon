@@ -356,3 +356,42 @@ func (e *AuditEngine) GetPolicy() SecurityPolicy {
 func (e *AuditEngine) GetConfig() *Config {
 	return e.Engine.Config
 }
+
+func (e *AuditEngine) UpdateConfig(ectx *EngineContext, newConf *Config) error {
+	start := time.Now()
+	err := e.Engine.UpdateConfig(ectx, newConf)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("update_config", map[string]any{
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}
+
+func (e *AuditEngine) RegisterProfile(ectx *EngineContext, name string, dp *DynamicProfile) error {
+	start := time.Now()
+	err := e.Engine.RegisterProfile(ectx, name, dp)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("register_profile", map[string]any{
+		"name":        name,
+		"profile_id":  dp.ID(),
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}
+
+func (e *AuditEngine) RemoveProfile(ectx *EngineContext, name string) error {
+	start := time.Now()
+	err := e.Engine.RemoveProfile(ectx, name)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("remove_profile", map[string]any{
+		"name":        name,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return err
+}

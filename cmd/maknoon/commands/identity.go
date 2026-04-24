@@ -10,6 +10,7 @@ import (
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func IdentityCmd() *cobra.Command {
@@ -145,7 +146,7 @@ func identityPublishCmd() *cobra.Command {
 			if useDesec {
 				token := desecToken
 				if token == "" {
-					token = os.Getenv("DESEC_TOKEN")
+					token = viper.GetString("desec_token")
 				}
 				if token == "" {
 					return fmt.Errorf("deSEC token required for automated publishing")
@@ -216,6 +217,7 @@ func identitySplitCmd() *cobra.Command {
 		Use:   "split [name]",
 		Short: "Shard an identity using Shamir's Secret Sharing",
 		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: completeIdentities,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			name := args[0]
@@ -402,6 +404,7 @@ func identityInfoCmd() *cobra.Command {
 		Use:   "info [name]",
 		Short: "Show details about a local identity",
 		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: completeIdentities,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			name := args[0]
@@ -461,6 +464,7 @@ func identityRenameCmd() *cobra.Command {
 		Use:   "rename [old] [new]",
 		Short: "Rename a local identity",
 		Args:  cobra.ExactArgs(2),
+		ValidArgsFunction: completeIdentities,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			oldName := args[0]

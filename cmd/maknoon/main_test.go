@@ -19,32 +19,41 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// runRootCmd helper to run the full CLI with global flags and capture combined output
 func runRootCmd(args ...string) string {
-	commands.JSONOutput = false
+	commands.SetJSONOutput(false)
 	rootCmd := &cobra.Command{
 		Use: "maknoon",
-		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-			if commands.JSONOutput || os.Getenv("MAKNOON_JSON") == "1" {
-				commands.JSONOutput = true
-				cmd.SilenceUsage = true
-				cmd.SilenceErrors = true
-			}
-			_ = commands.InitEngine()
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			commands.SetupViper()
+			// Force GO_TEST=1 for integration tests to allow SecurePrint
+			os.Setenv("GO_TEST", "1")
+			return commands.InitEngine()
 		},
 	}
 	rootCmd.PersistentFlags().BoolVar(&commands.JSONOutput, "json", false, "Output results in JSON format")
 
-	rootCmd.AddCommand(commands.EncryptCmd())
-	rootCmd.AddCommand(commands.DecryptCmd())
-	rootCmd.AddCommand(commands.InfoCmd())
-	rootCmd.AddCommand(commands.IdentityCmd())
-	rootCmd.AddCommand(commands.KeygenCmd())
-	rootCmd.AddCommand(commands.ProfilesCmd())
-	rootCmd.AddCommand(commands.GenCmd())
-	rootCmd.AddCommand(commands.VaultCmd())
-	rootCmd.AddCommand(commands.SignCmd())
-	rootCmd.AddCommand(commands.VerifyCmd())
+	// Define Command Groups (Must match main.go for perfect parity)
+	coreGroup := &cobra.Group{ID: "core", Title: "Cryptographic Operations:"}
+	identityGroup := &cobra.Group{ID: "identity", Title: "Identity & Trust:"}
+	securityGroup := &cobra.Group{ID: "security", Title: "Security & Integrity:"}
+	utilsGroup := &cobra.Group{ID: "utils", Title: "Enterprise & System:"}
+	rootCmd.AddGroup(coreGroup, identityGroup, securityGroup, utilsGroup)
+
+	add := func(c *cobra.Command, g string) {
+		c.GroupID = g
+		rootCmd.AddCommand(c)
+	}
+
+	add(commands.EncryptCmd(), "core")
+	add(commands.DecryptCmd(), "core")
+	add(commands.InfoCmd(), "core")
+	add(commands.IdentityCmd(), "identity")
+	add(commands.KeygenCmd(), "identity")
+	add(commands.ProfilesCmd(), "utils")
+	add(commands.GenCmd(), "utils")
+	add(commands.VaultCmd(), "utils")
+	add(commands.SignCmd(), "security")
+	add(commands.VerifyCmd(), "security")
 
 	rootCmd.SetArgs(args)
 

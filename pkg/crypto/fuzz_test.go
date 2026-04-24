@@ -2,7 +2,13 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func FuzzStreamEncryptDecrypt(f *testing.F) {
@@ -94,5 +100,51 @@ func FuzzRandomProfiles(f *testing.F) {
 		if !bytes.Equal(canary, decrypted.Bytes()) {
 			t.Error("Data corruption detected")
 		}
+	})
+}
+
+func FuzzConfigJSON(f *testing.F) {
+	f.Add([]byte(`{"default_identity": "test", "security": {"argon_time": 5}}`))
+	f.Add([]byte(`{invalid-json`))
+	
+	f.Fuzz(func(t *testing.T, data []byte) {
+		conf := DefaultConfig()
+		// Test JSON unmarshaling directly first
+		_ = json.Unmarshal(data, conf)
+		_ = conf.Validate()
+
+		// Test file-based loading with Viper
+		tmpFile := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(tmpFile, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		
+		v := viper.New()
+		v.SetConfigFile(tmpFile)
+		if err := v.ReadInConfig(); err == nil {
+			_ = v.Unmarshal(conf)
+		}
+	})
+}
+
+func FuzzKeyManager(f *testing.F) {
+	f.Add("my-id", []byte("raw-key-data"))
+
+	f.Fuzz(func(t *testing.T, name string, keyData []byte) {
+		if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+			return
+		}
+		
+		tmpDir := t.TempDir()
+		im := &IdentityManager{KeysDir: tmpDir}
+		
+		// Write garbage key files
+		_ = os.WriteFile(filepath.Join(tmpDir, name+".kem.key"), keyData, 0600)
+		_ = os.WriteFile(filepath.Join(tmpDir, name+".kem.pub"), keyData, 0644)
+		
+		// Attempt to resolve and load
+		_ = im.ResolveKeyPath(name, "")
+		_, _, _ = im.ResolveBaseKeyPath(name)
+		_, _ = im.LoadIdentity(name, []byte("pass"), "", false)
 	})
 }

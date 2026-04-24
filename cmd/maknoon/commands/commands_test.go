@@ -68,7 +68,7 @@ func TestResolveKeyPath(t *testing.T) {
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	// 1. Explicit path
-	res := resolveKeyPath(tmpFile.Name(), "UNUSED")
+	res := crypto.ResolveKeyPath(tmpFile.Name(), "UNUSED")
 	if res != tmpFile.Name() {
 		t.Errorf("Expected %s, got %s", tmpFile.Name(), res)
 	}
@@ -79,7 +79,7 @@ func TestResolveKeyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Unsetenv(envKey) }()
-	res = resolveKeyPath("", envKey)
+	res = crypto.ResolveKeyPath("", envKey)
 	if res != tmpFile.Name() {
 		t.Errorf("Expected %s from env, got %s", tmpFile.Name(), res)
 	}
@@ -391,14 +391,25 @@ func TestVaultJSON(t *testing.T) {
 		getCmdErr := VaultCmd()
 		getCmdErr.SetArgs([]string{"--vault", vaultName, "--passphrase", passphrase, "get", "nonexistent"})
 
+		oldStdout := os.Stdout
 		oldStderr := os.Stderr
 		r, w, _ := os.Pipe()
+		os.Stdout = w
 		os.Stderr = w
-		_ = getCmdErr.Execute() // Expected to fail, checking JSON error message on stderr
+		
+		// Ensure GlobalContext respects our redirection
+		oldJSONWriter := GlobalContext.JSONWriter
+		GlobalContext.JSONWriter = w
+
+		_ = getCmdErr.Execute() // Expected to fail
+		
 		if err := w.Close(); err != nil {
 			t.Fatal(err)
 		}
+		os.Stdout = oldStdout
 		os.Stderr = oldStderr
+		GlobalContext.JSONWriter = oldJSONWriter
+
 		var errBuf bytes.Buffer
 		if _, err := io.Copy(&errBuf, r); err != nil {
 			t.Fatal(err)
@@ -408,6 +419,47 @@ func TestVaultJSON(t *testing.T) {
 			t.Errorf("Error JSON formatting failed. Output: %s", errBuf.String())
 		}
 	})
+}
+
+func TestCompletions(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	crypto.ResetGlobalConfig()
+	if err := crypto.EnsureMaknoonDirs(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Identities
+	keygenCmd := KeygenCmd()
+	keygenCmd.SetArgs([]string{"-o", "test-id", "--no-password"})
+	if err := keygenCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	
+	ids, _ := completeIdentities(nil, nil, "test")
+	if len(ids) == 0 || ids[0] != "test-id" {
+		t.Errorf("Identity completion failed, got: %v", ids)
+	}
+
+	// 2. Vaults
+	vaultPath := filepath.Join(tmpDir, crypto.MaknoonDir, crypto.VaultsDir, "work.vault")
+	if err := os.WriteFile(vaultPath, []byte("dummy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	
+	vaults, _ := completeVaults(nil, nil, "wo")
+	if len(vaults) == 0 || vaults[0] != "work" {
+		t.Errorf("Vault completion failed, got: %v", vaults)
+	}
+
+	// 3. Profiles
+	profs, _ := completeProfiles(nil, nil, "ni")
+	if len(profs) == 0 || profs[0] != "nist" {
+		t.Errorf("Profile completion failed, got: %v", profs)
+	}
 }
 
 func TestSignVerify(t *testing.T) {

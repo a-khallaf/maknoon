@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 const (
@@ -23,9 +25,9 @@ const (
 	ProfilesDir = "profiles"
 )
 
-// IsAgentMode returns true if the application is running in non-interactive agent/JSON mode.
+// IsAgentMode returns true if the application is running in non-interactive agent mode.
 func IsAgentMode() bool {
-	return os.Getenv("MAKNOON_AGENT_MODE") == "1" || os.Getenv("MAKNOON_JSON") == "1"
+	return viper.GetString("agent_mode") == "1"
 }
 
 // Identity represents a full PQC keypair (KEM + SIG) + DHT metadata.

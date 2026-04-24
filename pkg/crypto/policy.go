@@ -167,8 +167,11 @@ func ValidatePath(path string, restricted bool) error {
 		evalTmp, _ := filepath.EvalSymlinks(tmp)
 
 		if !strings.HasPrefix(evalPath, evalHome) && !strings.HasPrefix(evalPath, evalTmp) {
-			// Specifically check for /tmp if evalTmp is different on some OS
-			if !strings.HasPrefix(evalPath, "/tmp") && !strings.HasPrefix(evalPath, "/var/folders") {
+			// Specifically check for common temp/var paths that might not be captured by os.TempDir
+			if !strings.HasPrefix(evalPath, "/tmp") &&
+				!strings.HasPrefix(evalPath, "/private/tmp") &&
+				!strings.HasPrefix(evalPath, "/var/folders") &&
+				!strings.HasPrefix(evalPath, "/private/var/folders") {
 				return &ErrPolicyViolation{
 					Reason: "arbitrary file paths outside home or temp are prohibited",
 					Path:   evalPath,

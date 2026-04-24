@@ -192,6 +192,8 @@ func KeygenCmd() *cobra.Command {
 	cmd.Flags().StringVar(&profileStr, "profile", "nist", "Cryptographic profile (nist, aes, conservative)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file to protect the keys")
 
+	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
+
 	// KDF Flags
 	cmd.Flags().Uint32Var(&argonTime, "argon-time", 3, "Argon2id iterations")
 	cmd.Flags().Uint32Var(&argonMem, "argon-mem", 64*1024, "Argon2id memory in KB")

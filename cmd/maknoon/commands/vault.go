@@ -12,6 +12,7 @@ import (
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.etcd.io/bbolt"
 )
 
@@ -37,6 +38,8 @@ func VaultCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&vaultPassphrase, "passphrase", "s", "", "Master passphrase for the vault")
 	cmd.PersistentFlags().BoolVarP(&useFido2, "fido2", "f", false, "Use FIDO2 security key for authentication")
 	cmd.PersistentFlags().BoolVar(&JSONOutput, "json", false, "Output results in JSON format")
+
+	_ = cmd.RegisterFlagCompletionFunc("vault", completeVaults)
 
 	cmd.AddCommand(vaultSetCmd())
 	cmd.AddCommand(vaultGetCmd())
@@ -368,13 +371,14 @@ func vaultSetCmd() *cobra.Command {
 		Use:   "set [service]",
 		Short: "Store a secret in the vault",
 		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: completeServices,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			service := args[0]
 			var password []byte
 			var err error
 
-			if env := os.Getenv("MAKNOON_PASSWORD"); env != "" {
+			if env := viper.GetString("password"); env != "" {
 				password = []byte(env)
 			} else {
 				var err error
@@ -434,6 +438,7 @@ func vaultGetCmd() *cobra.Command {
 		Use:   "get [service]",
 		Short: "Retrieve a secret from the vault",
 		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: completeServices,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
 			service := args[0]

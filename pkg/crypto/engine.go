@@ -113,6 +113,9 @@ type Utils interface {
 type StateProvider interface {
 	GetPolicy() SecurityPolicy
 	GetConfig() *Config
+	UpdateConfig(ectx *EngineContext, newConf *Config) error
+	RegisterProfile(ectx *EngineContext, name string, dp *DynamicProfile) error
+	RemoveProfile(ectx *EngineContext, name string) error
 }
 
 // MaknoonEngine is the unified facade for the Maknoon system, composing all specialized services.
@@ -134,6 +137,46 @@ type Engine struct {
 
 func (e *Engine) GetPolicy() SecurityPolicy { return e.Policy }
 func (e *Engine) GetConfig() *Config        { return e.Config }
+
+func (e *Engine) UpdateConfig(ectx *EngineContext, newConf *Config) error {
+	ectx = e.context(ectx)
+	if !ectx.Policy.AllowConfigModification() {
+		return &ErrPolicyViolation{Reason: "configuration modification is prohibited under the active policy"}
+	}
+	if err := newConf.Validate(); err != nil {
+		return err
+	}
+	if err := newConf.Save(); err != nil {
+		return err
+	}
+	e.Config = newConf
+	return nil
+}
+
+func (e *Engine) RegisterProfile(ectx *EngineContext, name string, dp *DynamicProfile) error {
+	ectx = e.context(ectx)
+	if !ectx.Policy.AllowConfigModification() {
+		return &ErrPolicyViolation{Reason: "profile registration is prohibited under the active policy"}
+	}
+	if e.Config.Profiles == nil {
+		e.Config.Profiles = make(map[string]*DynamicProfile)
+	}
+	e.Config.Profiles[name] = dp
+	RegisterProfile(dp)
+	return e.Config.Save()
+}
+
+func (e *Engine) RemoveProfile(ectx *EngineContext, name string) error {
+	ectx = e.context(ectx)
+	if !ectx.Policy.AllowConfigModification() {
+		return &ErrPolicyViolation{Reason: "profile removal is prohibited under the active policy"}
+	}
+	if _, ok := e.Config.Profiles[name]; !ok {
+		return fmt.Errorf("profile '%s' not found", name)
+	}
+	delete(e.Config.Profiles, name)
+	return e.Config.Save()
+}
 
 // context ensures a valid context and policy are always available.
 func (e *Engine) context(ectx *EngineContext) *EngineContext {

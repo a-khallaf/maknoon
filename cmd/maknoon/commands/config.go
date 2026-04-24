@@ -90,13 +90,7 @@ Keys:
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
-			if !GlobalContext.Engine.GetPolicy().AllowConfigModification() {
-				return fmt.Errorf("config modification is prohibited under the active security policy (%s)", GlobalContext.Engine.GetPolicy().Name())
-			}
-			conf, err := crypto.LoadConfig()
-			if err != nil {
-				return fmt.Errorf("failed to load config for update: %w", err)
-			}
+			conf := GlobalContext.Engine.GetConfig()
 
 			key := args[0]
 			val := args[1]
@@ -148,11 +142,7 @@ Keys:
 				return fmt.Errorf("unknown configuration key: %s", key)
 			}
 
-			if err := conf.Validate(); err != nil {
-				return fmt.Errorf("invalid configuration value: %w", err)
-			}
-
-			if err := conf.Save(); err != nil {
+			if err := GlobalContext.Engine.UpdateConfig(nil, conf); err != nil {
 				return err
 			}
 
@@ -172,11 +162,8 @@ func configInitCmd() *cobra.Command {
 		Short: "Initialize default configuration file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkJSONMode(cmd)
-			if !GlobalContext.Engine.GetPolicy().AllowConfigModification() {
-				return fmt.Errorf("config initialization is prohibited under the active security policy (%s)", GlobalContext.Engine.GetPolicy().Name())
-			}
 			conf := crypto.DefaultConfig()
-			if err := conf.Save(); err != nil {
+			if err := GlobalContext.Engine.UpdateConfig(nil, conf); err != nil {
 				return err
 			}
 

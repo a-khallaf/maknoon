@@ -5,12 +5,44 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
+
+// GlobalContext stores shared state for CLI commands.
+var GlobalContext struct {
+	Engine     crypto.MaknoonEngine
+	JSONOutput bool
+	JSONWriter io.Writer
+}
+
+// JSONOutput is a global flag for JSON formatting.
+var JSONOutput bool
+var JSONWriter io.Writer = os.Stdout
+
+// SetJSONOutput toggles JSON mode globally.
+func SetJSONOutput(enabled bool) {
+	JSONOutput = enabled
+	GlobalContext.JSONOutput = enabled
+}
+
+// SetupViper initializes the global Viper instance with Maknoon defaults and bindings.
+func SetupViper() {
+	viper.SetEnvPrefix("MAKNOON")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// Bind non-prefixed env vars for backward compatibility/CI
+	_ = viper.BindEnv("go_test", "GO_TEST")
+	_ = viper.BindEnv("desec_token", "DESEC_TOKEN")
+}
 
 // SecurePrint prints sensitive information only if the output is an interactive terminal.
 // If output is redirected, it returns an error unless JSON mode is active.
@@ -19,7 +51,7 @@ func SecurePrint(secret string) {
 		return // Handled by printJSON
 	}
 
-	if term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("GO_TEST") == "1" {
+	if term.IsTerminal(int(os.Stdout.Fd())) || viper.GetString("go_test") == "1" || os.Getenv("GO_TEST") == "1" {
 		fmt.Println(secret) // codeql [go/clear-text-logging]
 	} else {
 		fmt.Fprintln(os.Stderr, "⚠️  Warning: Sensitive output suppressed because stdout is not a terminal.")
@@ -33,7 +65,7 @@ func SecurePrintf(format string, args ...any) {
 		return
 	}
 
-	if term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("GO_TEST") == "1" {
+	if term.IsTerminal(int(os.Stdout.Fd())) || viper.GetString("go_test") == "1" || os.Getenv("GO_TEST") == "1" {
 		fmt.Printf(format, args...) // codeql [go/clear-text-logging]
 	} else {
 		fmt.Fprintln(os.Stderr, "⚠️  Warning: Sensitive output suppressed because stdout is not a terminal.")
@@ -42,7 +74,7 @@ func SecurePrintf(format string, args ...any) {
 
 // getPIN prompts the user for a FIDO2 PIN if not provided via environment or in agent mode.
 func getPIN() (string, error) {
-	if env := os.Getenv("MAKNOON_FIDO2_PIN"); env != "" {
+	if env := viper.GetString("fido2_pin"); env != "" {
 		return env, nil
 	}
 	if GlobalContext.Engine != nil && GlobalContext.Engine.GetPolicy().IsAgent() {
@@ -61,7 +93,7 @@ func getPIN() (string, error) {
 // getPassphrase prompts the user for a passphrase if not provided and not in agent mode.
 // It returns the passphrase and a boolean indicating if it was collected via terminal interaction.
 func getPassphrase(prompt string) ([]byte, bool, error) {
-	if env := os.Getenv("MAKNOON_PASSPHRASE"); env != "" {
+	if env := viper.GetString("passphrase"); env != "" {
 		return []byte(env), false, nil
 	}
 	if GlobalContext.Engine != nil && GlobalContext.Engine.GetPolicy().IsAgent() {
@@ -99,43 +131,28 @@ func handleEngineEvents(events <-chan crypto.EngineEvent, quiet bool) {
 			}
 		case crypto.EventChunkProcessed:
 			if bar != nil {
-				_ = bar.Set64(e.TotalProcessed)
+				_ = bar.Add64(e.BytesProcessed)
 			}
-		case crypto.EventHandshakeComplete:
-			// Handshake done, usually fast so maybe just a log if verbose
 		}
 	}
 	if bar != nil {
 		_ = bar.Finish()
-		fmt.Fprintln(os.Stderr)
 	}
 }
 
-// Context encapsulates the execution state of the Maknoon CLI.
-type Context struct {
-	JSONOutput bool
-	JSONWriter io.Writer
-	Engine     crypto.MaknoonEngine
+func printJSON(data interface{}) {
+	w := GlobalContext.JSONWriter
+	if w == nil {
+		w = JSONWriter
+	}
+	_ = json.NewEncoder(w).Encode(data)
 }
 
-// GlobalContext is the default context for CLI execution.
-var GlobalContext = &Context{
-	JSONWriter: os.Stdout,
-}
-
-// printJSON outputs an interface as a JSON string to the context's writer.
-func (c *Context) printJSON(v interface{}) {
-	raw, _ := json.Marshal(v)
-	fmt.Fprintln(c.JSONWriter, string(raw))
-}
-
-// printErrorJSON outputs an error as a JSON object to stderr, including metadata for typed errors.
-func (c *Context) printErrorJSON(err error) {
+func printErrorJSON(err error) {
 	resp := map[string]interface{}{
 		"error": err.Error(),
 	}
 
-	// Inspect typed errors for metadata
 	var policyErr *crypto.ErrPolicyViolation
 	var authErr *crypto.ErrAuthentication
 	var cryptoErr *crypto.ErrCrypto
@@ -144,10 +161,8 @@ func (c *Context) printErrorJSON(err error) {
 	if crypto.As(err, &policyErr) {
 		resp["type"] = "security_policy_violation"
 		resp["is_security_violation"] = true
+		resp["path"] = policyErr.Path
 		resp["code"] = 403
-		if policyErr.Path != "" {
-			resp["path"] = policyErr.Path
-		}
 	} else if crypto.As(err, &authErr) {
 		resp["type"] = "authentication_failed"
 		resp["code"] = 401
@@ -159,42 +174,149 @@ func (c *Context) printErrorJSON(err error) {
 		resp["code"] = 503
 	}
 
-	raw, _ := json.Marshal(resp)
-	fmt.Fprintln(os.Stderr, string(raw))
+	w := GlobalContext.JSONWriter
+	if w == nil {
+		w = JSONWriter
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// printJSON outputs an interface using the GlobalContext.
-func printJSON(v interface{}) {
-	GlobalContext.printJSON(v)
+// validatePath is a helper for CLI commands to check path safety.
+func validatePath(path string) error {
+	if GlobalContext.Engine == nil {
+		return nil
+	}
+	return GlobalContext.Engine.GetPolicy().ValidatePath(path)
 }
 
-// printErrorJSON outputs an error using the GlobalContext.
-func printErrorJSON(err error) {
-	GlobalContext.printErrorJSON(err)
+func resolveProfile(name string) (byte, error) {
+	switch strings.ToLower(name) {
+	case "nist", "pq":
+		return 1, nil
+	case "aes":
+		return 2, nil
+	case "conservative", "legacy":
+		return 3, nil
+	case "hardened":
+		return 4, nil
+	}
+
+	// Handle numeric IDs (used in tests)
+	if id, err := strconv.Atoi(name); err == nil && id > 0 && id < 256 {
+		return byte(id), nil
+	}
+
+	// Check custom profiles in config
+	conf := crypto.GetGlobalConfig()
+	if p, ok := conf.Profiles[name]; ok {
+		return p.ID(), nil
+	}
+
+	return 0, fmt.Errorf("unknown profile: %s", name)
 }
 
-// JSONOutput is kept as a global shim for now, but will be phased out.
-var JSONOutput bool = false
-
-// JSONWriter is kept as a global shim for now.
-var JSONWriter io.Writer = os.Stdout
-
-// resolveKeyPath checks if a key exists locally, in ~/.maknoon/keys/, or in environment variables.
-func resolveKeyPath(path string, envVar string) string {
-	return crypto.ResolveKeyPath(path, envVar)
+func checkJSONMode(cmd *cobra.Command) {
+	if JSONOutput || viper.GetString("json") == "1" || viper.GetBool("json") {
+		JSONOutput = true
+		if cmd != nil {
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+		}
+	}
 }
 
-// SetJSONOutput enables or disables JSON mode across the application.
-func SetJSONOutput(enabled bool) {
-	JSONOutput = enabled
-	GlobalContext.JSONOutput = enabled
+// Shell Completion Helpers
+
+func completeIdentities(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	m := crypto.NewIdentityManager()
+	ids, err := m.ListActiveIdentities()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	var results []string
+	for _, id := range ids {
+		if strings.HasPrefix(id, toComplete) {
+			results = append(results, id)
+		}
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeVaults(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	conf := crypto.GetGlobalConfig()
+	files, err := os.ReadDir(conf.Paths.VaultsDir)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	var results []string
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".vault") {
+			name := strings.TrimSuffix(f.Name(), ".vault")
+			if strings.HasPrefix(name, toComplete) {
+				results = append(results, name)
+			}
+		}
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeServices(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	vaultName, _ := cmd.Flags().GetString("vault")
+	if vaultName == "" {
+		vaultName = "default"
+	}
+
+	conf := crypto.GetGlobalConfig()
+	vaultPath := filepath.Join(conf.Paths.VaultsDir, vaultName+".vault")
+	if _, err := os.Stat(vaultPath); err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	services, err := crypto.ListVaultEntries(vaultPath)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+
+	var results []string
+	for _, s := range services {
+		if strings.HasPrefix(s, toComplete) {
+			results = append(results, s)
+		}
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeProfiles(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	builtIn := []string{"nist", "aes", "conservative", "pq", "legacy", "hardened"}
+	conf := crypto.GetGlobalConfig()
+
+	var results []string
+	for _, p := range builtIn {
+		if strings.HasPrefix(p, toComplete) {
+			results = append(results, p)
+		}
+	}
+	for name := range conf.Profiles {
+		if strings.HasPrefix(name, toComplete) {
+			results = append(results, name)
+		}
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp
 }
 
 // InitEngine initializes the GlobalContext's Engine with the appropriate policy and audit logging.
 func InitEngine() error {
+	SetupViper()
 	crypto.ResetGlobalConfig()
 	var policy crypto.SecurityPolicy
-	isAgent := crypto.IsAgentMode() || JSONOutput
+
+	// Only enable AgentPolicy if explicitly requested via environment variable.
+	// We no longer auto-detect via TTY to avoid 'Security Theater' for human script users.
+	isAgent := viper.GetString("agent_mode") == "1"
+
+	if isAgent || viper.GetBool("json") {
+		SetJSONOutput(true)
+	}
 
 	if isAgent {
 		policy = &crypto.AgentPolicy{}
@@ -223,46 +345,4 @@ func InitEngine() error {
 	}
 
 	return nil
-}
-
-// resolveProfile maps a profile name or ID string to a byte ID.
-func resolveProfile(p string) (byte, error) {
-	switch p {
-	case "1", "nist", "pq":
-		return 1, nil
-	case "2", "aes", "legacy":
-		return 2, nil
-	case "3", "conservative", "hardened":
-		return 3, nil
-	}
-
-	// Check config for custom profile name
-	if dp, ok := crypto.GetGlobalConfig().Profiles[p]; ok {
-		return dp.ID(), nil
-	}
-
-	// Attempt to parse as direct ID
-	var id byte
-	if _, err := fmt.Sscanf(p, "%d", &id); err == nil {
-		return id, nil
-	}
-	return 0, fmt.Errorf("unknown profile: %s (supported: nist, aes, conservative, or custom name in config)", p)
-}
-
-// validatePath ensures a path is safe to use.
-func validatePath(path string) error {
-	if GlobalContext.Engine == nil {
-		return nil
-	}
-	return GlobalContext.Engine.GetPolicy().ValidatePath(path)
-}
-
-func checkJSONMode(cmd *cobra.Command) {
-	if JSONOutput || os.Getenv("MAKNOON_JSON") == "1" {
-		JSONOutput = true
-		if cmd != nil {
-			cmd.SilenceUsage = true
-			cmd.SilenceErrors = true
-		}
-	}
 }
