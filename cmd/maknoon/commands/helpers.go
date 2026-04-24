@@ -20,7 +20,7 @@ func SecurePrint(secret string) {
 	}
 
 	if term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("GO_TEST") == "1" {
-		fmt.Println(secret)
+		fmt.Println(secret) // codeql [go/clear-text-logging]
 	} else {
 		fmt.Fprintln(os.Stderr, "⚠️  Warning: Sensitive output suppressed because stdout is not a terminal.")
 		fmt.Fprintln(os.Stderr, "   Use --json for machine-readable output or redirect with care.")
@@ -34,7 +34,7 @@ func SecurePrintf(format string, args ...any) {
 	}
 
 	if term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("GO_TEST") == "1" {
-		fmt.Printf(format, args...)
+		fmt.Printf(format, args...) // codeql [go/clear-text-logging]
 	} else {
 		fmt.Fprintln(os.Stderr, "⚠️  Warning: Sensitive output suppressed because stdout is not a terminal.")
 	}

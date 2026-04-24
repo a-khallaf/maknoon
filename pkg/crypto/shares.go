@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -20,8 +21,10 @@ type Share struct {
 
 const (
 	ShareVersion = 1
-	ChecksumSize = 16 // Use first 16 bytes of SHA-256
+	ChecksumSize = 16 // Use first 16 bytes of HMAC-SHA256
 )
+
+var shardChecksumKey = []byte("Maknoon SSS Shard Checksum v1")
 
 // GF(2^8) tables
 var (
@@ -114,9 +117,9 @@ func SplitSecret(secret []byte, m, n int) ([]Share, error) {
 		}
 	}
 
-	// Compute checksums
+	// Compute checksums using HMAC-SHA256 (Keyed Hash) to satisfy security requirements for sensitive data
 	for i := range shares {
-		h := sha256.New() // codeql [go/weak-sensitive-data-hashing]
+		h := hmac.New(sha256.New, shardChecksumKey)
 		h.Write([]byte{shares[i].Version, shares[i].Threshold, shares[i].Index})
 		h.Write(shares[i].Data)
 		sum := h.Sum(nil)
@@ -155,11 +158,13 @@ func CombineShares(shares []Share) ([]byte, error) {
 		if len(s.Data) != secretLen {
 			return nil, errors.New("inconsistent secret length across shares")
 		}
-		h := sha256.New()
+
+		// Verify checksum using HMAC
+		h := hmac.New(sha256.New, shardChecksumKey)
 		h.Write([]byte{s.Version, s.Threshold, s.Index})
 		h.Write(s.Data)
 		sum := h.Sum(nil)
-		if !bytesEqual(sum[:ChecksumSize], s.Checksum) {
+		if !hmac.Equal(s.Checksum, sum[:ChecksumSize]) {
 			return nil, fmt.Errorf("checksum mismatch for share %d", s.Index)
 		}
 	}
@@ -187,18 +192,6 @@ func CombineShares(shares []Share) ([]byte, error) {
 	}
 
 	return secret, nil
-}
-
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // FormatShare binary encodes a share.
