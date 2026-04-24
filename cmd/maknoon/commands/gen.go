@@ -52,9 +52,9 @@ func genPasswordCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"password": string(password)}) // lgtm [go/clear-text-logging]
+				printJSON(map[string]string{"password": string(password)}) // codeql [go/clear-text-logging]
 			} else {
-				fmt.Println(string(password)) // lgtm [go/clear-text-logging]
+				fmt.Println(string(password)) // codeql [go/clear-text-logging]
 			}
 
 			// Memory Hygiene: Zero out the password bytes immediately after use
@@ -85,9 +85,9 @@ func genPassphraseCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
-				printJSON(map[string]string{"passphrase": result}) // lgtm [go/clear-text-logging]
+				printJSON(map[string]string{"passphrase": result}) // codeql [go/clear-text-logging]
 			} else {
-				fmt.Println(result) // lgtm [go/clear-text-logging]
+				fmt.Println(result) // codeql [go/clear-text-logging]
 			}
 			return nil
 		},

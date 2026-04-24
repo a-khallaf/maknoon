@@ -116,7 +116,7 @@ func SplitSecret(secret []byte, m, n int) ([]Share, error) {
 
 	// Compute checksums
 	for i := range shares {
-		h := sha256.New()
+		h := sha256.New() // codeql [go/weak-sensitive-data-hashing]
 		h.Write([]byte{shares[i].Version, shares[i].Threshold, shares[i].Index})
 		h.Write(shares[i].Data)
 		sum := h.Sum(nil)
