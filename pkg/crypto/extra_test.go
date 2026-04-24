@@ -46,7 +46,7 @@ func TestVaultSealOpenConsistency(t *testing.T) {
 	entry := &VaultEntry{
 		Service:  "github.com",
 		Username: "user1",
-		Password: "pass",
+		Password: []byte("pass"),
 		Note:     "test note",
 	}
 
@@ -60,7 +60,7 @@ func TestVaultSealOpenConsistency(t *testing.T) {
 		t.Fatalf("Open failed: %v", err)
 	}
 
-	if restored.Service != entry.Service || restored.Password != entry.Password {
+	if restored.Service != entry.Service || !bytes.Equal(restored.Password, entry.Password) {
 		t.Errorf("Mismatch. Got %v, want %v", restored, entry)
 	}
 }

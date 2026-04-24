@@ -151,7 +151,7 @@ func (e *Engine) resolveVaultPath(name string) (string, error) {
 type VaultEntry struct {
 	Service  string `json:"service"`
 	Username string `json:"username"`
-	Password string `json:"password"`
+	Password []byte `json:"password"`
 	URL      string `json:"url,omitempty"`
 	Note     string `json:"note,omitempty"` // Legacy compatibility
 }

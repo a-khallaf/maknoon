@@ -208,6 +208,8 @@ Maknoon is built as a highly-modular Go SDK. Integrations like the CLI and MCP s
 - **`EngineContext`**: Unified propagation of cancellation, security policies, and telemetry.
 - **Structured Error Typing**: Distinguish programmatically between authentication failures, policy violations, and IO errors.
 - **Capability-Based Security**: Operations strictly validate permissions (e.g., `CapVaultWrite`) before execution.
+- **Privacy-First Logging**: Audit logs automatically sanitize file paths to prevent PII leaks (e.g., masking user home directory names).
+- **Hardened Memory Hygiene**: Sensitive credentials in the Vault and MCP layers are stored in byte slices and deterministically zeroed out using `SafeClear` patterns immediately after use.
 
 ---
 

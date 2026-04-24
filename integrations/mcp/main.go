@@ -425,7 +425,11 @@ func vaultGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	_ = request.GetString("vault", "default")
 
 	// Get master passphrase from environment (Agent convention)
-	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	if passRaw == "" {
+		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
+	}
+	passphrase := []byte(passRaw)
 
 	entry, err := engine.VaultGet(nil, "", service, passphrase, "")
 	if err != nil {
@@ -436,7 +440,21 @@ func vaultGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(`{"error":"service not found","code":404}`), nil
 	}
 
-	raw, _ := json.Marshal(entry)
+	res := struct {
+		Service  string `json:"service"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		URL      string `json:"url,omitempty"`
+		Note     string `json:"note,omitempty"`
+	}{
+		Service:  entry.Service,
+		Username: entry.Username,
+		Password: string(entry.Password),
+		URL:      entry.URL,
+		Note:     entry.Note,
+	}
+	crypto.SafeClear(entry.Password)
+	raw, _ := json.Marshal(res)
 	return mcp.NewToolResultText(string(raw)), nil
 }
 
@@ -447,15 +465,20 @@ func vaultSetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	_ = request.GetString("vault", "default")
 
 	// Get master passphrase from environment
-	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	if passRaw == "" {
+		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
+	}
+	passphrase := []byte(passRaw)
 
 	entry := &crypto.VaultEntry{
 		Service:  service,
 		Username: username,
-		Password: password,
+		Password: []byte(password),
 	}
 
 	err := engine.VaultSet(nil, "", entry, passphrase, "")
+	crypto.SafeClear(entry.Password)
 	if err != nil {
 		return formatError(err, "vault_set")
 	}
@@ -488,7 +511,11 @@ func encryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		pubKey = pk
 	}
 
-	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	if passRaw == "" && pubKeyPath == "" {
+		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE (or use public_key)","code":401}`), nil
+	}
+	passphrase := []byte(passRaw)
 
 	opts := crypto.Options{
 		Passphrase:  passphrase,
@@ -518,9 +545,13 @@ func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	privKeyPath := request.GetString("private_key", "")
 
 	// 1. Resolve keys
-	var privKey []byte
-	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	if passRaw == "" && privKeyPath == "" {
+		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE (or provide private_key)","code":401}`), nil
+	}
+	passphrase := []byte(passRaw)
 
+	var privKey []byte
 	if privKeyPath != "" {
 		im := crypto.NewIdentityManager()
 		base, _, err := im.ResolveBaseKeyPath(privKeyPath)
@@ -657,7 +688,11 @@ func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		pubKey = pk
 	}
 
-	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
+	passRaw := os.Getenv("MAKNOON_PASSPHRASE")
+	if passRaw == "" {
+		return mcp.NewToolResultError(`{"error":"authentication failed: passphrase required via MAKNOON_PASSPHRASE","code":401}`), nil
+	}
+	passphrase := []byte(passRaw)
 
 	opts := crypto.P2PSendOptions{
 		Passphrase:    passphrase,
@@ -775,8 +810,12 @@ func identityActiveHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 		return formatError(err, "identity_active")
 	}
 
+	fullKeys := make([]string, len(keys))
+	for i, k := range keys {
+		fullKeys[i] = k + ".kem.pub"
+	}
 	res := map[string]interface{}{
-		"active_keys": keys,
+		"active_keys": fullKeys,
 	}
 	raw, _ := json.Marshal(res)
 	return mcp.NewToolResultText(string(raw)), nil

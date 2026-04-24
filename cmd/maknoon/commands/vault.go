@@ -218,14 +218,16 @@ func vaultRecoverCmd() *cobra.Command {
 						recs = append(recs, recoveredEntry{
 							Service:  e.Service,
 							Username: e.Username,
-							Password: e.Password,
+							Password: string(e.Password),
 						})
+						crypto.SafeClear(e.Password)
 					}
 					printJSON(recs)
 				} else {
 					fmt.Printf("🛡️  Recovered %d entries from vault '%s':\n", len(entries), vaultName)
 					for _, e := range entries {
-						fmt.Printf("  - %s (User: %s, Pass: %s)\n", e.Service, e.Username, e.Password)
+						fmt.Printf("  - %s (User: %s, Pass: %s)\n", e.Service, e.Username, string(e.Password))
+						crypto.SafeClear(e.Password)
 					}
 				}
 			}
@@ -394,7 +396,7 @@ func vaultSetCmd() *cobra.Command {
 			defer func() { _ = db.Close() }()
 			defer crypto.SafeClear(key)
 
-			entry := &crypto.VaultEntry{Service: service, Username: user, Password: string(password), Note: note}
+			entry := &crypto.VaultEntry{Service: service, Username: user, Password: password, Note: note}
 			ciphertext, err := crypto.SealEntry(entry, key)
 			if err != nil {
 				if JSONOutput {
@@ -491,12 +493,13 @@ func vaultGetCmd() *cobra.Command {
 				printJSON(jsonEntry{
 					Service:  entry.Service,
 					Username: entry.Username,
-					Password: entry.Password,
+					Password: string(entry.Password),
 					Note:     entry.Note,
 				})
 			} else {
-				fmt.Printf("Service:  %s\nUsername: %s\nPassword: %s\n", entry.Service, entry.Username, entry.Password)
+				fmt.Printf("Service:  %s\nUsername: %s\nPassword: %s\n", entry.Service, entry.Username, string(entry.Password))
 			}
+			crypto.SafeClear(entry.Password)
 			return nil
 		},
 	}

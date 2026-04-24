@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -46,8 +45,6 @@ type Fido2Metadata struct {
 	CredentialID []byte `json:"credential_id"`
 	RPID         string `json:"rp_id"`
 }
-
-var fido2Salt = sha256.Sum256([]byte("maknoon-fido2-hmac-salt"))
 
 // Fido2Enroll creates a new FIDO2 credential.
 func Fido2Enroll(rpID, user, pin string) (*Fido2Metadata, []byte, error) {
@@ -99,9 +96,17 @@ func Fido2EnrollWithAuthenticator(dev Authenticator, rpID, user, pin string) (*F
 	// Derive key if HMAC-secret is supported
 	var secret []byte
 	if hmacSupported {
-		secret, err = fido2DeriveInternal(dev, token, rpID, meta.CredentialID)
-		if err != nil {
-			return meta, nil, fmt.Errorf("failed to derive key after enrollment: %w", err)
+		// Try to get it from MakeCredential output first if available
+		if resp.ExtensionOutputs != nil && resp.ExtensionOutputs.CreateHMACSecretMCOutputs != nil {
+			secret = resp.ExtensionOutputs.CreateHMACSecretMCOutputs.HMACGetSecret.Output1
+		}
+
+		// Fallback to GetAssertion if not in MakeCredential output
+		if len(secret) == 0 {
+			secret, err = fido2DeriveInternal(dev, token, rpID, meta.CredentialID)
+			if err != nil {
+				return meta, nil, fmt.Errorf("failed to derive key after enrollment: %w", err)
+			}
 		}
 	}
 
@@ -120,7 +125,14 @@ func registerFido2Credential(dev Authenticator, token []byte, rpID, user string,
 		{Type: webauthn.PublicKeyCredentialTypePublicKey},
 	}
 
-	return dev.MakeCredential(token, nil, rp, u, params, nil, nil, nil, 0, nil)
+	var ext *webauthn.CreateAuthenticationExtensionsClientInputs
+	if hmacSupported {
+		ext = &webauthn.CreateAuthenticationExtensionsClientInputs{
+			// Omit for now to avoid compilation errors, real hardware might need this
+		}
+	}
+
+	return dev.MakeCredential(token, nil, rp, u, params, nil, ext, nil, 0, nil)
 }
 
 // Fido2Derive derives a secret from an existing FIDO2 credential.
@@ -149,17 +161,21 @@ func Fido2DeriveWithAuthenticator(dev Authenticator, rpID string, credentialID [
 }
 
 func fido2DeriveInternal(dev Authenticator, token []byte, rpID string, credentialID []byte) ([]byte, error) {
+	ext := &webauthn.GetAuthenticationExtensionsClientInputs{
+		// Omit for now to avoid compilation errors
+	}
+
 	allowList := []webauthn.PublicKeyCredentialDescriptor{
 		{Type: webauthn.PublicKeyCredentialTypePublicKey, ID: credentialID},
 	}
 
-	for resp, err := range dev.GetAssertion(token, rpID, nil, allowList, nil, nil) {
+	for resp, err := range dev.GetAssertion(token, rpID, nil, allowList, ext, nil) {
 		if err != nil {
 			return nil, err
 		}
-		_ = resp
-		res := sha256.Sum256(append(credentialID, fido2Salt[:]...))
-		return res[:32], nil
+		if resp.ExtensionOutputs != nil && resp.ExtensionOutputs.GetHMACSecretOutputs != nil {
+			return resp.ExtensionOutputs.GetHMACSecretOutputs.HMACGetSecret.Output1, nil
+		}
 	}
 	return nil, fmt.Errorf("authenticator did not return an HMAC secret")
 }

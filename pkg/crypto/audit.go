@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,13 +83,24 @@ type AuditEngine struct {
 	Logger AuditLogger
 }
 
+func (e *AuditEngine) sanitizePath(path string) string {
+	if path == "-" || path == "" {
+		return path
+	}
+	home := GetUserHomeDir()
+	if strings.HasPrefix(path, home) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return filepath.Base(path)
+}
+
 func (e *AuditEngine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
 	start := time.Now()
 	flags, err := e.Engine.Protect(ectx, inputName, r, w, opts)
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("protect", map[string]any{
-		"input":       inputName,
+		"input":       e.sanitizePath(inputName),
 		"profile_id":  opts.ProfileID,
 		"concurrency": opts.Concurrency,
 		"duration_ms": duration.Milliseconds(),
@@ -103,7 +116,7 @@ func (e *AuditEngine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, o
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("unprotect", map[string]any{
-		"output":      outPath,
+		"output":      e.sanitizePath(outPath),
 		"duration_ms": duration.Milliseconds(),
 		"flags":       flags,
 	}, err)
@@ -137,7 +150,7 @@ func (e *AuditEngine) VaultGet(ectx *EngineContext, vaultPath string, service st
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("vault_get", map[string]any{
-		"vault":       vaultPath,
+		"vault":       e.sanitizePath(vaultPath),
 		"service":     service,
 		"duration_ms": duration.Milliseconds(),
 	}, err)
@@ -156,7 +169,7 @@ func (e *AuditEngine) VaultSet(ectx *EngineContext, vaultPath string, entry *Vau
 	}
 
 	e.Logger.LogEvent("vault_set", map[string]any{
-		"vault":       vaultPath,
+		"vault":       e.sanitizePath(vaultPath),
 		"service":     service,
 		"duration_ms": duration.Milliseconds(),
 	}, err)
@@ -170,8 +183,8 @@ func (e *AuditEngine) VaultRename(ectx *EngineContext, oldName, newName string) 
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("vault_rename", map[string]any{
-		"old":         oldName,
-		"new":         newName,
+		"old":         e.sanitizePath(oldName),
+		"new":         e.sanitizePath(newName),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
@@ -184,7 +197,7 @@ func (e *AuditEngine) VaultDelete(ectx *EngineContext, name string) error {
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("vault_delete", map[string]any{
-		"name":        name,
+		"name":        e.sanitizePath(name),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
@@ -201,7 +214,7 @@ func (e *AuditEngine) VaultSplit(ectx *EngineContext, vaultPath string, threshol
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("vault_split", map[string]any{
-		"vault":       vaultPath,
+		"vault":       e.sanitizePath(vaultPath),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
@@ -214,7 +227,7 @@ func (e *AuditEngine) VaultRecover(ectx *EngineContext, mnemonics []string, vaul
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("vault_recover", map[string]any{
-		"vault":       vaultPath,
+		"vault":       e.sanitizePath(vaultPath),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
@@ -227,7 +240,7 @@ func (e *AuditEngine) P2PSend(ectx *EngineContext, inputName string, r io.Reader
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("p2p_send_init", map[string]any{
-		"input":       inputName,
+		"input":       e.sanitizePath(inputName),
 		"duration_ms": duration.Milliseconds(),
 		"code":        code,
 	}, err)
@@ -262,8 +275,8 @@ func (e *AuditEngine) IdentityRename(ectx *EngineContext, oldName, newName strin
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("identity_rename", map[string]any{
-		"old":         oldName,
-		"new":         newName,
+		"old":         e.sanitizePath(oldName),
+		"new":         e.sanitizePath(newName),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
@@ -276,7 +289,7 @@ func (e *AuditEngine) IdentitySplit(ectx *EngineContext, name string, threshold,
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("identity_split", map[string]any{
-		"name":        name,
+		"name":        e.sanitizePath(name),
 		"threshold":   threshold,
 		"shares":      shares,
 		"duration_ms": duration.Milliseconds(),
@@ -304,7 +317,7 @@ func (e *AuditEngine) IdentityCombine(ectx *EngineContext, mnemonics []string, o
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("identity_combine", map[string]any{
-		"output":      output,
+		"output":      e.sanitizePath(output),
 		"duration_ms": duration.Milliseconds(),
 	}, err)
 
