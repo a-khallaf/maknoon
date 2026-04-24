@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -20,12 +22,16 @@ const (
 )
 
 // VaultSet encrypts and saves a vault entry to disk.
-func (e *Engine) VaultSet(vaultPath string, entry *VaultEntry, passphrase []byte, pin string) error {
+func (e *Engine) VaultSet(ectx *EngineContext, vaultPath string, entry *VaultEntry, passphrase []byte, pin string) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultWrite); err != nil {
+		return err
+	}
 	if vaultPath == "" {
 		vaultPath = filepath.Join(e.Config.Paths.VaultsDir, "default.vault")
 	}
 
-	if err := e.Policy.ValidatePath(vaultPath); err != nil {
+	if err := ectx.Policy.ValidatePath(vaultPath); err != nil {
 		return err
 	}
 
@@ -33,33 +39,42 @@ func (e *Engine) VaultSet(vaultPath string, entry *VaultEntry, passphrase []byte
 }
 
 // VaultGet reads and decrypts a vault entry from disk.
-func (e *Engine) VaultGet(vaultPath string, service string, passphrase []byte, pin string) (*VaultEntry, error) {
+func (e *Engine) VaultGet(ectx *EngineContext, vaultPath string, service string, passphrase []byte, pin string) (*VaultEntry, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultRead); err != nil {
+		return nil, err
+	}
 	if vaultPath == "" {
 		vaultPath = filepath.Join(e.Config.Paths.VaultsDir, "default.vault")
 	}
 
-	if err := e.Policy.ValidatePath(vaultPath); err != nil {
+	if err := ectx.Policy.ValidatePath(vaultPath); err != nil {
 		return nil, err
 	}
 
 	return GetVaultEntry(vaultPath, service, passphrase)
 }
 
-func (e *Engine) VaultDelete(name string) error {
-	if !e.Policy.HasCapability(CapVaultDelete) {
-		return &ErrPolicyViolation{Reason: "vault deletion is prohibited under the active policy"}
+func (e *Engine) VaultDelete(ectx *EngineContext, name string) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultDelete); err != nil {
+		return err
 	}
 	path, err := e.resolveVaultPath(name)
 	if err != nil {
 		return err
 	}
-	if err := e.Policy.ValidatePath(path); err != nil {
+	if err := ectx.Policy.ValidatePath(path); err != nil {
 		return err
 	}
 	return SecureDelete(path)
 }
 
-func (e *Engine) VaultRename(oldName, newName string) error {
+func (e *Engine) VaultRename(ectx *EngineContext, oldName, newName string) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultWrite); err != nil {
+		return err
+	}
 	oldPath, err := e.resolveVaultPath(oldName)
 	if err != nil {
 		return err
@@ -69,10 +84,10 @@ func (e *Engine) VaultRename(oldName, newName string) error {
 		return err
 	}
 
-	if err := e.Policy.ValidatePath(oldPath); err != nil {
+	if err := ectx.Policy.ValidatePath(oldPath); err != nil {
 		return err
 	}
-	if err := e.Policy.ValidatePath(newPath); err != nil {
+	if err := ectx.Policy.ValidatePath(newPath); err != nil {
 		return err
 	}
 
@@ -86,160 +101,223 @@ func (e *Engine) VaultRename(oldName, newName string) error {
 	return os.Rename(oldPath, newPath)
 }
 
-func (e *Engine) resolveVaultPath(name string) (string, error) {
-	if strings.Contains(name, string(os.PathSeparator)) {
-		return name, nil
+func (e *Engine) VaultList(ectx *EngineContext, vaultPath string) ([]string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultRead); err != nil {
+		return nil, err
 	}
-	return filepath.Join(e.Config.Paths.VaultsDir, name+".db"), nil
+	if vaultPath == "" {
+		vaultPath = filepath.Join(e.Config.Paths.VaultsDir, "default.vault")
+	}
+	if err := ectx.Policy.ValidatePath(vaultPath); err != nil {
+		return nil, err
+	}
+	return ListVaultEntries(vaultPath)
 }
 
-// ListVaultEntries returns a list of all service names in a vault.
-func ListVaultEntries(path string) ([]string, error) {
-	db, err := bbolt.Open(path, 0600, nil)
+func (e *Engine) VaultSplit(ectx *EngineContext, vaultPath string, threshold, shares int, passphrase string) ([]string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultRead); err != nil {
+		return nil, err
+	}
+	if vaultPath == "" {
+		vaultPath = filepath.Join(e.Config.Paths.VaultsDir, "default.vault")
+	}
+	return SplitVault(vaultPath, threshold, shares, passphrase)
+}
+
+func (e *Engine) VaultRecover(ectx *EngineContext, mnemonics []string, vaultPath string, output string, passphrase string) (string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapVaultWrite); err != nil {
+		return "", err
+	}
+	if vaultPath == "" {
+		vaultPath = filepath.Join(e.Config.Paths.VaultsDir, "default.vault")
+	}
+	return RecoverVault(mnemonics, vaultPath, output, passphrase)
+}
+
+func (e *Engine) resolveVaultPath(name string) (string, error) {
+	if name == "" {
+		return "", &ErrFormat{Reason: "vault name required"}
+	}
+	if filepath.IsAbs(name) || strings.Contains(name, string(os.PathSeparator)) {
+		return name, nil
+	}
+	return filepath.Join(e.Config.Paths.VaultsDir, name+".vault"), nil
+}
+
+// VaultEntry represents a single secret stored in the vault.
+type VaultEntry struct {
+	Service  string `json:"service"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	URL      string `json:"url,omitempty"`
+	Note     string `json:"note,omitempty"` // Legacy compatibility
+}
+
+// SetVaultEntry is the package-level helper that performs the actual bbolt operation.
+func SetVaultEntry(vaultPath string, entry *VaultEntry, passphrase []byte) error {
+	db, err := bbolt.Open(vaultPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return &ErrIO{Path: vaultPath, Reason: err.Error()}
+	}
+	defer db.Close()
+
+	return db.Update(func(tx *bbolt.Tx) error {
+		// Get or create salt
+		meta, _ := tx.CreateBucketIfNotExists([]byte(metaBucket))
+		salt := meta.Get([]byte(saltKey))
+		if salt == nil {
+			salt = make([]byte, 16)
+			if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+				return err
+			}
+			if err := meta.Put([]byte(saltKey), salt); err != nil {
+				return err
+			}
+		}
+
+		key := DeriveVaultKey(passphrase, salt)
+		defer SafeClear(key)
+
+		payload, err := SealEntry(entry, key)
+		if err != nil {
+			return err
+		}
+
+		secrets, _ := tx.CreateBucketIfNotExists([]byte(vaultBucket))
+		return secrets.Put([]byte(entry.Service), payload)
+	})
+}
+
+// GetVaultEntry is the package-level helper that performs the actual bbolt operation.
+func GetVaultEntry(vaultPath, service string, passphrase []byte) (*VaultEntry, error) {
+	db, err := bbolt.Open(vaultPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, &ErrIO{Path: vaultPath, Reason: err.Error()}
+	}
+	defer db.Close()
+
+	var entry *VaultEntry
+	err = db.View(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket([]byte(metaBucket))
+		if meta == nil {
+			return &ErrAuthentication{Reason: "vault is uninitialized"}
+		}
+		salt := meta.Get([]byte(saltKey))
+		if salt == nil {
+			return &ErrAuthentication{Reason: "vault salt missing"}
+		}
+
+		secrets := tx.Bucket([]byte(vaultBucket))
+		if secrets == nil {
+			return &ErrState{Reason: "vault is empty"}
+		}
+
+		payload := secrets.Get([]byte(service))
+		if payload == nil {
+			return &ErrState{Reason: fmt.Sprintf("service '%s' not found", service)}
+		}
+
+		key := DeriveVaultKey(passphrase, salt)
+		defer SafeClear(key)
+
+		var err error
+		entry, err = OpenEntry(payload, key)
+		return err
+	})
+
+	return entry, err
+}
+
+// SealEntry binary encodes and encrypts a vault entry.
+func SealEntry(entry *VaultEntry, key []byte) ([]byte, error) {
+	b, _ := json.Marshal(entry)
+	profile := DefaultProfile()
+	aead, err := profile.NewAEAD(key)
 	if err != nil {
 		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := aead.Seal(nil, nonce, b, nil)
+	return append(nonce, ciphertext...), nil
+}
+
+// OpenEntry decrypts and parses a vault entry.
+func OpenEntry(payload, key []byte) (*VaultEntry, error) {
+	profile := DefaultProfile()
+	aead, err := profile.NewAEAD(key)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := aead.NonceSize()
+	if len(payload) < nonceSize {
+		return nil, &ErrFormat{Reason: "invalid vault entry format"}
+	}
+
+	nonce := payload[:nonceSize]
+	ciphertext := payload[nonceSize:]
+
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, &ErrAuthentication{Reason: "failed to decrypt vault entry"}
+	}
+
+	var entry VaultEntry
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
+		return nil, &ErrFormat{Reason: "failed to parse vault entry"}
+	}
+	return &entry, nil
+}
+
+// DeriveVaultKey uses the default profile's KDF to derive a vault master key.
+func DeriveVaultKey(passphrase, salt []byte) []byte {
+	return DefaultProfile().DeriveKey(passphrase, salt)
+}
+
+// ListVaultEntries returns all service names in a vault.
+func ListVaultEntries(vaultPath string) ([]string, error) {
+	db, err := bbolt.Open(vaultPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, &ErrIO{Path: vaultPath, Reason: err.Error()}
 	}
 	defer db.Close()
 
 	var services []string
 	err = db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(vaultBucket))
-		if b == nil {
+		secrets := tx.Bucket([]byte(vaultBucket))
+		if secrets == nil {
 			return nil
 		}
-		// In current implementation, keys are SHA256 hashes.
-		// We'd need to store plain names in metadata to list them nicely.
-		// For now, let's just return a placeholder or implement a proper listing if we add a 'names' bucket.
-
-		// IMPROVEMENT: Bolt keys are hashes, so we can't reverse them easily.
-		// Let's assume for now we don't support full listing of plain names without a schema change.
-		// For the MCP, returning 'encrypted_entries_present' is better than nothing.
-		return b.ForEach(func(k, v []byte) error {
-			services = append(services, hex.EncodeToString(k))
+		return secrets.ForEach(func(k, _ []byte) error {
+			services = append(services, string(k))
 			return nil
 		})
 	})
 	return services, err
 }
 
-// GetVaultEntry reads a single encrypted entry from a bbolt database.
-func GetVaultEntry(path string, service string, passphrase []byte) (*VaultEntry, error) {
-	if len(passphrase) == 0 {
-		return nil, &ErrAuthentication{Reason: "vault master passphrase required"}
-	}
-
-	db, err := bbolt.Open(path, 0600, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	var ciphertext []byte
-	var salt []byte
-	err = db.View(func(tx *bbolt.Tx) error {
-		meta := tx.Bucket([]byte(metaBucket))
-		if meta != nil {
-			salt = meta.Get([]byte(saltKey))
-		}
-		b := tx.Bucket([]byte(vaultBucket))
-		if b == nil {
-			return nil
-		}
-		h := sha256.Sum256([]byte(strings.ToLower(service)))
-		ciphertext = b.Get([]byte(hex.EncodeToString(h[:])))
-		return nil
-	})
+// SplitVault shards the vault master key using Shamir's Secret Sharing.
+func SplitVault(vaultPath string, threshold, shares int, passphrase string) ([]string, error) {
+	shards, err := SplitSecret([]byte(passphrase), threshold, shares)
 	if err != nil {
 		return nil, err
 	}
 
-	if salt == nil {
-		return nil, &ErrState{Reason: "vault is uninitialized (missing salt)"}
-	}
-
-	masterKey := DeriveVaultKey(passphrase, salt)
-	defer SafeClear(masterKey)
-
-	if ciphertext == nil {
-		return nil, &ErrState{Reason: "service not found"}
-	}
-
-	return OpenEntry(ciphertext, masterKey)
-}
-
-// SetVaultEntry encrypts and saves a single entry to a bbolt database.
-func SetVaultEntry(path string, entry *VaultEntry, passphrase []byte) error {
-	db, err := bbolt.Open(path, 0600, nil)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	return db.Update(func(tx *bbolt.Tx) error {
-		meta, _ := tx.CreateBucketIfNotExists([]byte(metaBucket))
-		salt := meta.Get([]byte(saltKey))
-		if salt == nil {
-			salt = make([]byte, 32)
-			if _, err := rand.Read(salt); err != nil {
-				return err
-			}
-			meta.Put([]byte(saltKey), salt)
-		}
-
-		masterKey := DeriveVaultKey(passphrase, salt)
-		defer SafeClear(masterKey)
-
-		ciphertext, err := SealEntry(entry, masterKey)
-		if err != nil {
-			return err
-		}
-
-		b, _ := tx.CreateBucketIfNotExists([]byte(vaultBucket))
-		h := sha256.Sum256([]byte(strings.ToLower(entry.Service)))
-		return b.Put([]byte(hex.EncodeToString(h[:])), ciphertext)
-	})
-}
-
-// SplitVault shards the master key of a vault.
-func SplitVault(path string, threshold, shares int, passphrase string) ([]string, error) {
-	db, err := bbolt.Open(path, 0600, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	var salt []byte
-	err = db.View(func(tx *bbolt.Tx) error {
-		meta := tx.Bucket([]byte(metaBucket))
-		if meta != nil {
-			salt = meta.Get([]byte(saltKey))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if salt == nil {
-		return nil, &ErrState{Reason: "vault not initialized"}
-	}
-
-	masterKey := DeriveVaultKey([]byte(passphrase), salt)
-	defer SafeClear(masterKey)
-
-	shards, err := SplitSecret(masterKey, threshold, shares)
-	if err != nil {
-		return nil, err
-	}
-
-	var mnemonics []string
+	var results []string
 	for _, s := range shards {
-		mnemonics = append(mnemonics, s.ToMnemonic())
+		results = append(results, s.ToMnemonic())
 	}
-	return mnemonics, nil
+	return results, nil
 }
 
-// RecoverVault restores a vault using mnemonic shards.
-func RecoverVault(mnemonics []string, path string, output string, passphrase string) (string, error) {
+// RecoverVault combines shards to recover the master passphrase.
+func RecoverVault(mnemonics []string, vaultPath, output, passphrase string) (string, error) {
 	var shards []Share
 	for _, m := range mnemonics {
 		s, err := FromMnemonic(m)
@@ -249,127 +327,15 @@ func RecoverVault(mnemonics []string, path string, output string, passphrase str
 		shards = append(shards, *s)
 	}
 
-	masterKey, err := CombineShares(shards)
+	combined, err := CombineShares(shards)
 	if err != nil {
 		return "", err
 	}
-	defer SafeClear(masterKey)
-
-	// To verify the key and set up the new vault, we need to generate a new salt
-	newSalt := make([]byte, 32)
-	if _, err := rand.Read(newSalt); err != nil {
-		return "", err
-	}
-
-	// Calculate new master key for the restored vault
-	newMasterKey := DeriveVaultKey([]byte(passphrase), newSalt)
-	defer SafeClear(newMasterKey)
-
-	// Since we don't have all entries, 'recovery' in this context usually means
-	// we are re-initializing a vault with a known key.
-	// But actually, BOLT DB recovery is different.
-	// In Maknoon's current CLI, 'recover' just re-protects the vault with a new passphrase.
-	// This requires iterating ALL entries, which is hard with only the key and no list.
-
-	// SIMPLIFICATION: In the current architecture, vault recovery is a placeholder
-	// for re-keying. Let's implement the logic of writing the new salt.
-
-	db, err := bbolt.Open(path, 0600, nil)
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	err = db.Update(func(tx *bbolt.Tx) error {
-		meta, _ := tx.CreateBucketIfNotExists([]byte(metaBucket))
-		return meta.Put([]byte(saltKey), newSalt)
-	})
-
-	return path, err
+	return string(combined), nil
 }
 
-// DeriveVaultKey derives a 32-byte master key from a password and salt using the default profile.
-func DeriveVaultKey(password, salt []byte) []byte {
-	return DefaultProfile().DeriveKey(password, salt)
-}
-
-// VaultEntry represents a single secret stored in the vault.
-type VaultEntry struct {
-	Service  string `json:"service"`
-	Username string `json:"username"`
-	Password []byte `json:"password"`
-	Note     string `json:"note"`
-}
-
-// SealEntry encrypts a VaultEntry into a ciphertext blob using the master key and the default profile.
-func SealEntry(entry *VaultEntry, masterKey []byte) ([]byte, error) {
-	plaintext, err := json.Marshal(entry)
-	if err != nil {
-		return nil, err
-	}
-
-	profile := DefaultProfile()
-	aead, err := profile.NewAEAD(masterKey)
-	if err != nil {
-		return nil, err
-	}
-
-	nonceSize := profile.NonceSize()
-	// Header (1 byte for ProfileID) | Nonce | Ciphertext
-	result := make([]byte, 1+nonceSize+len(plaintext)+aead.Overhead())
-	result[0] = profile.ID()
-	nonce := result[1 : 1+nonceSize]
-
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("entropy failure: %w", err)
-	}
-
-	ciphertext := aead.Seal(nil, nonce, plaintext, nil)
-	copy(result[1+nonceSize:], ciphertext)
-
-	return result, nil
-}
-
-// OpenEntry decrypts a ciphertext blob into a VaultEntry.
-func OpenEntry(data []byte, masterKey []byte) (*VaultEntry, error) {
-	if len(data) < 1 {
-		return nil, fmt.Errorf("invalid ciphertext")
-	}
-
-	profile, err := GetProfile(data[0], nil)
-	if err != nil {
-		return nil, err
-	}
-
-	aead, err := profile.NewAEAD(masterKey)
-	if err != nil {
-		return nil, err
-	}
-
-	nonceSize := aead.NonceSize()
-	if len(data) < 1+nonceSize {
-		return nil, fmt.Errorf("invalid ciphertext")
-	}
-
-	nonce := data[1 : 1+nonceSize]
-	actualCiphertext := data[1+nonceSize:]
-
-	plaintext, err := aead.Open(nil, nonce, actualCiphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("authentication failed: invalid master key")
-	}
-
-	var entry VaultEntry
-	if err := json.Unmarshal(plaintext, &entry); err != nil {
-		return nil, err
-	}
-
-	// Memory Hygiene: Zero out the plaintext buffer
-	defer func() {
-		for i := range plaintext {
-			plaintext[i] = 0
-		}
-	}()
-
-	return &entry, nil
+func Sha256Hex(data []byte) string {
+	h := sha256.New()
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
 }

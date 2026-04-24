@@ -3,6 +3,7 @@ package crypto
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -13,133 +14,6 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 )
-
-// Transformer defines an interchangeable middleware for the crypto pipeline.
-type Transformer interface {
-	Wrap(r io.Reader) (io.Reader, error)
-}
-
-// ArchiveTransformer handles TAR archiving and extraction.
-type ArchiveTransformer struct {
-	InputPath string
-	OutputDir string // Set for extraction
-	Logger    *slog.Logger
-}
-
-func (t *ArchiveTransformer) Wrap(r io.Reader) (io.Reader, error) {
-	if t.OutputDir != "" {
-		// Extraction is a Sink in our current design, it doesn't return a reader easily.
-		// For now, keep ExtractArchive as a separate helper or refactor later.
-		return r, ExtractArchive(r, t.OutputDir)
-	}
-	if t.Logger != nil {
-		t.Logger.Info("archiving input directory", "path", t.InputPath)
-	}
-	return wrapWithArchiver(t.InputPath, t.Logger), nil
-}
-
-// CompressTransformer handles Zstd compression and decompression.
-type CompressTransformer struct {
-	Decompress bool
-	Logger     *slog.Logger
-}
-
-func (t *CompressTransformer) Wrap(r io.Reader) (io.Reader, error) {
-	if t.Decompress {
-		if t.Logger != nil {
-			t.Logger.Info("decompressing zstd stream")
-		}
-		zr, err := zstd.NewReader(r)
-		if err != nil {
-			return nil, err
-		}
-		return zr, nil
-	}
-	if t.Logger != nil {
-		t.Logger.Info("enabling zstd compression")
-	}
-	return wrapWithCompressor(r, t.Logger), nil
-}
-
-// EncryptTransformer handles the core cryptographic pipeline.
-type EncryptTransformer struct {
-	Options Options
-}
-
-func (t *EncryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
-	pr, pw := io.Pipe()
-	var flags byte
-	if t.Options.Compress {
-		flags |= FlagCompress
-	}
-	if t.Options.IsArchive {
-		flags |= FlagArchive
-	}
-	if t.Options.Stealth {
-		flags |= FlagStealth
-	}
-
-	allPublicKeys := t.Options.Recipients
-	if len(t.Options.PublicKey) > 0 {
-		allPublicKeys = append(allPublicKeys, t.Options.PublicKey)
-	}
-
-	var logger *slog.Logger
-	if t.Options.Verbose {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	}
-
-	go func() {
-		defer pw.Close()
-		var err error
-		if len(allPublicKeys) > 0 {
-			if logger != nil {
-				logger.Info("starting asymmetric encryption", "recipients", len(allPublicKeys))
-			}
-			err = EncryptStreamWithPublicKeysAndEvents(r, pw, allPublicKeys, t.Options.SigningKey, flags, t.Options.Concurrency, t.Options.ProfileID, &t.Options)
-		} else {
-			if logger != nil {
-				logger.Info("starting symmetric encryption")
-			}
-			err = EncryptStreamWithEvents(r, pw, t.Options.Passphrase, flags, t.Options.Concurrency, t.Options.ProfileID, &t.Options)
-		}
-
-		if err != nil {
-			_ = pw.CloseWithError(err)
-		} else {
-			t.Options.emit(EventHandshakeComplete{})
-		}
-	}()
-
-	return pr, nil
-}
-
-// DecryptTransformer handles the core unprotection pipeline.
-type DecryptTransformer struct {
-	Options Options
-	Input   io.Reader
-	Magic   string
-}
-
-func (t *DecryptTransformer) Wrap(r io.Reader) (io.Reader, error) {
-	pr, pw := io.Pipe()
-	go func() {
-		defer pw.Close()
-		var dErr error
-		if t.Magic == MagicHeaderAsym {
-			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(t.Input, pw, t.Options.LocalPrivateKey, t.Options.PublicKey, t.Options.Concurrency, t.Options.Stealth, &t.Options)
-		} else {
-			_, _, dErr = DecryptStreamWithEvents(t.Input, pw, t.Options.Passphrase, t.Options.Concurrency, t.Options.Stealth, &t.Options)
-		}
-
-		if dErr != nil {
-			_ = pw.CloseWithError(dErr)
-		} else {
-			t.Options.emit(EventHandshakeComplete{})
-		}
-	}()
-	return pr, nil
-}
 
 // Options defines settings for the protection process.
 type Options struct {
@@ -166,27 +40,28 @@ func (o *Options) Emit(ev EngineEvent) {
 	}
 }
 
-func (o *Options) emit(ev EngineEvent) {
-	o.Emit(ev)
-}
-
 // Protect handles the full encryption pipeline under the active policy.
-func (e *Engine) Protect(inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
+func (e *Engine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
+	ectx = e.context(ectx)
+	// If EventStream is provided in opts but not in ectx, update ectx
+	if opts.EventStream != nil && ectx.Events == nil {
+		ectx.Events = opts.EventStream
+	}
+
 	// 1. Enforce Path Policy
 	if inputName != "-" && inputName != "" {
-		if err := e.Policy.ValidatePath(inputName); err != nil {
+		if err := ectx.Policy.ValidatePath(inputName); err != nil {
 			return 0, err
 		}
 	}
 
 	// 2. Clamp Resources
-	opts.Concurrency = e.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
+	opts.Concurrency = ectx.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
 
-	// 3. Delegation to core implementation
-	return protectInternal(inputName, r, w, opts)
+	return protectInternal(ectx, inputName, r, w, opts)
 }
 
-func protectInternal(inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
+func protectInternal(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
 	var logger *slog.Logger
 	if opts.Verbose {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -206,73 +81,87 @@ func protectInternal(inputName string, r io.Reader, w io.Writer, opts Options) (
 		flags |= FlagStealth
 	}
 
+	if len(opts.Passphrase) > 0 {
+		logger.Info("starting symmetric encryption")
+	} else if len(opts.Recipients) > 0 || len(opts.PublicKey) > 0 {
+		logger.Info("starting asymmetric encryption")
+	}
+
 	var totalBytes int64
 	if inputName != "-" && inputName != "" {
 		if fi, err := os.Stat(inputName); err == nil && !fi.IsDir() {
 			totalBytes = fi.Size()
 		}
 	}
-	opts.emit(EventEncryptionStarted{TotalBytes: totalBytes})
+	ectx.Emit(EventEncryptionStarted{TotalBytes: totalBytes})
 
+	// 1. Setup Source
 	sourceReader := r
-	if sourceReader == nil && !opts.IsArchive {
-		if inputName == "-" {
+	if sourceReader == nil {
+		if opts.IsArchive {
+			sourceReader = wrapWithArchiver(inputName, logger)
+		} else if inputName == "-" {
 			sourceReader = os.Stdin
 		} else {
 			f, err := os.Open(inputName)
 			if err != nil {
-				return 0, fmt.Errorf("failed to open input file: %w", err)
+				return 0, &ErrIO{Path: inputName, Reason: err.Error()}
 			}
 			defer func() { _ = f.Close() }()
 			sourceReader = f
 		}
 	}
 
-	// Build the pipeline chain
-	var transformers []Transformer
-	if opts.IsArchive {
-		transformers = append(transformers, &ArchiveTransformer{InputPath: inputName, Logger: logger})
-	}
+	// 2. Progress Tracking (legacy support)
 	if opts.ProgressReader != nil {
 		if wr, ok := opts.ProgressReader.(io.Writer); ok {
 			sourceReader = io.TeeReader(sourceReader, wr)
 		}
 	}
+
+	// 3. Compression
 	if opts.Compress {
-		transformers = append(transformers, &CompressTransformer{Logger: logger})
-	}
-	transformers = append(transformers, &EncryptTransformer{Options: opts})
-
-	currentReader := sourceReader
-	for _, t := range transformers {
-		var err error
-		currentReader, err = t.Wrap(currentReader)
-		if err != nil {
-			return 0, err
-		}
+		sourceReader = wrapWithCompressor(sourceReader, logger)
 	}
 
-	_, err := io.Copy(w, currentReader)
+	// 4. Core Encryption
+	allPublicKeys := opts.Recipients
+	if len(opts.PublicKey) > 0 {
+		allPublicKeys = append(allPublicKeys, opts.PublicKey)
+	}
+
+	var err error
+	if len(allPublicKeys) > 0 {
+		err = EncryptStreamWithPublicKeysAndEvents(sourceReader, w, allPublicKeys, opts.SigningKey, flags, opts.Concurrency, opts.ProfileID, ectx)
+	} else {
+		err = EncryptStreamWithEvents(sourceReader, w, opts.Passphrase, flags, opts.Concurrency, opts.ProfileID, ectx)
+	}
+
 	return flags, err
 }
 
 // Unprotect handles the full decryption pipeline: Handshake -> Decrypt -> Decompress -> Extract.
-func (e *Engine) Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
+func (e *Engine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
+	ectx = e.context(ectx)
+	// If EventStream is provided in opts but not in ectx, update ectx
+	if opts.EventStream != nil && ectx.Events == nil {
+		ectx.Events = opts.EventStream
+	}
+
 	// 1. Enforce Path Policy
 	if outPath != "-" && outPath != "" {
-		if err := e.Policy.ValidatePath(outPath); err != nil {
+		if err := ectx.Policy.ValidatePath(outPath); err != nil {
 			return 0, err
 		}
 	}
 
 	// 2. Clamp Resources
-	opts.Concurrency = e.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
+	opts.Concurrency = ectx.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
 
-	// 3. Delegation to core implementation
-	return unprotectInternal(r, w, outPath, opts)
+	return unprotectInternal(ectx, r, w, outPath, opts)
 }
 
-func unprotectInternal(r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
+func unprotectInternal(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
 	var logger *slog.Logger
 	if opts.Verbose {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -280,15 +169,21 @@ func unprotectInternal(r io.Reader, w io.Writer, outPath string, opts Options) (
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
-	opts.emit(EventDecryptionStarted{TotalBytes: opts.TotalSize})
+	ectx.Emit(EventDecryptionStarted{TotalBytes: opts.TotalSize})
 
-	// 1. Peek at the header to get flags (compression, archive, etc.)
+	// 1. Peek at the header to determine flags
 	magic, profileID, flags, recipientCount, err := ReadHeader(r, opts.Stealth)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read file header: %w", err)
+		return 0, err
 	}
 
-	// 2. Wrap reader with multi-reader since we peeked
+	if magic == MagicHeaderSym {
+		logger.Info("handshake complete", "mode", "symmetric")
+	} else if magic == MagicHeaderAsym {
+		logger.Info("handshake complete", "mode", "asymmetric", "recipients", recipientCount)
+	}
+
+	// Reconstruct input for the actual decryption
 	var headerBytes []byte
 	if !opts.Stealth {
 		headerBytes = append([]byte(magic), profileID, flags)
@@ -300,51 +195,29 @@ func unprotectInternal(r io.Reader, w io.Writer, outPath string, opts Options) (
 	}
 	fullIn := io.MultiReader(bytes.NewReader(headerBytes), r)
 
-	// 3. Build the pipeline chain
-	var transformers []Transformer
-	transformers = append(transformers, &DecryptTransformer{Options: opts, Input: fullIn, Magic: magic})
+	// 2. Core Decryption (returns decrypted payload via a pipe)
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		var dErr error
+		if magic == MagicHeaderAsym || (opts.LocalPrivateKey != nil || opts.PublicKey != nil) {
+			_, _, dErr = DecryptStreamWithPrivateKeyAndEvents(fullIn, pw, opts.LocalPrivateKey, opts.PublicKey, opts.Concurrency, opts.Stealth, ectx)
+		} else {
+			_, _, dErr = DecryptStreamWithEvents(fullIn, pw, opts.Passphrase, opts.Concurrency, opts.Stealth, ectx)
+		}
 
-	if flags&FlagCompress != 0 {
-		transformers = append(transformers, &CompressTransformer{Decompress: true, Logger: logger})
+		if dErr != nil {
+			_ = pw.CloseWithError(dErr)
+		}
+	}()
+
+	// 3. Finalize Post-Processing (Decompress -> Extract)
+	err = FinalizeRestoration(pr, w, flags, outPath, logger)
+	if err != nil {
+		return flags, err
 	}
 
-	currentReader := (io.Reader)(nil) // Initial reader for first transformer
-	for _, t := range transformers {
-		var err error
-		currentReader, err = t.Wrap(currentReader)
-		if err != nil {
-			return flags, err
-		}
-	}
-
-	// 4. Finalize: Extract Archive or write to file/writer
-	if flags&FlagArchive != 0 {
-		logger.Info("extracting tar archive", "target", outPath)
-		if err := ExtractArchive(currentReader, outPath); err != nil {
-			return flags, fmt.Errorf("failed to extract archive: %w", err)
-		}
-		return flags, nil
-	}
-
-	var out io.Writer
-	if w != nil {
-		out = w
-	} else if outPath == "-" {
-		out = os.Stdout
-	} else {
-		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-			return flags, err
-		}
-		f, err := os.Create(outPath)
-		if err != nil {
-			return flags, fmt.Errorf("failed to create output file: %w", err)
-		}
-		defer func() { _ = f.Close() }()
-		out = f
-	}
-
-	_, err = io.Copy(out, currentReader)
-	return flags, err
+	return flags, nil
 }
 
 // --- Legacy Shims ---
@@ -352,13 +225,23 @@ func unprotectInternal(r io.Reader, w io.Writer, outPath string, opts Options) (
 // Protect handles the full encryption pipeline for a source (file, directory, or reader).
 // This is a shim that uses a default HumanPolicy engine.
 func Protect(inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
-	return protectInternal(inputName, r, w, opts)
+	ectx := &EngineContext{
+		Context: context.Background(),
+		Events:  opts.EventStream,
+		Policy:  &HumanPolicy{},
+	}
+	return protectInternal(ectx, inputName, r, w, opts)
 }
 
 // Unprotect handles the full decryption pipeline: Handshake -> Decrypt -> Decompress -> Extract.
 // This is a shim that uses a default HumanPolicy engine.
 func Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
-	return unprotectInternal(r, w, outPath, opts)
+	ectx := &EngineContext{
+		Context: context.Background(),
+		Events:  opts.EventStream,
+		Policy:  &HumanPolicy{},
+	}
+	return unprotectInternal(ectx, r, w, outPath, opts)
 }
 
 // FinalizeRestoration handles the post-decryption steps: decompression and archive extraction.
@@ -366,12 +249,13 @@ func FinalizeRestoration(pr io.Reader, w io.Writer, flags byte, outPath string, 
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	decReader := pr
+
+	var decReader io.Reader = pr
 	if flags&FlagCompress != 0 {
 		logger.Info("decompressing zstd stream")
 		zr, err := zstd.NewReader(pr)
 		if err != nil {
-			return fmt.Errorf("failed to initialize zstd reader: %w", err)
+			return &ErrCrypto{Reason: fmt.Sprintf("failed to initialize zstd reader: %v", err)}
 		}
 		defer zr.Close()
 		decReader = zr
@@ -380,7 +264,7 @@ func FinalizeRestoration(pr io.Reader, w io.Writer, flags byte, outPath string, 
 	if flags&FlagArchive != 0 {
 		logger.Info("extracting tar archive", "target", outPath)
 		if err := ExtractArchive(decReader, outPath); err != nil {
-			return fmt.Errorf("failed to extract archive: %w", err)
+			return &ErrIO{Path: outPath, Reason: fmt.Sprintf("failed to extract archive: %v", err)}
 		}
 		return nil
 	}
@@ -390,20 +274,22 @@ func FinalizeRestoration(pr io.Reader, w io.Writer, flags byte, outPath string, 
 		out = w
 	} else if outPath == "-" {
 		out = os.Stdout
-	} else {
+	} else if outPath != "" {
 		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-			return err
+			return &ErrIO{Path: filepath.Dir(outPath), Reason: err.Error()}
 		}
 		f, err := os.Create(outPath)
 		if err != nil {
-			return fmt.Errorf("failed to create output file: %w", err)
+			return &ErrIO{Path: outPath, Reason: err.Error()}
 		}
 		defer func() { _ = f.Close() }()
 		out = f
 	}
 
-	if _, err := io.Copy(out, decReader); err != nil {
-		return fmt.Errorf("failed to write restored data: %w", err)
+	if out != nil {
+		if _, err := io.Copy(out, decReader); err != nil {
+			return &ErrIO{Path: "output", Reason: err.Error()}
+		}
 	}
 	return nil
 }
@@ -469,12 +355,12 @@ func wrapWithCompressor(r io.Reader, logger *slog.Logger) io.Reader {
 func ExtractArchive(r io.Reader, outputDir string) error {
 	absOutputDir, err := filepath.Abs(outputDir)
 	if err != nil {
-		return fmt.Errorf("invalid output directory: %w", err)
+		return &ErrIO{Path: outputDir, Reason: "invalid output directory"}
 	}
 
 	if outputDir != "" {
 		if err := os.MkdirAll(absOutputDir, 0755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
+			return &ErrIO{Path: absOutputDir, Reason: err.Error()}
 		}
 	}
 	tr := tar.NewReader(r)
@@ -484,34 +370,34 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to read tar header: %w", err)
+			return &ErrFormat{Reason: fmt.Sprintf("failed to read tar header: %v", err)}
 		}
 
 		target := filepath.Join(absOutputDir, h.Name)
 		rel, err := filepath.Rel(absOutputDir, target)
 		if err != nil || strings.HasPrefix(rel, "..") {
-			return fmt.Errorf("illegal file path in archive: %s", h.Name)
+			return &ErrPolicyViolation{Reason: "illegal file path in archive", Path: h.Name}
 		}
 
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {
-				return fmt.Errorf("failed to create directory in archive: %w", err)
+				return &ErrIO{Path: target, Reason: err.Error()}
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory for file: %w", err)
+				return &ErrIO{Path: filepath.Dir(target), Reason: err.Error()}
 			}
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(h.Mode))
 			if err != nil {
-				return fmt.Errorf("failed to create file in archive: %w", err)
+				return &ErrIO{Path: target, Reason: err.Error()}
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			if _, err = io.Copy(f, tr); err != nil {
 				_ = f.Close()
-				return fmt.Errorf("failed to copy file data from archive: %w", err)
+				return &ErrIO{Path: target, Reason: err.Error()}
 			}
-			if err := f.Close(); err != nil {
-				return fmt.Errorf("failed to close file in archive: %w", err)
+			if err = f.Close(); err != nil {
+				return &ErrIO{Path: target, Reason: err.Error()}
 			}
 		}
 	}

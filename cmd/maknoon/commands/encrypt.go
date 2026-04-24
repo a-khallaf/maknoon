@@ -65,7 +65,7 @@ func EncryptCmd() *cobra.Command {
 			}
 
 			if profileFile != "" {
-				dp, err := GlobalContext.Engine.LoadCustomProfile(profileFile)
+				dp, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile)
 				if err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
@@ -146,7 +146,7 @@ func EncryptCmd() *cobra.Command {
 				close(done)
 			}()
 
-			_, err = GlobalContext.Engine.Protect(inputPath, nil, out, opts)
+			_, err = GlobalContext.Engine.Protect(nil, inputPath, nil, out, opts)
 			close(events)
 			<-done
 

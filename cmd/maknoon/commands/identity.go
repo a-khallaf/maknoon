@@ -438,8 +438,12 @@ func identityActiveCmd() *cobra.Command {
 			}
 
 			if JSONOutput {
+				fullKeys := make([]string, len(keys))
+				for i, k := range keys {
+					fullKeys[i] = k + ".kem.pub"
+				}
 				printJSON(map[string]interface{}{
-					"active_keys": keys,
+					"active_keys": fullKeys,
 				})
 			} else {
 				fmt.Println("Available Public Keys:")

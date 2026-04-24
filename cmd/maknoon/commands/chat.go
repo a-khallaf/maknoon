@@ -51,10 +51,10 @@ func runAgentChat(args []string) error {
 	}
 
 	// Validate URLs if in Agent Mode
-	if err := GlobalContext.Engine.ValidateWormholeURL(chatRendezvous); err != nil {
+	if err := GlobalContext.Engine.ValidateWormholeURL(nil, chatRendezvous); err != nil {
 		return err
 	}
-	if err := GlobalContext.Engine.ValidateWormholeURL(chatTransitAddr); err != nil {
+	if err := GlobalContext.Engine.ValidateWormholeURL(nil, chatTransitAddr); err != nil {
 		return err
 	}
 

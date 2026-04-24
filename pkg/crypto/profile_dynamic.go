@@ -133,26 +133,6 @@ func UnpackDynamicProfile(id byte, b []byte) (*DynamicProfile, error) {
 	}, nil
 }
 
-// GenerateRandomProfile creates a random profile within policy limits.
-func (e *Engine) GenerateRandomProfile(id byte) *DynamicProfile {
-	dp := GenerateRandomProfile(id)
-
-	// Apply Policy-driven clamping to iterations, memory, and threads
-	maxT, maxM, maxTh := e.Policy.ClampProfileGeneration(e.Config.AgentLimits.MaxTime, e.Config.AgentLimits.MaxMemoryKB, e.Config.AgentLimits.MaxThreads)
-
-	if dp.ArgonTime > maxT {
-		dp.ArgonTime = maxT
-	}
-	if dp.ArgonMem > maxM {
-		dp.ArgonMem = maxM
-	}
-	if dp.ArgonThrd > maxTh {
-		dp.ArgonThrd = maxTh
-	}
-
-	return dp
-}
-
 // GenerateRandomProfile creates a technically sound and secure profile with random parameters.
 func GenerateRandomProfile(id byte) *DynamicProfile {
 	// 1. Random Cipher (0, 1, or 2)
@@ -170,22 +150,14 @@ func GenerateRandomProfile(id byte) *DynamicProfile {
 	saltSize := 16 + int(s.Uint64())
 
 	// 4. Random Argon2 Settings
-	// We use safe ranges that balance security with usability.
-
-	// Default Max Ranges
 	maxTime := uint32(10)
 	maxMem := uint32(1024 * 1024) // 1GB
 	maxThrd := uint8(8)
 
 	it, _ := rand.Int(rand.Reader, big.NewInt(int64(maxTime)))
 	iterations := uint32(it.Uint64()) + 1
-	if iterations < 1 {
-		iterations = 1
-	}
-
 	mem, _ := rand.Int(rand.Reader, big.NewInt(int64(maxMem-1024)))
 	memory := uint32(mem.Uint64()) + 1024
-
 	th, _ := rand.Int(rand.Reader, big.NewInt(int64(maxThrd-1)))
 	threads := uint8(th.Uint64()) + 1
 
@@ -202,6 +174,7 @@ func GenerateRandomProfile(id byte) *DynamicProfile {
 }
 
 // LoadCustomProfile reads a custom profile from a JSON file, validates it, and registers it.
+// This function remains for internal usage but Engine now provides a context-aware wrapper.
 func LoadCustomProfile(path string) (*DynamicProfile, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

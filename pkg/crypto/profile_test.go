@@ -46,7 +46,7 @@ func TestProfileV3RoundTrip(t *testing.T) {
 
 	// 3. Decrypt
 	var decrypted bytes.Buffer
-	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, 1, false)
+	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, priv, nil, 1, false)
 	if err != nil {
 		t.Fatalf("V3 Decryption failed: %v", err)
 	}

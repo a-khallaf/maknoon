@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"bytes"
 	"testing"
 )
 
@@ -13,7 +12,7 @@ func TestIntegrationVault(t *testing.T) {
 	entry := &VaultEntry{
 		Service:  "CloudService",
 		Username: "admin",
-		Password: []byte("secret-password"),
+		Password: "secret-password",
 	}
 
 	// Seal
@@ -32,7 +31,7 @@ func TestIntegrationVault(t *testing.T) {
 		t.Errorf("Mismatch in restored metadata")
 	}
 
-	if !bytes.Equal(restored.Password, entry.Password) {
+	if restored.Password != entry.Password {
 		t.Errorf("Mismatch in restored password. Got %s, Want %s", restored.Password, entry.Password)
 	}
 

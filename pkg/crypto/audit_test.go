@@ -33,7 +33,7 @@ func TestAuditEngineDecorator(t *testing.T) {
 		var w bytes.Buffer
 		opts := Options{Passphrase: []byte("pass")}
 
-		_, err := ae.Protect("audit.txt", r, &w, opts)
+		_, err := ae.Protect(nil, "audit.txt", r, &w, opts)
 		if err != nil {
 			t.Fatalf("Protect failed: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestAuditEngineDecorator(t *testing.T) {
 
 	t.Run("VaultLogging", func(t *testing.T) {
 		// Test vault delegation and logging
-		ae.VaultGet("test.vault", "service", []byte("pass"), "")
+		ae.VaultGet(nil, "test.vault", "service", []byte("pass"), "")
 		if mockLogger.LastAction != "vault_get" {
 			t.Errorf("expected action 'vault_get', got %s", mockLogger.LastAction)
 		}
@@ -64,7 +64,7 @@ func TestAuditEngineDecorator(t *testing.T) {
 		}
 
 		ae.Logger = logger
-		ae.VaultGet("test.vault", "myservice", []byte("pass"), "")
+		ae.VaultGet(nil, "test.vault", "myservice", []byte("pass"), "")
 		logger.Close()
 
 		data, err := os.ReadFile(tmpLog)

@@ -36,7 +36,7 @@ func KeygenCmd() *cobra.Command {
 			var err error
 
 			if profileFile != "" {
-				dp, err := GlobalContext.Engine.LoadCustomProfile(profileFile)
+				dp, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile)
 				if err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
@@ -237,7 +237,7 @@ func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPr
 			return nil
 		}
 		finalData := data
-		if isPrivate && len(password) > 0 {
+		if isPrivate {
 			var b bytes.Buffer
 			if err := crypto.EncryptStream(bytes.NewReader(data), &b, password, crypto.FlagNone, 1, profileID); err != nil {
 				return err

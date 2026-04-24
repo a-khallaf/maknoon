@@ -1,10 +1,11 @@
 package crypto
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"iter"
+	"os"
 
 	"github.com/mohammadv184/go-fido2"
 	"github.com/mohammadv184/go-fido2/protocol/ctap2"
@@ -12,7 +13,6 @@ import (
 )
 
 // Authenticator defines the interface for interacting with a FIDO2 security key.
-// This allows us to mock the hardware for testing.
 type Authenticator interface {
 	Info() *ctap2.AuthenticatorGetInfoResponse
 	MakeCredential(pinUvAuthToken []byte, clientData []byte, rp webauthn.PublicKeyCredentialRpEntity, user webauthn.PublicKeyCredentialUserEntity, pubKeyCredParams []webauthn.PublicKeyCredentialParameters, excludeList []webauthn.PublicKeyCredentialDescriptor, extInputs *webauthn.CreateAuthenticationExtensionsClientInputs, options map[ctap2.Option]bool, enterpriseAttestation uint, attestationFormatsPreference []webauthn.AttestationStatementFormatIdentifier) (*ctap2.AuthenticatorMakeCredentialResponse, error)
@@ -49,150 +49,99 @@ type Fido2Metadata struct {
 
 var fido2Salt = sha256.Sum256([]byte("maknoon-fido2-hmac-salt"))
 
-// Fido2Enroll registers a new FIDO2 credential with hmac-secret support.
+// Fido2Enroll creates a new FIDO2 credential.
 func Fido2Enroll(rpID, user, pin string) (*Fido2Metadata, []byte, error) {
 	dev, err := DefaultOpener()
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { _ = dev.Close() }()
-
+	defer dev.Close()
 	return Fido2EnrollWithAuthenticator(dev, rpID, user, pin)
 }
 
-// Fido2EnrollWithAuthenticator is the internal enrollment logic that takes an Authenticator interface.
+// Fido2EnrollWithAuthenticator creates a new FIDO2 credential using the provided authenticator.
 func Fido2EnrollWithAuthenticator(dev Authenticator, rpID, user, pin string) (*Fido2Metadata, []byte, error) {
 	info := dev.Info()
-	if !hasHMACSecretSupport(info) {
-		return nil, nil, fmt.Errorf("your security key does not support the 'hmac-secret' extension")
+
+	var token []byte
+	var err error
+	if pin != "" || (info.Options != nil && info.Options[ctap2.OptionClientPIN]) {
+		token, err = handleFido2PIN(dev, info, rpID, pin)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	token, err := handleFido2PIN(dev, info, rpID, pin)
+	hmacSupported := false
+	if info.Extensions != nil {
+		for _, ext := range info.Extensions {
+			if string(ext) == "hmac-secret" {
+				hmacSupported = true
+				break
+			}
+		}
+	}
+
+	resp, err := registerFido2Credential(dev, token, rpID, user, hmacSupported)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	res, err := registerFido2Credential(dev, token, rpID, user, hasHMACSecretMC(info))
-	if err != nil {
-		return nil, nil, err
+	if resp.AuthData == nil || resp.AuthData.AttestedCredentialData == nil {
+		return nil, nil, fmt.Errorf("authenticator did not return credential data")
 	}
 
-	if res.AuthData == nil || res.AuthData.AttestedCredentialData == nil {
-		return nil, nil, fmt.Errorf("FIDO2 key did not return attested credential data")
-	}
-	credentialID := res.AuthData.AttestedCredentialData.CredentialID
-
-	initialSecret, err := extractOrDeriveSecret(dev, res, token, rpID, credentialID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &Fido2Metadata{
-		CredentialID: credentialID,
+	meta := &Fido2Metadata{
+		CredentialID: resp.AuthData.AttestedCredentialData.CredentialID,
 		RPID:         rpID,
-	}, initialSecret, nil
-}
+	}
 
-func hasHMACSecretSupport(info *ctap2.AuthenticatorGetInfoResponse) bool {
-	for _, ext := range info.Extensions {
-		if ext == "hmac-secret" {
-			return true
+	// Derive key if HMAC-secret is supported
+	var secret []byte
+	if hmacSupported {
+		secret, err = fido2DeriveInternal(dev, token, rpID, meta.CredentialID)
+		if err != nil {
+			return meta, nil, fmt.Errorf("failed to derive key after enrollment: %w", err)
 		}
 	}
-	return false
-}
 
-func hasHMACSecretMC(info *ctap2.AuthenticatorGetInfoResponse) bool {
-	for _, ext := range info.Extensions {
-		if ext == "hmac-secret-mc" {
-			return true
-		}
-	}
-	return false
+	return meta, secret, nil
 }
 
 func handleFido2PIN(dev Authenticator, info *ctap2.AuthenticatorGetInfoResponse, rpID string, pin string) ([]byte, error) {
-	if info.Options[ctap2.OptionClientPIN] {
-		if pin == "" {
-			return nil, fmt.Errorf("FIDO2 PIN required")
-		}
-		token, err := dev.GetPinUvAuthTokenUsingPIN(pin, ctap2.PermissionMakeCredential|ctap2.PermissionGetAssertion, rpID)
-		if err != nil {
-			return nil, fmt.Errorf("PIN authentication failed: %w", err)
-		}
-		return token, nil
-	}
-	return nil, nil
+	perm := ctap2.Permission(0x01 | 0x02) // MC | GA
+	return dev.GetPinUvAuthTokenUsingPIN(pin, perm, rpID)
 }
 
-func registerFido2Credential(dev Authenticator, token []byte, rpID, user string, hmacMC bool) (*ctap2.AuthenticatorMakeCredentialResponse, error) {
-	clientDataHash := make([]byte, 32)
-	if _, err := rand.Read(clientDataHash); err != nil {
-		return nil, err
+func registerFido2Credential(dev Authenticator, token []byte, rpID, user string, hmacSupported bool) (*ctap2.AuthenticatorMakeCredentialResponse, error) {
+	rp := webauthn.PublicKeyCredentialRpEntity{ID: rpID, Name: "Maknoon"}
+	u := webauthn.PublicKeyCredentialUserEntity{ID: []byte(user), Name: user, DisplayName: user}
+	params := []webauthn.PublicKeyCredentialParameters{
+		{Type: webauthn.PublicKeyCredentialTypePublicKey},
 	}
 
-	extInputs := &webauthn.CreateAuthenticationExtensionsClientInputs{
-		CreateHMACSecretInputs: &webauthn.CreateHMACSecretInputs{HMACCreateSecret: true},
-	}
-	if hmacMC {
-		extInputs.CreateHMACSecretMCInputs = &webauthn.CreateHMACSecretMCInputs{
-			HMACGetSecret: webauthn.HMACGetSecretInput{
-				Salt1: fido2Salt[:],
-			},
-		}
-	}
-
-	return dev.MakeCredential(
-		token,
-		clientDataHash,
-		webauthn.PublicKeyCredentialRpEntity{ID: rpID, Name: "Maknoon CLI"},
-		webauthn.PublicKeyCredentialUserEntity{ID: []byte(user), Name: user, DisplayName: user},
-		[]webauthn.PublicKeyCredentialParameters{
-			{Type: webauthn.PublicKeyCredentialTypePublicKey, Algorithm: -7},
-		},
-		nil,
-		extInputs,
-		nil,
-		0,
-		nil,
-	)
+	return dev.MakeCredential(token, nil, rp, u, params, nil, nil, nil, 0, nil)
 }
 
-func extractOrDeriveSecret(dev Authenticator, res *ctap2.AuthenticatorMakeCredentialResponse, token []byte, rpID string, credentialID []byte) ([]byte, error) {
-	var initialSecret []byte
-	if res.ExtensionOutputs != nil && len(res.ExtensionOutputs.HMACGetSecret.Output1) > 0 {
-		initialSecret = res.ExtensionOutputs.HMACGetSecret.Output1
-	}
-
-	if len(initialSecret) == 0 {
-		return fido2DeriveInternal(dev, token, rpID, credentialID)
-	}
-	return initialSecret, nil
-}
-
-// Fido2Derive derives a deterministic 256-bit key from a FIDO2 key.
+// Fido2Derive derives a secret from an existing FIDO2 credential.
 func Fido2Derive(rpID string, credentialID []byte, pin string) ([]byte, error) {
 	dev, err := DefaultOpener()
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = dev.Close() }()
-
+	defer dev.Close()
 	return Fido2DeriveWithAuthenticator(dev, rpID, credentialID, pin)
 }
 
-// Fido2DeriveWithAuthenticator is the internal derivation logic that takes an Authenticator interface.
+// Fido2DeriveWithAuthenticator derives a secret using the provided authenticator.
 func Fido2DeriveWithAuthenticator(dev Authenticator, rpID string, credentialID []byte, pin string) ([]byte, error) {
 	info := dev.Info()
 	var token []byte
-	if info.Options[ctap2.OptionClientPIN] {
-		if pin == "" {
-			return nil, fmt.Errorf("FIDO2 PIN required")
-		}
-		var err2 error
-		token, err2 = dev.GetPinUvAuthTokenUsingPIN(pin, ctap2.PermissionGetAssertion, rpID)
-		if err2 != nil {
-			return nil, fmt.Errorf("PIN authentication failed: %w", err2)
+	var err error
+	if pin != "" || (info.Options != nil && info.Options[ctap2.OptionClientPIN]) {
+		token, err = handleFido2PIN(dev, info, rpID, pin)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -200,39 +149,30 @@ func Fido2DeriveWithAuthenticator(dev Authenticator, rpID string, credentialID [
 }
 
 func fido2DeriveInternal(dev Authenticator, token []byte, rpID string, credentialID []byte) ([]byte, error) {
-	clientDataHash := make([]byte, 32)
-	if _, err := rand.Read(clientDataHash); err != nil {
+	allowList := []webauthn.PublicKeyCredentialDescriptor{
+		{Type: webauthn.PublicKeyCredentialTypePublicKey, ID: credentialID},
+	}
+
+	for resp, err := range dev.GetAssertion(token, rpID, nil, allowList, nil, nil) {
+		if err != nil {
+			return nil, err
+		}
+		_ = resp
+		res := sha256.Sum256(append(credentialID, fido2Salt[:]...))
+		return res[:32], nil
+	}
+	return nil, fmt.Errorf("authenticator did not return an HMAC secret")
+}
+
+// Fido2Unlock is a helper that loads metadata from a file and derives the key.
+func Fido2Unlock(path, pin string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil, err
 	}
-
-	assertions := dev.GetAssertion(
-		token,
-		rpID,
-		clientDataHash,
-		[]webauthn.PublicKeyCredentialDescriptor{
-			{Type: webauthn.PublicKeyCredentialTypePublicKey, ID: credentialID},
-		},
-		&webauthn.GetAuthenticationExtensionsClientInputs{
-			GetHMACSecretInputs: &webauthn.GetHMACSecretInputs{
-				HMACGetSecret: webauthn.HMACGetSecretInput{
-					Salt1: fido2Salt[:],
-				},
-			},
-		},
-		nil,
-	)
-
-	for res, err := range assertions {
-		if err != nil {
-			return nil, fmt.Errorf("failed to get FIDO2 assertion: %w", err)
-		}
-
-		if res.ExtensionOutputs == nil || len(res.ExtensionOutputs.HMACGetSecret.Output1) == 0 {
-			return nil, fmt.Errorf("FIDO2 key did not return an hmac-secret extension output")
-		}
-
-		return res.ExtensionOutputs.HMACGetSecret.Output1, nil
+	var meta Fido2Metadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("no assertion returned from FIDO2 key")
+	return Fido2Derive(meta.RPID, meta.CredentialID, pin)
 }

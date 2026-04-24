@@ -49,7 +49,7 @@ func TestAsymmetricRoundTrip(t *testing.T) {
 
 	// 2. Decrypt
 	var decrypted bytes.Buffer
-	if _, _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, 0, false); err != nil {
+	if _, _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, nil, 0, false); err != nil {
 		t.Fatalf("Asymmetric decryption failed: %v", err)
 	}
 
@@ -76,14 +76,14 @@ func TestIntegratedSignThenEncryptUnit(t *testing.T) {
 	// 2. Decrypt and Verify
 	var decrypted bytes.Buffer
 	// Test failure without sender key
-	_, _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, 0, false)
-	if err == nil || !strings.Contains(err.Error(), "sender public key not provided") {
+	_, _, err := DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, nil, 0, false)
+	if err == nil || !strings.Contains(err.Error(), "sender's public key is required") {
 		t.Errorf("Expected error for missing sender key, got: %v", err)
 	}
 
 	// Test success with sender key
 	decrypted.Reset()
-	_, _, err = DecryptStreamWithPrivateKeyAndVerifier(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, spub, 0, false)
+	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, spub, 0, false)
 	if err != nil {
 		t.Fatalf("Integrated decryption failed: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestStealthAsymmetricRoundTrip(t *testing.T) {
 
 	// 2. Decrypt with Stealth
 	var decrypted bytes.Buffer
-	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, 1, true)
+	_, _, err = DecryptStreamWithPrivateKey(bytes.NewReader(encrypted.Bytes()), &decrypted, privBytes, nil, 1, true)
 	if err != nil {
 		t.Fatalf("Decryption failed: %v", err)
 	}

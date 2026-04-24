@@ -46,7 +46,7 @@ func DecryptCmd() *cobra.Command {
 			}
 
 			if profileFile != "" {
-				if _, err := GlobalContext.Engine.LoadCustomProfile(profileFile); err != nil {
+				if _, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile); err != nil {
 					if JSONOutput {
 						printErrorJSON(err)
 						return nil
@@ -194,7 +194,7 @@ func DecryptCmd() *cobra.Command {
 				defer func() { GlobalContext.JSONWriter = oldWriter }()
 			}
 
-			_, err = GlobalContext.Engine.Unprotect(fullIn, nil, outPath, opts)
+			_, err = GlobalContext.Engine.Unprotect(nil, fullIn, nil, outPath, opts)
 			close(events)
 			<-done
 

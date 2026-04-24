@@ -37,7 +37,7 @@ func TestObserverPattern(t *testing.T) {
 		close(done)
 	}()
 
-	_, err := engine.Protect("testfile", r, &w, opts)
+	_, err := engine.Protect(nil, "testfile", r, &w, opts)
 	if err != nil {
 		t.Fatalf("Protect failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestObserverPattern(t *testing.T) {
 		close(doneDec)
 	}()
 
-	_, err = engine.Unprotect(decR, &decW, "", opts)
+	_, err = engine.Unprotect(nil, decR, &decW, "", opts)
 	if err != nil {
 		t.Fatalf("Unprotect failed: %v", err)
 	}

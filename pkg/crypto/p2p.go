@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -44,7 +43,8 @@ type P2PReceiveOptions struct {
 }
 
 // P2PSend initiates a P2P transfer.
-func (e *Engine) P2PSend(ctx context.Context, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error) {
+func (e *Engine) P2PSend(ectx *EngineContext, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error) {
+	ectx = e.context(ectx)
 	status := make(chan P2PStatus, 10)
 
 	// 1. Initial Validation
@@ -53,7 +53,7 @@ func (e *Engine) P2PSend(ctx context.Context, inputName string, r io.Reader, opt
 	if rendezvous == "" {
 		rendezvous = conf.Wormhole.RendezvousURL
 	}
-	if err := e.ValidateWormholeURL(rendezvous); err != nil {
+	if err := e.ValidateWormholeURL(ectx, rendezvous); err != nil {
 		return "", nil, err
 	}
 
@@ -74,7 +74,7 @@ func (e *Engine) P2PSend(ctx context.Context, inputName string, r io.Reader, opt
 	}
 
 	status <- P2PStatus{Phase: "encrypting"}
-	_, err = e.Protect(inputName, r, tmpEnc, protectOpts)
+	_, err = e.Protect(ectx, inputName, r, tmpEnc, protectOpts)
 	if err != nil {
 		_ = tmpEnc.Close()
 		_ = os.Remove(tmpEnc.Name())
@@ -103,13 +103,12 @@ func (e *Engine) P2PSend(ctx context.Context, inputName string, r io.Reader, opt
 	}
 
 	status <- P2PStatus{Phase: "connecting"}
-	code, wStatus, err := c.SendFile(ctx, fileName, tmpEnc)
+	code, wStatus, err := c.SendFile(ectx.Context, fileName, tmpEnc)
 	if err != nil {
 		_ = tmpEnc.Close()
 		_ = os.Remove(tmpEnc.Name())
 		return "", nil, err
 	}
-
 	// Background monitor for the wormhole status
 	go func() {
 		defer tmpEnc.Close()
@@ -137,7 +136,8 @@ func (e *Engine) P2PSend(ctx context.Context, inputName string, r io.Reader, opt
 }
 
 // P2PReceive completes a P2P transfer.
-func (e *Engine) P2PReceive(ctx context.Context, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error) {
+func (e *Engine) P2PReceive(ectx *EngineContext, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error) {
+	ectx = e.context(ectx)
 	status := make(chan P2PStatus, 10)
 	conf := e.GetConfig()
 
@@ -145,7 +145,7 @@ func (e *Engine) P2PReceive(ctx context.Context, code string, opts P2PReceiveOpt
 	if rendezvous == "" {
 		rendezvous = conf.Wormhole.RendezvousURL
 	}
-	if err := e.ValidateWormholeURL(rendezvous); err != nil {
+	if err := e.ValidateWormholeURL(ectx, rendezvous); err != nil {
 		return nil, err
 	}
 
@@ -159,11 +159,10 @@ func (e *Engine) P2PReceive(ctx context.Context, code string, opts P2PReceiveOpt
 	}
 
 	status <- P2PStatus{Phase: "connecting"}
-	msg, err := c.Receive(ctx, code)
+	msg, err := c.Receive(ectx.Context, code)
 	if err != nil {
 		return nil, err
 	}
-
 	if msg.Type != wormhole.TransferFile {
 		return nil, fmt.Errorf("unexpected message type: %v", msg.Type)
 	}
@@ -206,13 +205,13 @@ func (e *Engine) P2PReceive(ctx context.Context, code string, opts P2PReceiveOpt
 		}
 
 		unprotectOpts := Options{
-			Passphrase:  opts.Passphrase,
-			PublicKey:   opts.PrivateKey, // Unprotect uses this as local priv key
-			Stealth:     opts.Stealth,
-			Concurrency: conf.AgentLimits.MaxWorkers,
+			Passphrase:      opts.Passphrase,
+			LocalPrivateKey: opts.PrivateKey,
+			Stealth:         opts.Stealth,
+			Concurrency:     conf.AgentLimits.MaxWorkers,
 		}
 
-		_, err = e.Unprotect(tmpFile, nil, finalOut, unprotectOpts)
+		_, err = e.Unprotect(ectx, tmpFile, nil, finalOut, unprotectOpts)
 		if err != nil {
 			status <- P2PStatus{Phase: "error", Error: err}
 			return

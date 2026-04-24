@@ -80,3 +80,13 @@ func SignData(message []byte, privKeyBytes []byte) ([]byte, error) {
 func VerifySignature(message []byte, signature []byte, pubKeyBytes []byte) bool {
 	return DefaultProfile().Verify(message, signature, pubKeyBytes)
 }
+
+// DerivePublicKey derives a public key from a private key using the specified profile.
+func DerivePublicKey(privKey []byte, profileID byte) []byte {
+	profile, err := GetProfile(profileID, nil)
+	if err != nil {
+		profile = DefaultProfile()
+	}
+	pk, _ := profile.DeriveKEMPublic(privKey)
+	return pk
+}

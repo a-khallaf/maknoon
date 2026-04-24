@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -148,152 +148,147 @@ func (m *IdentityManager) LoadIdentity(name string, passphrase []byte, pin strin
 	// Load and Unlock SIG Private Key
 	id.SIGPriv, err = m.LoadPrivateKey(basePath+".sig.key", passphrase, pin, isStdin)
 	if err != nil {
-		id.Wipe()
 		return nil, err
 	}
 
-	// Load and Unlock Nostr Private Key (Optional)
-	nostrPath := basePath + ".nostr.key"
-	if _, err := os.Stat(nostrPath); err == nil {
-		id.NostrPriv, _ = m.LoadPrivateKey(nostrPath, passphrase, pin, isStdin)
+	// Load and Unlock Nostr Private Key if exists
+	if _, err := os.Stat(basePath + ".nostr.key"); err == nil {
+		id.NostrPriv, _ = m.LoadPrivateKey(basePath+".nostr.key", passphrase, pin, isStdin)
 	}
 
 	return id, nil
 }
 
-// LoadPrivateKey resolves, reads, and unlocks a single private key.
+// LoadPrivateKey handles the decryption of a protected key file.
 func (m *IdentityManager) LoadPrivateKey(path string, passphrase []byte, pin string, isStdin bool) ([]byte, error) {
-	resolvedPath := m.ResolveKeyPath(path, "")
-	if _, err := os.Stat(resolvedPath); err != nil {
-		return nil, &ErrState{Reason: fmt.Sprintf("private key not found: %s", path)}
+	if _, err := os.Stat(path); err != nil {
+		return nil, &ErrIO{Path: path, Reason: "key file not found"}
 	}
 
-	keyBytes, err := os.ReadFile(resolvedPath)
+	// Resolve the real path
+	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return nil, err
+		resolvedPath = path
 	}
 
-	if len(keyBytes) > 4 && string(keyBytes[:4]) == MagicHeader {
-		unlockedPass, err := m.UnlockPrivateKeyWithFIDOOrPass(passphrase, pin, resolvedPath, isStdin)
+	// Case 1: Decrypt using FIDO2 if .fido2 file exists
+	fidoPath := resolvedPath + ".fido2"
+	if _, err := os.Stat(fidoPath); err == nil {
+		return m.UnlockPrivateKeyWithFIDOOrPass(passphrase, pin, resolvedPath, isStdin)
+	}
+
+	// Case 2: Standard decryption with passphrase
+	data, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return nil, &ErrIO{Path: resolvedPath, Reason: err.Error()}
+	}
+
+	var decrypted bytes.Buffer
+	_, _, err = DecryptStream(bytes.NewReader(data), &decrypted, passphrase, 1, false)
+	if err != nil {
+		return nil, &ErrAuthentication{Reason: fmt.Sprintf("failed to unlock key: %v", err)}
+	}
+
+	return decrypted.Bytes(), nil
+}
+
+func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, pin string, resolvedPath string, isStdin bool) ([]byte, error) {
+	data, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return nil, &ErrIO{Path: resolvedPath, Reason: err.Error()}
+	}
+
+	fidoPath := resolvedPath + ".fido2"
+	token, err := Fido2Unlock(fidoPath, pin)
+	if err != nil {
+		// Fallback to passphrase if FIDO fails but passphrase was provided
+		if len(password) > 0 {
+			var decrypted bytes.Buffer
+			_, _, err := DecryptStream(bytes.NewReader(data), &decrypted, password, 1, false)
+			if err == nil {
+				return decrypted.Bytes(), nil
+			}
+		}
+		return nil, &ErrAuthentication{Reason: fmt.Sprintf("FIDO2 unlock failed: %v", err)}
+	}
+	defer SafeClear(token)
+
+	var decrypted bytes.Buffer
+	_, _, err = DecryptStream(bytes.NewReader(data), &decrypted, token, 1, false)
+	if err != nil {
+		return nil, &ErrAuthentication{Reason: "FIDO2 token failed to decrypt the key"}
+	}
+
+	return decrypted.Bytes(), nil
+}
+
+// ResolvePublicKey takes a petname (@handle), a local path, or raw hex and returns the KEM public key.
+func (m *IdentityManager) ResolvePublicKey(input string, tofu bool) ([]byte, error) {
+	// 1. Handle Petnames (@handle)
+	if strings.HasPrefix(input, "@") {
+		cm, err := NewContactManager()
 		if err != nil {
 			return nil, err
 		}
-		// Decrypt the key stream
-		var unlocked bytes.Buffer
-		if _, _, err := DecryptStream(bytes.NewReader(keyBytes), &unlocked, unlockedPass, 1, false); err != nil {
-			return nil, &ErrCrypto{Reason: fmt.Sprintf("failed to decrypt private key: %v", err)}
-		}
-		return unlocked.Bytes(), nil
-	}
-
-	return keyBytes, nil
-}
-
-// UnlockPrivateKeyWithFIDOOrPass handles the logic of getting the unlocking secret.
-func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, pin string, resolvedPath string, isStdin bool) ([]byte, error) {
-	fido2Path := strings.TrimSuffix(resolvedPath, ".key")
-	fido2Path = strings.TrimSuffix(fido2Path, ".kem")
-	fido2Path = strings.TrimSuffix(fido2Path, ".sig")
-	fido2Path += ".fido2"
-
-	if _, err := os.Stat(fido2Path); err == nil {
-		raw, err := os.ReadFile(fido2Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read fido2 metadata: %w", err)
-		}
-		var meta Fido2Metadata
-		if err := json.Unmarshal(raw, &meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal fido2 metadata: %w", err)
-		}
-		secret, err := Fido2Derive(meta.RPID, meta.CredentialID, pin)
-		if err != nil {
-			return nil, &ErrAuthentication{Reason: fmt.Sprintf("FIDO2 derivation failed: %v", err)}
-		}
-		return secret, nil
-	}
-
-	if len(password) == 0 {
-		return nil, &ErrAuthentication{Reason: "passphrase required to unlock private key"}
-	}
-	return password, nil
-}
-
-// ResolvePublicKey handles handle resolution (@name) and local file paths.
-func (m *IdentityManager) ResolvePublicKey(input string, tofu bool) ([]byte, error) {
-	if strings.HasPrefix(input, "@") {
-		// 1. Check local contacts (Petnames)
-		cm, err := NewContactManager()
+		defer cm.Close()
+		c, err := cm.Get(input)
 		if err == nil {
-			contacts, _ := cm.List()
-			var found []byte
-			for _, c := range contacts {
-				if c.Petname == input {
-					found = c.KEMPubKey
-					break
-				}
-			}
-			cm.Close()
-			if found != nil {
-				return found, nil
-			}
+			return c.KEMPubKey, nil
 		}
-
-		// 2. Check Global Discovery Registry
+		// 2. DHT/DNS Discovery
 		reg := NewIdentityRegistry(nil)
-		record, err := reg.Resolve(context.Background(), input)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve identity handle: %w", err)
+		record, DiscoveryErr := reg.Resolve(context.Background(), input)
+		if DiscoveryErr == nil {
+			if tofu {
+				_ = cm.Add(&Contact{
+					Petname:   input,
+					KEMPubKey: record.KEMPubKey,
+					SIGPubKey: record.SIGPubKey,
+					AddedAt:   time.Now(),
+					Notes:     "Automatically added via discovery (TOFU)",
+				})
+			}
+			return record.KEMPubKey, nil
 		}
-		return record.KEMPubKey, nil
+		return nil, fmt.Errorf("identity discovered failed: %v", DiscoveryErr)
 	}
 
-	// 3. Fallback: Direct file path
-	resolved := m.ResolveKeyPath(input, "")
-	if resolved == "" {
-		return nil, &ErrState{Reason: fmt.Sprintf("public key file not found: %s", input)}
+	// 3. Handle Local Paths
+	if _, err := os.Stat(input); err == nil {
+		return os.ReadFile(input)
 	}
-	return os.ReadFile(resolved)
+
+	// 4. Handle Raw Hex
+	b, err := hex.DecodeString(input)
+	if err == nil && (len(b) == 1184 || len(b) == 32) { // Kyber1024 or similar
+		return b, nil
+	}
+
+	return nil, fmt.Errorf("unable to resolve public key from: %s", input)
 }
 
-// ListActiveIdentities returns a list of public key files in the KeysDir.
 func (m *IdentityManager) ListActiveIdentities() ([]string, error) {
 	files, err := os.ReadDir(m.KeysDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []string{}, nil
 		}
-		return nil, err
+		return nil, &ErrIO{Path: m.KeysDir, Reason: err.Error()}
 	}
 
 	var identities []string
+	seen := make(map[string]bool)
 	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
 		name := f.Name()
-		if strings.HasSuffix(name, ".pub") {
-			identities = append(identities, name)
+		if strings.HasSuffix(name, ".kem.pub") {
+			base := strings.TrimSuffix(name, ".kem.pub")
+			if !seen[base] {
+				identities = append(identities, base)
+				seen[base] = true
+			}
 		}
 	}
 	return identities, nil
-}
-
-// EnsureMaknoonDirs creates the default configuration and key directories.
-func EnsureMaknoonDirs() error {
-	home := GetUserHomeDir()
-	base := filepath.Join(home, MaknoonDir)
-	dirs := []string{
-		base,
-		filepath.Join(base, KeysDir),
-		filepath.Join(base, VaultsDir),
-		filepath.Join(base, ProfilesDir),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (m *IdentityManager) GetIdentityInfo(name string) (string, error) {
@@ -301,11 +296,19 @@ func (m *IdentityManager) GetIdentityInfo(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Check if at least the KEM key exists
-	if _, err := os.Stat(basePath + ".kem.key"); err != nil {
-		return "", fmt.Errorf("identity '%s' not found", name)
+
+	info := fmt.Sprintf("Identity: %s\n", name)
+	if b, err := os.ReadFile(basePath + ".kem.pub"); err == nil {
+		info += fmt.Sprintf("  - KEM Public Key: %x\n", b)
 	}
-	return basePath, nil
+	if b, err := os.ReadFile(basePath + ".sig.pub"); err == nil {
+		info += fmt.Sprintf("  - SIG Public Key: %x\n", b)
+	}
+	if b, err := os.ReadFile(basePath + ".nostr.pub"); err == nil {
+		info += fmt.Sprintf("  - Nostr Public Key: %x\n", b)
+	}
+
+	return info, nil
 }
 
 func (m *IdentityManager) RenameIdentity(oldName, newName string) error {
@@ -318,41 +321,15 @@ func (m *IdentityManager) RenameIdentity(oldName, newName string) error {
 		return err
 	}
 
-	suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".fido2", ".nostr.key", ".nostr.pub"}
-	renamed := 0
+	suffixes := []string{".kem.key", ".kem.pub", ".sig.key", ".sig.pub", ".nostr.key", ".nostr.pub", ".fido2"}
 	for _, s := range suffixes {
-		oldPath := oldBase + s
-		newPath := newBase + s
-		if _, err := os.Stat(oldPath); err == nil {
-			if err := os.Rename(oldPath, newPath); err != nil {
-				return err
-			}
-			renamed++
-		}
+		_ = os.Rename(oldBase+s, newBase+s)
 	}
-
-	if renamed == 0 {
-		return fmt.Errorf("identity '%s' not found", oldName)
-	}
-
-	// Rename in Contacts too
-	cm, err := NewContactManager()
-	if err == nil {
-		contact, err := cm.Get(oldName)
-		if err == nil {
-			contact.Petname = newName
-			cm.Add(contact)
-			cm.Delete(oldName)
-		}
-		cm.Close()
-	}
-
 	return nil
 }
 
 func (m *IdentityManager) SplitIdentity(name string, threshold, shares int, passphrase string) ([]string, error) {
 	// 1. Load the identity
-	// For simplicity in the library, we assume interaction-less PIN if fido2 exists
 	id, err := m.LoadIdentity(name, []byte(passphrase), "", false)
 	if err != nil {
 		return nil, err
@@ -390,108 +367,80 @@ func (m *IdentityManager) SplitIdentity(name string, threshold, shares int, pass
 
 func (m *IdentityManager) CombineIdentity(mnemonics []string, output, passphrase string, noPassword bool) (string, error) {
 	var shards []Share
-	for _, mn := range mnemonics {
-		s, err := FromMnemonic(mn)
+	for _, m := range mnemonics {
+		s, err := FromMnemonic(m)
 		if err != nil {
-			return "", fmt.Errorf("invalid mnemonic: %w", err)
+			return "", err
 		}
 		shards = append(shards, *s)
 	}
 
-	blob, err := CombineShares(shards)
+	combined, err := CombineShares(shards)
 	if err != nil {
 		return "", err
 	}
-	defer SafeClear(blob)
-
-	if len(blob) < 12 {
-		return "", fmt.Errorf("reconstructed blob too short")
-	}
+	defer SafeClear(combined)
 
 	// Unpack
-	kemLen := binary.BigEndian.Uint32(blob[0:4])
-	kemPriv := blob[4 : 4+kemLen]
-	offset := 4 + kemLen
+	offset := 0
+	kemLen := binary.BigEndian.Uint32(combined[offset : offset+4])
+	kemPriv := combined[offset+4 : offset+4+int(kemLen)]
+	offset += 4 + int(kemLen)
 
-	sigLen := binary.BigEndian.Uint32(blob[offset : offset+4])
-	sigPriv := blob[offset+4 : offset+4+sigLen]
-	offset += 4 + sigLen
+	sigLen := binary.BigEndian.Uint32(combined[offset : offset+4])
+	sigPriv := combined[offset+4 : offset+4+int(sigLen)]
+	offset += 4 + int(sigLen)
 
-	var nostrPriv []byte
-	if uint32(len(blob)) >= offset+4 {
-		nostrLen := binary.BigEndian.Uint32(blob[offset : offset+4])
-		if uint32(len(blob)) == offset+4+nostrLen {
-			nostrPriv = blob[offset+4:]
-		}
-	}
+	nostrLen := binary.BigEndian.Uint32(combined[offset : offset+4])
+	nostrPriv := combined[offset+4 : offset+4+int(nostrLen)]
 
-	// Derive public keys
-	kemPub, _ := DeriveKEMPublic(kemPriv)
-	sigPub, _ := DeriveSIGPublic(sigPriv)
-	var nostrPub []byte
-	if len(nostrPriv) > 0 {
-		nostrPub, _ = DeriveNostrPublic(nostrPriv)
-	}
-
-	basePath, _, err := m.ResolveBaseKeyPath(output)
-	if err != nil {
+	// Store
+	im := NewIdentityManager()
+	basePath := filepath.Join(im.KeysDir, output)
+	if err := os.MkdirAll(im.KeysDir, 0700); err != nil {
 		return "", err
 	}
 
-	// Write keys
-	err = writeIdentityKeys(basePath, output, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, []byte(passphrase), 1)
-	return basePath, err
+	// Encrypt and save
+	pass := []byte(passphrase)
+	if noPassword {
+		pass = nil
+	}
+
+	// Helper to encrypt and save a key
+	saveKey := func(key []byte, suffix string) error {
+		var encrypted bytes.Buffer
+		err := EncryptStream(bytes.NewReader(key), &encrypted, pass, 0, 1, 0)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(basePath+suffix, encrypted.Bytes(), 0600)
+	}
+
+	if err := saveKey(kemPriv, ".kem.key"); err != nil {
+		return "", err
+	}
+	if err := saveKey(sigPriv, ".sig.key"); err != nil {
+		return "", err
+	}
+	if len(nostrPriv) > 0 {
+		if err := saveKey(nostrPriv, ".nostr.key"); err != nil {
+			return "", err
+		}
+	}
+
+	return basePath, nil
 }
 
-func writeIdentityKeys(basePath, baseName string, kemPub, kemPriv, sigPub, sigPriv, nostrPub, nostrPriv, password []byte, profileID byte) error {
-	writeKey := func(path string, data []byte, isPrivate bool) error {
-		if len(data) == 0 {
-			return nil
-		}
-		finalData := data
-		if isPrivate && len(password) > 0 {
-			var b bytes.Buffer
-			if err := EncryptStream(bytes.NewReader(data), &b, password, FlagNone, 1, profileID); err != nil {
-				return err
-			}
-			finalData = b.Bytes()
-		}
-		mode := os.FileMode(0644)
-		if isPrivate {
-			mode = 0600
-		}
-		return os.WriteFile(path, finalData, mode)
-	}
-
-	if err := writeKey(basePath+".kem.key", kemPriv, true); err != nil {
-		return err
-	}
-	if err := writeKey(basePath+".kem.pub", kemPub, false); err != nil {
-		return err
-	}
-	if err := writeKey(basePath+".sig.key", sigPriv, true); err != nil {
-		return err
-	}
-	if err := writeKey(basePath+".sig.pub", sigPub, false); err != nil {
-		return err
-	}
-	if err := writeKey(basePath+".nostr.key", nostrPriv, true); err != nil {
-		return err
-	}
-	if err := writeKey(basePath+".nostr.pub", nostrPub, false); err != nil {
-		return err
-	}
-	return nil
-}
-
+// IdentityPublishOptions settings for publishing an identity.
 type IdentityPublishOptions struct {
-	Passphrase string
-	Name       string
-	Nostr      bool
-	DNS        bool
-	Local      bool
-	Desec      bool
-	DesecToken string
+	Name       string // Local identity name
+	Passphrase string // Passphrase to unlock local identity
+	Local      bool   // Add to local contacts
+	DNS        bool   // Publish to DNS (via DHT)
+	Desec      bool   // Publish to deSEC
+	DesecToken string // deSEC API token
+	Nostr      bool   // Publish to Nostr
 }
 
 func (m *IdentityManager) IdentityPublish(ctx context.Context, handle string, opts IdentityPublishOptions) error {
@@ -570,41 +519,21 @@ func (m *IdentityManager) IdentityPublish(ctx context.Context, handle string, op
 	return nil
 }
 
-func (m *IdentityManager) IdentitySplit(name string, threshold, shares int, passphrase string) ([]string, error) {
-	// 1. Load the identity
-	id, err := m.LoadIdentity(name, []byte(passphrase), "", false)
-	if err != nil {
-		return nil, err
+// EnsureMaknoonDirs creates the standard directory structure.
+func EnsureMaknoonDirs() error {
+	home := GetUserHomeDir()
+	dirs := []string{
+		filepath.Join(home, MaknoonDir),
+		filepath.Join(home, MaknoonDir, KeysDir),
+		filepath.Join(home, MaknoonDir, VaultsDir),
+		filepath.Join(home, MaknoonDir, ProfilesDir),
 	}
-	defer id.Wipe()
-
-	// 2. Pack the keys
-	blob := make([]byte, 12+len(id.KEMPriv)+len(id.SIGPriv)+len(id.NostrPriv))
-	offset := 0
-	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.KEMPriv)))
-	copy(blob[offset+4:offset+4+len(id.KEMPriv)], id.KEMPriv)
-	offset += 4 + len(id.KEMPriv)
-
-	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.SIGPriv)))
-	copy(blob[offset+4:offset+4+len(id.SIGPriv)], id.SIGPriv)
-	offset += 4 + len(id.SIGPriv)
-
-	binary.BigEndian.PutUint32(blob[offset:offset+4], uint32(len(id.NostrPriv)))
-	copy(blob[offset+4:], id.NostrPriv)
-
-	defer SafeClear(blob)
-
-	// 3. Split
-	shards, err := SplitSecret(blob, threshold, shares)
-	if err != nil {
-		return nil, err
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			return err
+		}
 	}
-
-	var results []string
-	for _, s := range shards {
-		results = append(results, s.ToMnemonic())
-	}
-	return results, nil
+	return nil
 }
 
 func (id *Identity) Wipe() {

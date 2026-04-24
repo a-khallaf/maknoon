@@ -154,7 +154,7 @@ func TestPipelineCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected encryption to fail due to simulated stream interruption")
 	}
-	if err.Error() != "simulated stream failure" {
-		t.Fatalf("Expected 'simulated stream failure', got: %v", err)
+	if ioErr, ok := err.(*ErrIO); !ok || ioErr.Reason != "simulated stream failure" {
+		t.Fatalf("Expected ErrIO with 'simulated stream failure', got: %v", err)
 	}
 }

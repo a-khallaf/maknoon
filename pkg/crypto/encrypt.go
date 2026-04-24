@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
@@ -22,24 +23,31 @@ var bufferPool = sync.Pool{
 
 // EncryptStream symmetrically encrypts data from r to w using a passphrase and specified profile.
 func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte) error {
-	return EncryptStreamWithEvents(r, w, password, flags, concurrency, profileID, nil)
+	ectx := &EngineContext{
+		Context: context.Background(),
+		Policy:  &HumanPolicy{},
+	}
+	return EncryptStreamWithEvents(r, w, password, flags, concurrency, profileID, ectx)
 }
 
 // EncryptStreamWithEvents is the extended version of EncryptStream that supports telemetry.
-func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte, emitter EventEmitter) error {
+func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte, ectx *EngineContext) error {
+	if ectx == nil {
+		ectx = &EngineContext{Context: context.Background(), Policy: &HumanPolicy{}}
+	}
 	profile := DefaultProfile()
 	if profileID != 0 {
 		var err error
 		profile, err = GetProfile(profileID, nil)
 		if err != nil {
-			return err
+			return &ErrFormat{Reason: fmt.Sprintf("failed to get profile %d: %v", profileID, err)}
 		}
 	}
 
 	// 1. Generate random Salt for KDF
 	salt := make([]byte, profile.SaltSize())
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return err
+		return &ErrIO{Path: "stream", Reason: fmt.Sprintf("failed to read random salt: %v", err)}
 	}
 
 	// 2. Derive Key
@@ -49,65 +57,72 @@ func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags by
 	// 3. Setup AEAD & Random Base Nonce
 	aead, err := profile.NewAEAD(key)
 	if err != nil {
-		return err
+		return &ErrCrypto{Reason: fmt.Sprintf("failed to setup AEAD: %v", err)}
 	}
 	baseNonce := make([]byte, aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, baseNonce); err != nil {
-		return err
+		return &ErrIO{Path: "stream", Reason: fmt.Sprintf("failed to read base nonce: %v", err)}
 	}
 
 	// 4. Write Header: Magic (4) | Version/ProfileID (1) | Flags (1) | Salt (N) | BaseNonce (N)
 	if flags&FlagStealth == 0 {
 		if _, err := w.Write([]byte(MagicHeader)); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 	}
 	if _, err := w.Write([]byte{profile.ID(), flags}); err != nil {
-		return err
+		return &ErrIO{Path: "output", Reason: err.Error()}
 	}
 	if _, err := w.Write(salt); err != nil {
-		return err
+		return &ErrIO{Path: "output", Reason: err.Error()}
 	}
 	if _, err := w.Write(baseNonce); err != nil {
-		return err
+		return &ErrIO{Path: "output", Reason: err.Error()}
 	}
 
+	ectx.Emit(EventHandshakeComplete{})
+
 	// 5. Stream Encrypt Chunks
-	return streamEncrypt(r, w, aead, baseNonce, concurrency, emitter)
+	return streamEncrypt(r, w, aead, baseNonce, concurrency, ectx)
 }
 
 // EncryptStreamWithPublicKeys encrypts data from r to w for one or more recipients.
 func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, flags byte, concurrency int, profileID byte) error {
-	return EncryptStreamWithPublicKeysAndEvents(r, w, pubKeys, nil, flags, concurrency, profileID, nil)
+	ectx := &EngineContext{
+		Context: context.Background(),
+		Policy:  &HumanPolicy{},
+	}
+	return EncryptStreamWithPublicKeysAndEvents(r, w, pubKeys, nil, flags, concurrency, profileID, ectx)
 }
 
 // EncryptStreamWithPublicKeysAndEvents is the extended version of EncryptStreamWithPublicKeys that supports telemetry.
-func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte, emitter EventEmitter) error {
+func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte, ectx *EngineContext) error {
+	if ectx == nil {
+		ectx = &EngineContext{Context: context.Background(), Policy: &HumanPolicy{}}
+	}
 	profile := DefaultProfile()
 	if profileID != 0 {
 		var err error
 		profile, err = GetProfile(profileID, nil)
 		if err != nil {
-			return err
+			return &ErrFormat{Reason: fmt.Sprintf("failed to get profile %d: %v", profileID, err)}
 		}
 	}
 
 	if len(pubKeys) == 0 {
-		return fmt.Errorf("at least one public key is required")
+		return &ErrFormat{Reason: "at least one public key is required"}
 	}
 	if len(pubKeys) > 255 {
-		return fmt.Errorf("too many recipients (max 255)")
+		return &ErrFormat{Reason: "too many recipients (max 255)"}
 	}
 
 	// Generate FEK in a secure enclave
 	fekRaw := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, fekRaw); err != nil {
-		return err
+		return &ErrIO{Path: "stream", Reason: "failed to generate random FEK"}
 	}
 	fekEnclave := memguard.NewBufferFromBytes(fekRaw).Seal()
 	SafeClear(fekRaw)
-	// No defer destroy here because we pass it to workers, we should destroy after workers are done.
-	// Actually, streamEncrypt accepts cipher.AEAD, we can derive it here.
 
 	type recipientHeader struct {
 		pubKeyHash []byte // 4 bytes of SHA256(pubKey)
@@ -122,7 +137,7 @@ func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]
 	for _, pkBytes := range pubKeys {
 		wrappedMaterial, err := profile.WrapFEK(pkBytes, flags, fekEnclave)
 		if err != nil {
-			return fmt.Errorf("failed to encapsulate for a recipient: %w", err)
+			return &ErrCrypto{Reason: fmt.Sprintf("failed to encapsulate for a recipient: %v", err)}
 		}
 
 		h := Sha256Sum(pkBytes)[:4]
@@ -135,17 +150,17 @@ func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]
 	// Instantiate AEAD from FEK
 	fekBuf, err := fekEnclave.Open()
 	if err != nil {
-		return err
+		return &ErrCrypto{Reason: "failed to open secure FEK enclave"}
 	}
 	aead, err := profile.NewAEAD(fekBuf.Bytes())
 	fekBuf.Destroy() // Wipe immediately after creating AEAD
 	if err != nil {
-		return err
+		return &ErrCrypto{Reason: fmt.Sprintf("failed to setup AEAD: %v", err)}
 	}
 
 	baseNonce := make([]byte, aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, baseNonce); err != nil {
-		return err
+		return &ErrIO{Path: "stream", Reason: "failed to read base nonce"}
 	}
 
 	var signature []byte
@@ -163,53 +178,59 @@ func EncryptStreamWithPublicKeysAndEvents(r io.Reader, w io.Writer, pubKeys [][]
 
 		sig, err := profile.Sign(commitment, signingKey)
 		if err != nil {
-			return fmt.Errorf("failed to generate integrated signature: %w", err)
+			return &ErrCrypto{Reason: fmt.Sprintf("failed to generate integrated signature: %v", err)}
 		}
 		signature = sig
 	}
 
 	if flags&FlagStealth == 0 {
 		if _, err := w.Write([]byte(MagicHeaderAsym)); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 	}
 	if _, err := w.Write([]byte{profile.ID(), flags, byte(len(recs))}); err != nil {
-		return err
+		return &ErrIO{Path: "output", Reason: err.Error()}
 	}
 
 	if profile.ID() >= 128 {
 		if dp, ok := profile.(*DynamicProfile); ok {
 			if _, err := w.Write(dp.Pack()); err != nil {
-				return err
+				return &ErrIO{Path: "output", Reason: err.Error()}
 			}
 		}
 	}
 
 	for _, r := range recs {
 		if _, err := w.Write(r.pubKeyHash); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 		if _, err := w.Write(r.ciphertext); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 	}
 
 	if len(signature) > 0 {
 		if _, err := w.Write(signature); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 	}
 
 	if _, err := w.Write(baseNonce); err != nil {
-		return err
+		return &ErrIO{Path: "output", Reason: err.Error()}
 	}
 
-	return streamEncrypt(r, w, aead, baseNonce, concurrency, emitter)
+	ectx.Emit(EventHandshakeComplete{})
+
+	return streamEncrypt(r, w, aead, baseNonce, concurrency, ectx)
 }
 
 // EncryptStreamWithPublicKeysAndSigner is the internal implementation supporting optional integrated signing.
 func EncryptStreamWithPublicKeysAndSigner(r io.Reader, w io.Writer, pubKeys [][]byte, signingKey []byte, flags byte, concurrency int, profileID byte) error {
-	return EncryptStreamWithPublicKeysAndEvents(r, w, pubKeys, signingKey, flags, concurrency, profileID, nil)
+	ectx := &EngineContext{
+		Context: context.Background(),
+		Policy:  &HumanPolicy{},
+	}
+	return EncryptStreamWithPublicKeysAndEvents(r, w, pubKeys, signingKey, flags, concurrency, profileID, ectx)
 }
 
 // Deprecated: Use EncryptStreamWithPublicKeys
@@ -228,13 +249,16 @@ type encryptResult struct {
 	err   error
 }
 
-func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, emitter EventEmitter) error {
+func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, concurrency int, ectx *EngineContext) error {
+	if ectx == nil {
+		ectx = &EngineContext{Context: context.Background(), Policy: &HumanPolicy{}}
+	}
 	if concurrency <= 0 {
 		concurrency = runtime.NumCPU()
 	}
 
 	if concurrency == 1 {
-		return streamEncryptSequential(r, w, aead, baseNonce, emitter)
+		return streamEncryptSequential(r, w, aead, baseNonce, ectx)
 	}
 
 	sem := make(chan struct{}, concurrency*4)
@@ -255,7 +279,7 @@ func streamEncrypt(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte,
 	errChan := make(chan error, 1)
 	go encryptionReader(r, jobs, errChan, sem)
 
-	return encryptionSequencer(w, results, errChan, emitter)
+	return encryptionSequencer(w, results, errChan, ectx)
 }
 
 func encryptionWorker(wg *sync.WaitGroup, jobs <-chan encryptJob, results chan<- encryptResult, aead cipher.AEAD, baseNonce []byte, sem chan struct{}) {
@@ -309,13 +333,13 @@ func encryptionReader(r io.Reader, jobs chan<- encryptJob, errChan chan<- error,
 			break
 		}
 		if err != nil {
-			errChan <- err
+			errChan <- &ErrIO{Path: "input", Reason: err.Error()}
 			return
 		}
 	}
 }
 
-func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error, emitter EventEmitter) error {
+func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-chan error, ectx *EngineContext) error {
 	// Adapt the channel
 	seqResults := make(chan sequencerResult)
 	go func() {
@@ -328,15 +352,13 @@ func encryptionSequencer(w io.Writer, results <-chan encryptResult, errChan <-ch
 	totalProcessed := int64(0)
 	return runSequencer(w, seqResults, errChan, func(w io.Writer, data []byte) error {
 		if err := writeChunk(w, data); err != nil {
-			return err
+			return &ErrIO{Path: "output", Reason: err.Error()}
 		}
 		totalProcessed += int64(len(data))
-		if emitter != nil {
-			emitter.Emit(EventChunkProcessed{
-				BytesProcessed: int64(len(data)),
-				TotalProcessed: totalProcessed,
-			})
-		}
+		ectx.Emit(EventChunkProcessed{
+			BytesProcessed: int64(len(data)),
+			TotalProcessed: totalProcessed,
+		})
 		return nil
 	})
 }
@@ -353,7 +375,10 @@ func writeChunk(w io.Writer, data []byte) error {
 	return nil
 }
 
-func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, emitter EventEmitter) error {
+func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNonce []byte, ectx *EngineContext) error {
+	if ectx == nil {
+		ectx = &EngineContext{Context: context.Background(), Policy: &HumanPolicy{}}
+	}
 	bufPtr := bufferPool.Get().(*[]byte)
 	buf := *bufPtr
 	defer bufferPool.Put(bufPtr)
@@ -377,15 +402,13 @@ func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 			ciphertext := aead.Seal(nil, nonce, buf[:n], nil)
 
 			if err := writeChunk(w, ciphertext); err != nil {
-				return err
+				return &ErrIO{Path: "output", Reason: err.Error()}
 			}
 			totalProcessed += int64(len(ciphertext))
-			if emitter != nil {
-				emitter.Emit(EventChunkProcessed{
-					BytesProcessed: int64(len(ciphertext)),
-					TotalProcessed: totalProcessed,
-				})
-			}
+			ectx.Emit(EventChunkProcessed{
+				BytesProcessed: int64(len(ciphertext)),
+				TotalProcessed: totalProcessed,
+			})
 			chunkIndex++
 		}
 
@@ -393,7 +416,7 @@ func streamEncryptSequential(r io.Reader, w io.Writer, aead cipher.AEAD, baseNon
 			break
 		}
 		if err != nil {
-			return err
+			return &ErrIO{Path: "input", Reason: err.Error()}
 		}
 	}
 	return nil

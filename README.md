@@ -203,6 +203,12 @@ Maknoon includes a native Go-based MCP server for deep integration with **Claude
 - `vault_get` / `vault_set`: Secure secret management.
 - `identity_active`: Automated key discovery.
 
+### 🛠 Library-First SDK (v3.0)
+Maknoon is built as a highly-modular Go SDK. Integrations like the CLI and MCP server call the centralized `MaknoonEngine` interface directly.
+- **`EngineContext`**: Unified propagation of cancellation, security policies, and telemetry.
+- **Structured Error Typing**: Distinguish programmatically between authentication failures, policy violations, and IO errors.
+- **Capability-Based Security**: Operations strictly validate permissions (e.g., `CapVaultWrite`) before execution.
+
 ---
 
 ## 🏗 Security Architecture

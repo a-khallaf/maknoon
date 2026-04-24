@@ -44,10 +44,10 @@ func ReceiveCmd() *cobra.Command {
 			}
 
 			// Validate URLs if in Agent Mode
-			if err := GlobalContext.Engine.ValidateWormholeURL(recvRendezvousURL); err != nil {
+			if err := GlobalContext.Engine.ValidateWormholeURL(nil, recvRendezvousURL); err != nil {
 				return err
 			}
-			if err := GlobalContext.Engine.ValidateWormholeURL(recvTransitRelay); err != nil {
+			if err := GlobalContext.Engine.ValidateWormholeURL(nil, recvTransitRelay); err != nil {
 				return err
 			}
 

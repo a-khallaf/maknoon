@@ -427,7 +427,7 @@ func vaultGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	// Get master passphrase from environment (Agent convention)
 	passphrase := []byte(os.Getenv("MAKNOON_PASSPHRASE"))
 
-	entry, err := engine.VaultGet("", service, passphrase, "")
+	entry, err := engine.VaultGet(nil, "", service, passphrase, "")
 	if err != nil {
 		return formatError(err, "vault_get")
 	}
@@ -452,10 +452,10 @@ func vaultSetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	entry := &crypto.VaultEntry{
 		Service:  service,
 		Username: username,
-		Password: []byte(password),
+		Password: password,
 	}
 
-	err := engine.VaultSet("", entry, passphrase, "")
+	err := engine.VaultSet(nil, "", entry, passphrase, "")
 	if err != nil {
 		return formatError(err, "vault_set")
 	}
@@ -504,7 +504,7 @@ func encryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	defer outF.Close()
 
 	// 3. Protect
-	flags, err := engine.Protect(input, nil, outF, opts)
+	flags, err := engine.Protect(nil, input, nil, outF, opts)
 	if err != nil {
 		return formatError(err, "encrypt_file")
 	}
@@ -555,14 +555,14 @@ func decryptHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		// However, returning raw bytes via MCP text is better than actual os.Stdout.
 		var buf bytes.Buffer
 		outW = &buf
-		_, err = engine.Unprotect(inF, outW, "", opts)
+		_, err = engine.Unprotect(nil, inF, outW, "", opts)
 		if err != nil {
 			return formatError(err, "decrypt_file")
 		}
 		return mcp.NewToolResultText(buf.String()), nil
 	}
 
-	_, err = engine.Unprotect(inF, nil, output, opts)
+	_, err = engine.Unprotect(nil, inF, nil, output, opts)
 	if err != nil {
 		return formatError(err, "decrypt_file")
 	}
@@ -574,7 +574,7 @@ func genPasswordHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	length := request.GetInt("length", 32)
 	noSymbols := request.GetBool("no_symbols", false)
 
-	p, err := engine.GeneratePassword(length, noSymbols)
+	p, err := engine.GeneratePassword(nil, length, noSymbols)
 	if err != nil {
 		return formatError(err, "gen_password")
 	}
@@ -586,7 +586,7 @@ func genPassphraseHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	words := request.GetInt("words", 4)
 	separator := request.GetString("separator", "-")
 
-	p, err := engine.GeneratePassphrase(words, separator)
+	p, err := engine.GeneratePassphrase(nil, words, separator)
 	if err != nil {
 		return formatError(err, "gen_passphrase")
 	}
@@ -668,7 +668,8 @@ func sendHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		TransitRelay:  transit,
 	}
 
-	code, _, err := engine.P2PSend(ctx, inputName, inputReader, opts)
+	ectx := crypto.NewEngineContext(ctx, nil, engine.GetPolicy())
+	code, _, err := engine.P2PSend(ectx, inputName, inputReader, opts)
 	if err != nil {
 		return formatError(err, "send_file")
 	}
@@ -731,7 +732,8 @@ func receiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		TransitRelay:  transit,
 	}
 
-	statusChan, err := engine.P2PReceive(ctx, code, opts)
+	ectx := crypto.NewEngineContext(ctx, nil, engine.GetPolicy())
+	statusChan, err := engine.P2PReceive(ectx, code, opts)
 	if err != nil {
 		return formatError(err, "receive_file")
 	}
@@ -768,7 +770,7 @@ func startChatHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 }
 
 func identityActiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	keys, err := engine.IdentityActive()
+	keys, err := engine.IdentityActive(nil)
 	if err != nil {
 		return formatError(err, "identity_active")
 	}
@@ -786,7 +788,7 @@ func identitySplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	shards, err := engine.IdentitySplit(name, threshold, shares, passphrase)
+	shards, err := engine.IdentitySplit(nil, name, threshold, shares, passphrase)
 	if err != nil {
 		return formatError(err, "identity_split")
 	}
@@ -801,7 +803,7 @@ func identitySplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 func vaultListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	vault := request.GetString("vault", "default")
-	services, err := engine.VaultList("")
+	services, err := engine.VaultList(nil, "")
 	if err != nil {
 		return formatError(err, "vault_list")
 	}
@@ -819,7 +821,7 @@ func vaultSplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	shards, err := engine.VaultSplit("", threshold, shares, passphrase)
+	shards, err := engine.VaultSplit(nil, "", threshold, shares, passphrase)
 	if err != nil {
 		return formatError(err, "vault_split")
 	}
@@ -837,7 +839,7 @@ func vaultRecoverHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	output := request.GetString("output", "recovered")
 	passphrase := request.GetString("passphrase", "")
 
-	path, err := engine.VaultRecover(shards, "", output, passphrase)
+	path, err := engine.VaultRecover(nil, shards, "", output, passphrase)
 	if err != nil {
 		return formatError(err, "vault_recover")
 	}
@@ -851,7 +853,7 @@ func identityCombineHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	passphrase := request.GetString("passphrase", "")
 	noPassword := request.GetBool("no_password", false)
 
-	path, err := engine.IdentityCombine(shards, output, passphrase, noPassword)
+	path, err := engine.IdentityCombine(nil, shards, output, passphrase, noPassword)
 	if err != nil {
 		return formatError(err, "identity_combine")
 	}
@@ -883,7 +885,8 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 		DesecToken: desecToken,
 	}
 
-	err := engine.IdentityPublish(ctx, handle, opts)
+	ectx := crypto.NewEngineContext(ctx, nil, engine.GetPolicy())
+	err := engine.IdentityPublish(ectx, handle, opts)
 	if err != nil {
 		return formatError(err, "identity_publish")
 	}
@@ -893,7 +896,7 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 
 func identityInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("name", "")
-	path, err := engine.IdentityInfo(name)
+	path, err := engine.IdentityInfo(nil, name)
 	if err != nil {
 		return formatError(err, "identity_info")
 	}
@@ -910,7 +913,7 @@ func identityRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 	oldName := request.GetString("old", "")
 	newName := request.GetString("new", "")
 
-	err := engine.IdentityRename(oldName, newName)
+	err := engine.IdentityRename(nil, oldName, newName)
 	if err != nil {
 		return formatError(err, "identity_rename")
 	}
@@ -924,7 +927,7 @@ func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	sigPub := request.GetString("sig_pub", "")
 	note := request.GetString("note", "")
 
-	err := engine.ContactAdd(petname, kemPub, sigPub, note)
+	err := engine.ContactAdd(nil, petname, kemPub, sigPub, note)
 	if err != nil {
 		return formatError(err, "contact_add")
 	}
@@ -933,7 +936,7 @@ func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 }
 
 func contactListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	contacts, err := engine.ContactList()
+	contacts, err := engine.ContactList(nil)
 	if err != nil {
 		return formatError(err, "contact_list")
 	}
@@ -982,8 +985,8 @@ func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}
 
 	// 2. Generate and validate
-	dp := engine.GenerateRandomProfile(nextID)
-	if err := engine.ValidateProfile(dp); err != nil {
+	dp := engine.GenerateRandomProfile(nil, nextID)
+	if err := engine.ValidateProfile(nil, dp); err != nil {
 		return formatError(err, "profiles_gen")
 	}
 

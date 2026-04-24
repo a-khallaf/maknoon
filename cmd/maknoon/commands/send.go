@@ -139,10 +139,10 @@ func SendCmd() *cobra.Command {
 			}
 
 			// Validate URLs if in Agent Mode
-			if err := GlobalContext.Engine.ValidateWormholeURL(rendezvousURL); err != nil {
+			if err := GlobalContext.Engine.ValidateWormholeURL(nil, rendezvousURL); err != nil {
 				return err
 			}
-			if err := GlobalContext.Engine.ValidateWormholeURL(transitRelay); err != nil {
+			if err := GlobalContext.Engine.ValidateWormholeURL(nil, transitRelay); err != nil {
 				return err
 			}
 

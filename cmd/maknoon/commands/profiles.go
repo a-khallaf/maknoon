@@ -156,10 +156,10 @@ func profilesGenCmd() *cobra.Command {
 			}
 
 			// Generate random profile via engine
-			dp := GlobalContext.Engine.GenerateRandomProfile(nextID)
+			dp := GlobalContext.Engine.GenerateRandomProfile(nil, nextID)
 
 			// Static & Policy Validation via engine
-			if err := GlobalContext.Engine.ValidateProfile(dp); err != nil {
+			if err := GlobalContext.Engine.ValidateProfile(nil, dp); err != nil {
 				return fmt.Errorf("generated invalid profile: %w", err)
 			}
 
