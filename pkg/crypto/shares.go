@@ -20,7 +20,7 @@ type Share struct {
 
 const (
 	ShareVersion = 1
-	ChecksumSize = 4 // Use first 4 bytes of SHA-256
+	ChecksumSize = 16 // Use first 16 bytes of SHA-256
 )
 
 // GF(2^8) tables

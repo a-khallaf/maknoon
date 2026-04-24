@@ -1032,8 +1032,13 @@ func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	// 3. Save if policy allows
 	if !engine.GetPolicy().AllowConfigModification() {
 		// Return ephemeral JSON for the AI to use
-		raw, _ := json.Marshal(dp)
-		return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","ephemeral_profile":%s,"warning":"could not save to config (policy restriction)"}`, string(raw))), nil
+		res := map[string]interface{}{
+			"status":            "success",
+			"ephemeral_profile": dp,
+			"warning":           "could not save to config (policy restriction)",
+		}
+		raw, _ := json.Marshal(res)
+		return mcp.NewToolResultText(string(raw)), nil
 	}
 
 	if conf.Profiles == nil {
@@ -1044,5 +1049,11 @@ func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		return formatError(err, "profiles_gen")
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf(`{"status":"success","name":"%s","id":%d}`, name, nextID)), nil
+	res := map[string]interface{}{
+		"status": "success",
+		"name":   name,
+		"id":     nextID,
+	}
+	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
 }
