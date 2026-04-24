@@ -130,6 +130,18 @@ func DefaultProfile() Profile {
 	return p
 }
 
+func (e *Engine) LoadCustomProfile(ectx *EngineContext, path string) (*DynamicProfile, error) {
+	return LoadCustomProfile(path)
+}
+
+func (e *Engine) GenerateRandomProfile(ectx *EngineContext, id byte) *DynamicProfile {
+	return GenerateRandomProfile(id)
+}
+
+func (e *Engine) ValidateProfile(ectx *EngineContext, p *DynamicProfile) error {
+	return p.Validate()
+}
+
 // SafeClearString clears a string slice by setting each element to empty.
 func SafeClearString(s []string) {
 	for i := range s {

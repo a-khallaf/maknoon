@@ -404,6 +404,15 @@ func ExtractArchive(r io.Reader, outputDir string) error {
 	return nil
 }
 
+func (e *Engine) FinalizeRestoration(ectx *EngineContext, pr io.Reader, w io.Writer, flags byte, outPath string, logger *slog.Logger) error {
+	return FinalizeRestoration(pr, w, flags, outPath, logger)
+}
+
+func (e *Engine) ValidateWormholeURL(ectx *EngineContext, u string) error {
+	ectx = e.context(ectx)
+	return ectx.Policy.ValidateWormholeURL(u, e.Config.AgentLimits.AllowedURLs)
+}
+
 func Sha256Sum(data []byte) []byte {
 	h := sha256.New()
 	h.Write(data)

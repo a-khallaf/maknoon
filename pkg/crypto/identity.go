@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/awnumar/memguard"
 )
 
 const (
@@ -536,14 +534,92 @@ func EnsureMaknoonDirs() error {
 	return nil
 }
 
+func (e *Engine) IdentityActive(ectx *EngineContext) ([]string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return nil, err
+	}
+	return e.Identities.ListActiveIdentities()
+}
+
+func (e *Engine) IdentityInfo(ectx *EngineContext, name string) (string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return "", err
+	}
+	return e.Identities.GetIdentityInfo(name)
+}
+
+func (e *Engine) IdentityRename(ectx *EngineContext, oldName, newName string) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return err
+	}
+	return e.Identities.RenameIdentity(oldName, newName)
+}
+
+func (e *Engine) IdentitySplit(ectx *EngineContext, name string, threshold, shares int, passphrase string) ([]string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return nil, err
+	}
+	return e.Identities.SplitIdentity(name, threshold, shares, passphrase)
+}
+
+func (e *Engine) IdentityCombine(ectx *EngineContext, mnemonics []string, output, passphrase string, noPassword bool) (string, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return "", err
+	}
+	return e.Identities.CombineIdentity(mnemonics, output, passphrase, noPassword)
+}
+
+func (e *Engine) IdentityPublish(ectx *EngineContext, handle string, opts IdentityPublishOptions) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return err
+	}
+	return e.Identities.IdentityPublish(ectx.Context, handle, opts)
+}
+
+func (e *Engine) ContactAdd(ectx *EngineContext, petname, kemPub, sigPub, note string) error {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return err
+	}
+	cm, err := NewContactManager()
+	if err != nil {
+		return err
+	}
+	defer cm.Close()
+
+	kp, _ := hex.DecodeString(kemPub)
+	sp, _ := hex.DecodeString(sigPub)
+
+	return cm.Add(&Contact{
+		Petname:   petname,
+		KEMPubKey: kp,
+		SIGPubKey: sp,
+		Notes:     note,
+		AddedAt:   time.Now(),
+	})
+}
+
+func (e *Engine) ContactList(ectx *EngineContext) ([]*Contact, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapIdentity); err != nil {
+		return nil, err
+	}
+	cm, err := NewContactManager()
+	if err != nil {
+		return nil, err
+	}
+	defer cm.Close()
+	return cm.List()
+}
+
 func (id *Identity) Wipe() {
 	SafeClear(id.KEMPriv)
 	SafeClear(id.SIGPriv)
 	SafeClear(id.NostrPriv)
-}
-
-func SafeClear(b []byte) {
-	if b != nil {
-		memguard.WipeBytes(b)
-	}
 }

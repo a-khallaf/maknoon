@@ -13,14 +13,6 @@ import (
 	"github.com/awnumar/memguard"
 )
 
-// bufferPool reuses buffers to reduce GC pressure.
-var bufferPool = sync.Pool{
-	New: func() interface{} {
-		b := make([]byte, ChunkSize+32)
-		return &b
-	},
-}
-
 // EncryptStream symmetrically encrypts data from r to w using a passphrase and specified profile.
 func EncryptStream(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte) error {
 	ectx := &EngineContext{

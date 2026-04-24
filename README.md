@@ -213,6 +213,7 @@ Maknoon is built as a highly-modular Go SDK. Integrations like the CLI and MCP s
 - **Active Security Guardrails**: TTY detection prevents accidental secret leakage (passwords/passphrases) when CLI output is redirected to files or pipes.
 - **Robust Integrity Checks**: Shamir's Secret Sharing (SSS) shards use 128-bit SHA-256 checksums to guarantee reconstruction integrity.
 - **CodeQL Hardened**: All critical and high-severity security alerts have been remediated and verified.
+- **Architectural Integrity**: Fully consolidated library-first SDK with unified context and service interfaces.
 
 ---
 

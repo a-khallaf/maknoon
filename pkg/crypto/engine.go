@@ -2,11 +2,10 @@ package crypto
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
-	"time"
+	"sync"
 )
 
 // EngineEvent is the base interface for all telemetry events.
@@ -182,107 +181,20 @@ func (e *Engine) GeneratePassphrase(ectx *EngineContext, words int, separator st
 	return GeneratePassphrase(words, separator)
 }
 
-func (e *Engine) IdentityActive(ectx *EngineContext) ([]string, error) {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return nil, err
+// bufferPool reduces GC pressure during streaming.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, ChunkSize+256) // Extra padding for AEAD tags
+		return &b
+	},
+}
+
+// SafeClear securely wipes sensitive bytes.
+func SafeClear(b []byte) {
+	if b == nil {
+		return
 	}
-	return e.Identities.ListActiveIdentities()
-}
-
-func (e *Engine) IdentityInfo(ectx *EngineContext, name string) (string, error) {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return "", err
+	for i := range b {
+		b[i] = 0
 	}
-	return e.Identities.GetIdentityInfo(name)
-}
-
-func (e *Engine) IdentityRename(ectx *EngineContext, oldName, newName string) error {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return err
-	}
-	return e.Identities.RenameIdentity(oldName, newName)
-}
-
-func (e *Engine) IdentitySplit(ectx *EngineContext, name string, threshold, shares int, passphrase string) ([]string, error) {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return nil, err
-	}
-	return e.Identities.SplitIdentity(name, threshold, shares, passphrase)
-}
-
-func (e *Engine) IdentityCombine(ectx *EngineContext, mnemonics []string, output string, passphrase string, noPassword bool) (string, error) {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return "", err
-	}
-	return e.Identities.CombineIdentity(mnemonics, output, passphrase, noPassword)
-}
-
-func (e *Engine) IdentityPublish(ectx *EngineContext, handle string, opts IdentityPublishOptions) error {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return err
-	}
-	return e.Identities.IdentityPublish(ectx.Context, handle, opts)
-}
-
-func (e *Engine) ContactAdd(ectx *EngineContext, petname, kemPub, sigPub, note string) error {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return err
-	}
-	cm, err := NewContactManager()
-	if err != nil {
-		return err
-	}
-	defer cm.Close()
-
-	kp, _ := hex.DecodeString(kemPub)
-	sp, _ := hex.DecodeString(sigPub)
-
-	return cm.Add(&Contact{
-		Petname:   petname,
-		KEMPubKey: kp,
-		SIGPubKey: sp,
-		Notes:     note,
-		AddedAt:   time.Now(),
-	})
-}
-
-func (e *Engine) ContactList(ectx *EngineContext) ([]*Contact, error) {
-	ectx = e.context(ectx)
-	if err := e.enforce(ectx, CapIdentity); err != nil {
-		return nil, err
-	}
-	cm, err := NewContactManager()
-	if err != nil {
-		return nil, err
-	}
-	defer cm.Close()
-	return cm.List()
-}
-
-func (e *Engine) FinalizeRestoration(ectx *EngineContext, pr io.Reader, w io.Writer, flags byte, outPath string, logger *slog.Logger) error {
-	return FinalizeRestoration(pr, w, flags, outPath, logger)
-}
-
-func (e *Engine) LoadCustomProfile(ectx *EngineContext, path string) (*DynamicProfile, error) {
-	return LoadCustomProfile(path)
-}
-
-func (e *Engine) GenerateRandomProfile(ectx *EngineContext, id byte) *DynamicProfile {
-	return GenerateRandomProfile(id)
-}
-
-func (e *Engine) ValidateProfile(ectx *EngineContext, p *DynamicProfile) error {
-	return p.Validate()
-}
-
-func (e *Engine) ValidateWormholeURL(ectx *EngineContext, u string) error {
-	ectx = e.context(ectx)
-	return ectx.Policy.ValidateWormholeURL(u, e.Config.AgentLimits.AllowedURLs)
 }
