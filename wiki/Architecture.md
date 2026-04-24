@@ -1,38 +1,67 @@
-# Maknoon Architecture
+# Architectural Specification
+> **Streaming-First Post-Quantum Cryptographic Engine**
 
-Maknoon is built around a centralized, high-performance streaming engine designed for constant memory usage and massive scalability.
+## Executive Summary
+Maknoon is architected as a high-performance, constant-memory cryptographic engine designed to mitigate both classical and quantum computational risks. The system utilizes a modular streaming pipeline that decouples I/O operations from cryptographic transformations, ensuring linear scalability and predictable resource utilization across diverse hardware environments.
 
-## 🏗 Core Pipeline
-The tool utilizes a **64KB Chunk Streaming** model. Whether you are encrypting a 10KB text file or a 100GB database, Maknoon maintains a stable memory footprint of approximately 64KB per parallel worker.
+---
 
-### The Sequencer Model
-1.  **Reader**: Reads the input stream in 64KB blocks.
-2.  **Worker Pool**: Encrypts/Decrypts chunks in parallel across all available CPU cores.
-3.  **Sequencer**: Reassembles the processed chunks in the correct order to ensure file integrity.
+## Core Streaming Pipeline
+The architecture centers on a **Parallel Sequencer Model** that processes data in discrete segments, allowing for high-throughput operations without the memory overhead associated with traditional buffer-and-process models.
 
-## 🛡 Hybrid KEM Integration (V3)
-In version 3, Maknoon solidified the **Hybrid Key Encapsulation Mechanism** via HPKE (RFC 9180) and introduced **Stealth Mode**.
-*   **Encapsulation**: The File Encryption Key (FEK) is wrapped using a composite of ML-KEM-768 (lattice-based) and X25519 (elliptic curve).
-*   **Context Binding**: Every encryption is mathematically bound to the file's `ProfileID` and `Header Flags` via the HPKE `info` parameter. This prevents "Recipient Transplantation" attacks.
+| Component | Technical Function |
+| :--- | :--- |
+| **I/O Reader** | Ingests data in 64KB atomic blocks to maintain $O(1)$ memory complexity. |
+| **Worker Pool** | Executes cryptographic transformations in parallel across available CPU cores. |
+| **Sequencer** | Reassembles processed segments in deterministic order, ensuring strict file integrity. |
+| **Transformer Middleware** | Modular layer for on-the-fly archival (TAR), compression, and encryption. |
 
-## 📦 Directory Streaming
-When a directory is provided as input, Maknoon streams it through an internal **TAR encoder** on-the-fly. This allows for seamless encryption of entire file structures into a single `.makn` file without creating temporary archives on disk.
+---
 
-## 🛡 Global Identity & Recovery (v1.5)
-The architecture includes a decentralized discovery and recovery layer:
-*   **dPKI Bridge**: An abstract registry interface that maps human-readable handles (`@name`) to PQC public keys. It enforces local **Petname** overrides for zero-server trust.
-*   **Self-Signed Records**: All identity records are signed using **ML-DSA-87**, providing cryptographic proof of ownership that persists even on untrusted discovery layers.
-*   **Nostr Discovery**: Maknoon leverages the global **Nostr** relay network as its primary decentralized discovery layer. Because PQC keys are large (~5KB), Nostr's metadata events (Kind 0) provide a much more robust transport than traditional DHTs.
-## 📜 The Maknoon Philosophy (Modern Unix)
+## Cryptographic Design
+Maknoon implements a hybrid cryptographic stack that combines NIST-standardized lattice-based algorithms with battle-tested elliptic curve cryptography.
 
-Maknoon is designed as a **Modern Unix Utility**. We apply the Unix philosophy where it enhances security and efficiency, but we consciously deviate where modern requirements (like PQC and AI Agents) demand more structure.
+### Hybrid Key Encapsulation (HPKE)
+The system utilizes **HPKE (RFC 9180)** to wrap File Encryption Keys (FEKs). This implementation employs a composite KEM:
+*   **Lattice Component**: ML-KEM-1024 (Kyber) providing quantum resistance.
+*   **Elliptic Curve Component**: X25519 for classical security and performance.
 
-### 1. Unix Alignment
-*   **The Rule of Composition**: Almost every core function in `pkg/crypto` takes an `io.Reader` and `io.Writer`. Maknoon can stream a 100GB file through a 64KB RAM window.
-*   **The Rule of Separability**: Core cryptographic logic is strictly isolated in `pkg/crypto`, while CLI policy is managed in `cmd/maknoon`.
-*   **The Rule of Representation**: Knowledge is folded into data. CLI capabilities are described via `maknoon schema`, and file metadata is bound into headers.
+### Context-Aware Security
+All cryptographic operations are bound to the file's metadata via the HPKE `info` parameter. This binding includes `ProfileID` and `Header Flags`, effectively mitigating "Recipient Transplantation" and metadata-tampering attacks.
 
-### 2. Modern Deviations
-*   **Structured Output (JSON)**: While classic Unix favors raw text, Maknoon treats **JSON** as the "universal text" for AI Agents and automated pipelines.
-*   **Post-Quantum Payload Scale**: PQC keys and signatures are physically large (~5KB). We deviate from "small is beautiful" to ensure nation-state level security.
-*   **Decentralized Discovery**: We break the "hermetic filter" model of Unix by integrating **Nostr** for global, serverless identity discovery, acknowledging that modern identity is global, not local.
+> **Security Compliance:** The engine enforces strict memory hygiene. All sensitive buffers are zeroed out using `SafeClear` patterns immediately after use to prevent leakage via memory-scraping or swap-file persistence.
+
+---
+
+## Directory and Stream Processing
+Maknoon processes directory structures as continuous streams rather than discrete file operations.
+
+*   **Internal TAR Encoding**: Directory trees are converted to a TAR stream on-the-fly within the pipeline.
+*   **Zero-Disk Footprint**: Archival and encryption occur in a single pass, eliminating the need for temporary storage or intermediate archive files.
+*   **Indistinguishability**: In "Stealth Mode," header magic bytes are omitted, rendering the output cryptographically indistinguishable from high-entropy random noise.
+
+---
+
+## Identity and Discovery
+The architecture supports a decentralized identity layer designed for serverless environments.
+
+| Feature | Specification |
+| :--- | :--- |
+| **Identity Registry** | Abstract interface supporting local petnames and decentralized discovery. |
+| **Signature Scheme** | ML-DSA-87 (Dilithium) for all self-signed identity records. |
+| **Nostr Integration** | Utilizes the global Nostr relay network for public key discovery and transport. |
+| **Bridge Design** | Pluggable registry factory allowing integration with LDAP, DNS, or private keybases. |
+
+---
+
+## Technical Philosophy
+Maknoon adheres to a "Modern Unix" philosophy, balancing traditional modularity with contemporary requirements for automation and quantum security.
+
+### 1. Atomic Composition
+Every core function within `pkg/crypto` is designed to accept `io.Reader` and `io.Writer` interfaces. This ensures that the engine can be integrated into larger pipelines while maintaining a 64KB RAM window for files of any scale.
+
+### 2. Structured Orchestration
+While maintaining CLI utility, Maknoon prioritizes **JSON-based observability**. The `maknoon schema` command provides machine-readable capability descriptions, enabling seamless integration with AI agents and CI/CD pipelines.
+
+### 3. Scalable Security
+Acknowledging the increased size of PQC payloads (~5KB for keys and signatures), the architecture prioritizes cryptographic robustness over minimal byte-count, ensuring long-term viability against advancing computational threats.

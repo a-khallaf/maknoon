@@ -1,35 +1,35 @@
-# AI Agent Integration
+# AI Agent and Automation Integration
+> **Standardized Cryptographic Interface for Autonomous Systems**
 
-Maknoon is a first-class citizen for AI agents and LLM-based assistants. It follows the **Model Context Protocol (MCP)** and provides native automated discovery and toolkits for agentic workflows.
+## Executive Summary
+Maknoon is designed for seamless integration with autonomous systems, Large Language Models (LLMs), and AI agents. By implementing the **Model Context Protocol (MCP)** and providing a self-describing command schema, Maknoon enables agents to perform complex cryptographic operations within a governed, machine-readable environment.
 
-## 🤖 Agent Handshake
-Maknoon automatically switches to JSON mode if:
-1.  The `MAKNOON_AGENT_MODE=1` environment variable is set.
-2.  The output is not a TTY (piped or redirected).
+---
 
-This allows agents to use Maknoon without being configured with the `--json` flag explicitly.
-
-## 🔌 MCP Server
-Maknoon includes a native Go-based MCP server in `integrations/mcp`. 
+## Model Context Protocol (MCP) Integration
+Maknoon includes a native MCP server that exposes the engine's capabilities as structured tools. This allows AI assistants (e.g., Claude, Cursor) to interact with the cryptographic layer without manual command construction.
 
 ### Available Tools
-*   `inspect_file`: Returns JSON metadata about an encrypted file.
-*   `encrypt_file` / `decrypt_file`: Direct file-to-file or file-to-stdout protection.
-*   `gen_password` / `gen_passphrase`: Generates high-entropy secrets for the agent to use.
-*   `vault_get` / `vault_set`: Manage credentials in the secure bbolt-backed vault.
-*   `identity_active`: Automatically lists public keys found on the system.
-*   `identity_publish`: Anchors the agent's identity to a global handle (Nostr/DNS).
 
-### Configuration for Claude Desktop
-Add the following to your `claude_desktop_config.json`:
+| Tool | Capability |
+| :--- | :--- |
+| `inspect_file` | Analyzes header metadata, profile versions, and signature validity. |
+| `encrypt_file` | Performs hybrid PQC encryption on local filesystem resources. |
+| `decrypt_file` | Restores encrypted assets using managed private identities. |
+| `vault_get` / `set` | Secure storage and retrieval of credentials via the authenticated engine. |
+| `identity_active` | Enumerates available public keys and cryptographic profiles. |
+| `identity_publish` | Provisions and announces identity records to decentralized registries. |
+
+### Configuration Example (Claude Desktop)
+To register the Maknoon MCP server, update the `mcpServers` configuration block:
+
 ```json
 {
   "mcpServers": {
     "maknoon": {
-      "command": "go",
-      "args": ["run", "/path/to/maknoon/integrations/mcp/main.go"],
+      "command": "maknoon",
+      "args": ["mcp", "serve"],
       "env": {
-        "MAKNOON_BINARY": "/path/to/maknoon/maknoon",
         "MAKNOON_AGENT_MODE": "1"
       }
     }
@@ -37,18 +37,48 @@ Add the following to your `claude_desktop_config.json`:
 }
 ```
 
-## 🏗 Self-Describing CLI (Schema)
-The most powerful tool for agents is the `maknoon schema` command. It outputs a recursive JSON-Schema of every available command, flag, and argument.
+---
 
-### Usage
+## Automated Agent Handshake
+Maknoon implements an automated detection mechanism to transition into machine-readable (JSON) output modes, ensuring compatibility with automated pipelines.
+
+The engine activates **Agent Mode** under the following conditions:
+1.  **Environment Variable**: `MAKNOON_AGENT_MODE=1` is present.
+2.  **I/O Redirection**: The output stream is piped or redirected (Non-TTY detection).
+3.  **Explicit Flag**: The `--json` parameter is provided in the command string.
+
+---
+
+## Schema-Based Discovery
+To facilitate autonomous discovery, Maknoon provides a comprehensive JSON-Schema of its entire command hierarchy.
+
 ```bash
+# Generate machine-readable command specification
 maknoon schema
 ```
-Agents should run this command when first interacting with Maknoon to build an internal map of supported flags (e.g., `--nostr`, `--stealth`, `--compress`) without requiring a manual README lookup.
 
-## 🛠 Automation Variables
-*   `MAKNOON_AGENT_MODE`: Set to `1` to enable the Agent Handshake.
-*   `MAKNOON_PASSPHRASE`: Non-interactive master key for vault/identity operations.
-*   `MAKNOON_PASSWORD`: Non-interactive secret for `vault set` or password generation.
-*   `MAKNOON_PRIVATE_KEY`: Default path to the agent's private identity.
-*   `MAKNOON_PUBLIC_KEY`: Default path for encryption recipients.
+> **Integration Note:** Autonomous agents are encouraged to execute `maknoon schema` during initialization. This allows the agent to dynamically map available flags (e.g., `--stealth`, `--nostr`, `--profile`) to its internal tool definitions without external documentation dependencies.
+
+---
+
+## Environment Configuration
+The following variables govern the behavior of Maknoon in automated and non-interactive environments.
+
+| Variable | Description |
+| :--- | :--- |
+| `MAKNOON_AGENT_MODE` | Activates structured JSON output and non-interactive prompts. |
+| `MAKNOON_PASSPHRASE` | Supplies the master key for vault and identity unlocking. |
+| `MAKNOON_PASSWORD` | Sets the default secret for credential management operations. |
+| `MAKNOON_PRIVATE_KEY` | Specifies the path to the primary private identity file. |
+| `MAKNOON_PUBLIC_KEY` | Sets the default recipient path for encryption tasks. |
+
+---
+
+## Security and Governance
+When operating in Agent Mode, Maknoon enforces a strict security sandbox to prevent unauthorized resource access or policy modification.
+
+*   **Restricted Filesystem**: Agents are limited to specific permitted directories (e.g., project root, system temp).
+*   **Immutable Configuration**: Global security policies and identity registries cannot be modified via agent-initiated commands.
+*   **Resource Throttling**: Parallel worker counts and Argon2id complexity parameters are clamped to prevent resource exhaustion.
+
+> **Governance Notice:** Organizations should monitor MCP tool usage via the Maknoon audit decorator. All agent-initiated cryptographic operations are logged with structured metadata, ensuring full traceability of automated actions.

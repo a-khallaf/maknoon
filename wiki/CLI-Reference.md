@@ -1,121 +1,83 @@
-# CLI Reference
+# CLI Command Reference
+> **Technical Specification for the Maknoon Command-Line Interface**
 
-## Core Commands
+## Executive Summary
+The Maknoon CLI provides a unified interface for post-quantum cryptographic operations, identity management, and secure secret storage. Designed for both interactive use and automated integration, the interface supports structured JSON output and follows a deterministic command hierarchy.
 
-### `maknoon encrypt [file/dir]`
-Encrypts a single file or an entire directory.
--   `--compress`, `-c`: Enable Zstd compression.
--   `--public-key`, `-p`: Encrypt for specific Post-Quantum recipients.
--   `--sign-key`: Integrated digital signature.
--   `--stealth`: Omit magic header bytes.
--   `--trust-on-first-use`: Automatically save resolved public keys to local contacts.
+---
 
-### `maknoon decrypt [file]`
-Decrypts and restores data.
--   `--output`, `-o`: Specify target path (supports `-` for stdout).
--   `--overwrite`: Bypass safety check for existing files.
--   `--private-key`, `-k`: Path to your identity key.
+## Cryptographic Operations
+These commands manage the primary data protection pipeline, including hybrid encryption, digital signatures, and metadata analysis.
 
-### `maknoon send [file/dir]`
-Sends data via secure ephemeral P2P (Magic Wormhole style).
--   Generates a human-readable **Code** and a **Session Passphrase**.
--   Works across networks and NATs.
--   `--text`: Send raw text instead of a file (Zero-Disk).
--   `--public-key`, `-p`: Encrypt for a specific recipient (Asymmetric mode).
--   `--stealth`: Enable stealth mode for the transfer.
--   `--trust-on-first-use`: Automatically save resolved public keys to local contacts.
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `encrypt` | Protects files/directories using the streaming engine. | `--public-key`, `--sign-key`, `--stealth`, `--compress` |
+| `decrypt` | Restores encrypted assets using private identities. | `--private-key`, `--output`, `--overwrite` |
+| `info` | Provides deep technical metadata for encrypted files. | `--json` |
+| `sign` | Generates a standalone ML-DSA-87 signature. | `--identity`, `--output` |
+| `verify` | Validates data integrity and provenance. | `--public-key`, `--signature` |
 
-### `maknoon receive [code]`
-Receives data from a peer using a wormhole code.
--   Prompts for the **Session Passphrase** provided by the sender.
--   `--output`, `-o`: Specify where to save the data (use `-` for raw output).
--   `--private-key`, `-k`: Required for identity-based transfers.
-
-### `maknoon chat [code]`
-Opens a secure, real-time Ghost Chat session.
--   If no code is provided, you act as the host.
--   Supports TUI for human users.
--   Supports JSONL for AI agents.
-
-### `maknoon info [file]`
-Displays deep cryptographic metadata.
--   Outputs: Profile ID, Type (Symmetric/Asymmetric), KEM, SIG, and KDF details.
--   Use `--json` for automated parsing.
+---
 
 ## Identity Management
+Maknoon utilizes a decentralized identity model based on NIST-standardized PQC algorithms.
 
-### `maknoon keygen`
-Generates a NIST-standard Post-Quantum identity.
--   Creates `.kem` and `.sig` key pairs.
--   Keys are protected by Argon2id.
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `keygen` | Provisions a new hybrid PQC identity pair. | `--profile`, `--output` |
+| `identity list` | Enumerates locally managed cryptographic identities. | `--json` |
+| `identity publish` | Announces public keys to decentralized registries. | `--nostr`, `--dns`, `--desec` |
+| `identity split` | Shards a private identity via Shamir's Secret Sharing. | `--threshold`, `--shares` |
+| `identity combine` | Reconstructs a private identity from M-of-N mnemonics. | `--output` |
 
-### `maknoon identity active`
-Lists all public keys available on the system. Optimized for AI agent discovery.
+---
 
-### `maknoon identity publish [handle]`
-Anchors your active identity to a global registry for trustless discovery.
--   Defaults to **Nostr** relays.
--   `--nostr`: Explicitly publish to Nostr (Kind 0).
--   `--dns`: Generate a DNS TXT record.
--   `--desec`: Automatically publish to deSEC.io.
--   `--local`: Register only in the local database.
+## Secret Vault Operations
+The vault provides an authenticated, quantum-resistant storage layer for credentials and sensitive configuration data.
 
-### `maknoon identity split [name]`
-Shards a private identity using Shamir's Secret Sharing.
--   `-m`, `--threshold`: Minimum shares required (default: 2).
--   `-n`, `--shares`: Total shares to generate (default: 3).
--   `-s`, `--passphrase`: Passphrase to unlock the identity.
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `vault set` | Stores a credential with optional username association. | `--user`, `--vault` |
+| `vault get` | Retrieves a managed secret from the storage layer. | `--vault` |
+| `vault list` | Displays services stored within the active vault. | `--json` |
+| `vault split` | Shards the master vault access material. | `--threshold`, `--shares` |
+| `vault recover` | Restores vault access using reconstructed material. | `--output` |
 
-### `maknoon identity combine [mnemonics...]`
-Reconstructs a private identity from mnemonic shards.
--   `-o`, `--output`: Name for the restored identity.
--   `-s`, `--passphrase`: Passphrase to protect the restored identity.
+---
 
-## Secret Management (Vault)
+## Communication and P2P
+Secure transport commands facilitate ephemeral data exchange and real-time communication across disparate networks.
 
-### `maknoon vault set [service]`
-Securely stores a secret.
--   `--user`: Associate a username with the secret.
--   `--vault`: Specify a named vault database.
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `send` | Initiates a secure ephemeral P2P file transfer. | `--text`, `--public-key`, `--stealth` |
+| `receive` | Ingests data from a remote peer via wormhole code. | `--output`, `--private-key` |
+| `chat` | Establishes a real-time, end-to-end encrypted session. | `--jsonl` (for agents) |
 
-### `maknoon vault get [service]`
-Retrieves a secret.
-
-### `maknoon vault list`
-Lists all stored services.
-
-### `maknoon vault split`
-Shards the vault's master access key.
--   `-m`, `--threshold`: Minimum shares required.
--   `-n`, `--shares`: Total shares to generate.
-
-### `maknoon vault recover [shards...]`
-Recovers vault contents using reconstructed access material.
--   `-o`, `--output`: Path to save recovered entries as a new vault.
+---
 
 ## System Utilities
+Administrative commands for system configuration, capability discovery, and cryptographic profiling.
 
-### `maknoon config [subcommand]`
-Manages global Maknoon settings (relays, security, performance).
--   `list`: View active settings.
--   `set [key] [value]`: Update a specific setting.
-    -   `default_identity`: Default identity name.
-    -   `security.time`: Argon2id iterations.
-    -   `security.memory`: Argon2id memory (KB).
-    -   `security.threads`: Argon2id threads.
-    -   `perf.concurrency`: Default parallel workers.
-    -   `perf.stealth`: Default stealth mode.
-    -   `nostr.relays`: Comma-separated Nostr relays.
-    -   `nostr.metadata`: Toggle "Maknoon Enabled" note.
-    -   `paths.keys`: Custom keys directory.
-    -   `paths.vaults`: Custom vaults directory.
--   `init`: Initialize default config file.
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `config` | Manages global security and performance settings. | `list`, `set`, `init` |
+| `profiles` | Manages cryptographic parameter sets (ciphers, KDF). | `list`, `gen`, `rm` |
+| `schema` | Generates a recursive JSON-Schema of the CLI. | `(No parameters)` |
+| `man` | Generates technical manual pages (roff/man format). | `(No parameters)` |
 
-### `maknoon profiles [subcommand]`
-Manages custom cryptographic profiles (cipher, KDF, salt parameters).
--   `list`: View built-in and custom profiles with detailed parameters.
--   `gen [name]`: Generates a random, validated, and smoke-tested profile and saves it to the global config.
--   `rm [name]`: Removes a custom profile from the configuration.
+---
 
-### `maknoon schema`
-Outputs a recursive JSON-Schema of every command and flag. Designed for autonomous AI agents to dynamically discover Maknoon's capabilities.
+## Configuration Management
+Maknoon behavior is governed by a centralized configuration that dictates resource allocation and security parameters.
+
+> **Performance Optimization:** Users can configure `perf.concurrency` to align with host CPU resources. The default streaming chunk size is fixed at 64KB to ensure stable memory profiles.
+
+### Security Parameters (Argon2id)
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `security.time` | `3` | Number of KDF iterations. |
+| `security.memory` | `64MB` | Memory allocation for the Argon2id process. |
+| `security.threads` | `4` | Parallelism factor for key derivation. |
+
+> **Compliance Notice:** Modifying security parameters may impact compatibility with existing encrypted assets. It is recommended to maintain standardized profiles across organizational deployments.

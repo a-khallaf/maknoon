@@ -1,234 +1,135 @@
-# Maknoon (مكنون) 🛡️
+# Maknoon (مكنون)
+> **Enterprise-Grade Post-Quantum Encryption and Identity Management**
 
 [![Release](https://img.shields.io/github/v/release/al-Zamakhshari/maknoon)](https://github.com/al-Zamakhshari/maknoon/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Go Report Card](https://goreportcard.com/badge/github.com/al-Zamakhshari/maknoon)](https://goreportcard.com/report/github.com/al-Zamakhshari/maknoon)
 
-**Maknoon** (Arabic: مكنون) translates to *the hidden*, *the concealed*, or *that which is carefully preserved*. 
-
-Maknoon is a high-performance, post-quantum CLI encryption tool. It combines modern cryptographic standards with a hyper-efficient streaming architecture to protect your data with absolute care.
-
-## ✨ Core Philosophies & Design Choices
-
-1.  **Post-Quantum Readiness (ML-KEM/ML-DSA):** Maknoon uses **NIST-standardized** Post-Quantum algorithms (Kyber1024 and Dilithium87) to ensure data remains secure against future quantum threats.
-2.  **Streaming Architecture (Hyper-Efficiency):** Using a **64KB chunk-based pipeline**, Maknoon maintains a **constant memory footprint** regardless of file size (MBs to TBs).
-3.  **Strict Memory Hygiene:** Passphrases, raw keys, and sensitive buffers are **explicitly zeroed out** from RAM immediately after use.
-4.  **Authenticated Encryption (XChaCha20-Poly1305):** Every chunk is independently authenticated, ensuring immediate detection of tampering.
-5.  **Multi-Recipient Support:** Encrypt a single file for multiple recipients. Any authorized private key can decrypt the payload.
-6.  **Modular Architecture:** A robust **Profile** system allows for seamless algorithm agility and custom security suites.
+## Executive Summary
+Maknoon is a high-performance cryptographic engine and Model Context Protocol (MCP) server designed to secure data against classical and quantum computational threats. By implementing NIST-standardized Post-Quantum Cryptography (PQC) within a constant-memory streaming architecture, Maknoon provides a scalable solution for securing sensitive assets in both automated pipelines and interactive environments.
 
 ---
 
-## 🚀 Getting Started
+## Capabilities
 
-### Installation
+| Feature | Technical Specification |
+| :--- | :--- |
+| **Asymmetric Encryption** | Hybrid HPKE (RFC 9180) utilizing ML-KEM-1024 (Kyber) and X25519. |
+| **Digital Signatures** | ML-DSA-87 (Dilithium) for high-integrity provenance. |
+| **Symmetric Cipher** | XChaCha20-Poly1305 AEAD with 192-bit nonces. |
+| **Key Derivation** | Argon2id with configurable time, memory, and parallelism parameters. |
+| **Streaming Engine** | 64KB chunked pipeline ensuring $O(1)$ memory complexity. |
+| **Secret Sharing** | M-of-N Shamir’s Secret Sharing over $GF(2^8)$ for identity recovery. |
+| **Stealth Mode** | Removal of header magic bytes for cryptographic indistinguishability. |
 
-**Using Homebrew (macOS/Linux):**
+---
+
+## Installation
+
+### Homebrew (macOS/Linux)
 ```bash
 brew tap al-Zamakhshari/tap
 brew install maknoon
 ```
-**Gemini CLI Extension (for AI Agents):**
+
+### From Source
+```bash
+git clone https://github.com/al-Zamakhshari/maknoon
+cd maknoon
+go build -o maknoon ./cmd/maknoon
+```
+
+### AI Agent Extension
 ```bash
 gemini-cli extension install https://github.com/al-Zamakhshari/maknoon --path extensions/maknoon-extension
 ```
 
-**MCP Server (Model Context Protocol):**
-Maknoon includes a native Go-based MCP server for integration with Claude Desktop, IDE extensions, and other AI tools.
-```bash
-go run ./integrations/mcp
-```
+---
 
-**From Source:**
-### 1. Identity & Key Management
-```bash
-# Generate a Post-Quantum identity
-maknoon keygen -o my_id
+## Core Usage
 
-# List your identities
+### 1. Identity Management
+Generate and manage PQC identities. Maknoon supports multiple security profiles (e.g., `v3` for standard hybrid lattice, `conservative` for non-lattice fallbacks).
+```bash
+# Generate a new PQC identity
+maknoon keygen -o primary_id --profile v3
+
+# List local identities
 maknoon identity list
-
-# Show identity details (Hardware binding, etc.)
-maknoon identity show my_id
-
-# Rename an identity
-maknoon identity rename my_id work_id
 ```
 
-### 2. Encryption & Inspection
+### 2. Encryption and Decryption
+Encryption supports multiple recipients. The engine orchestrates archival and compression middleware before applying the cryptographic layer.
 ```bash
-# Encrypt for a single recipient
-maknoon encrypt secret.pdf -p work_id.kem.pub
+# Encrypt for multiple recipients
+maknoon encrypt document.pdf -p recipient_a.pub -p recipient_b.pub
 
-# Encrypt for multiple recipients (Team Mode)
-maknoon encrypt secret.pdf -p user1.pub -p user2.pub -p user3.pub
-
-# Inspect file metadata without decrypting
-maknoon info secret.pdf.makn
-
-# Securely delete original file after successful encryption
-maknoon encrypt secret.pdf -s "my-pass" --shred
-
-# Use Hyper-Conservative (Non-Lattice) profile for archive data
-maknoon keygen -o id_archive --profile conservative
-maknoon encrypt secret.pdf -p id_archive.kem.pub --profile conservative
+# Decrypt using a private identity
+maknoon decrypt document.pdf.makn -i primary_id -o document.pdf
 ```
 
-### 3. Fingerprint Resistance (Stealth Mode)
-Remove recognizable magic bytes from headers to provide deniability. The ciphertext becomes indistinguishable from random noise.
+### 3. Password and Secret Vault
+Manage credentials in a quantum-resistant vault, utilizing authenticated encryption for local storage.
 ```bash
-# Encrypt in stealth mode
-maknoon encrypt secret.pdf -s "my-pass" --stealth
+# Store a credential
+maknoon vault set database.prod --user admin
 
-# Decrypt in stealth mode (requires --stealth)
-maknoon decrypt secret.pdf.makn -o restored.pdf -s "my-pass" --stealth
-```
-
-### 4. Password Vault (Quantum-Resistant)
-```bash
-# Store a secret
-maknoon vault set github.com --user myname
-
-# Retrieve
-maknoon vault get github.com
-
-# Rename or Delete vaults
-maknoon vault rename default backup_vault
-maknoon vault delete old_vault
-```
-
-### 5. M-of-N Secret Sharing (Break Glass)
-Shard high-value secrets (identities or vault master keys) into $N$ mnemonic parts. Requires a threshold of $M$ parts to reconstruct.
-
-```bash
-# Shard an identity into 3 parts (2 required to restore)
-maknoon identity split my_id -m 2 -n 3
-
-# Restore an identity from mnemonic shards
-maknoon identity combine "word1 word2..." "wordA wordB..." -o restored_id
-
-# Shard vault access
-maknoon vault split -v default -m 2 -n 3
-
-# Recover vault contents using shards
-maknoon vault recover "word1..." "word2..." -v default
+# Retrieve a credential
+maknoon vault get database.prod
 ```
 
 ---
 
-### 🚀 Quick Start (P2P Transfer)
-No keys? No problem. Transfer files globally through NATs/Firewalls with Magic Wormhole transport and Maknoon security.
+## Enterprise Integrations
+
+### Model Context Protocol (MCP)
+Maknoon includes a native MCP server implementation, allowing AI agents (e.g., Claude, Cursor) to interact with the cryptographic engine within a governed security sandbox.
+
+| Tool | Functionality |
+| :--- | :--- |
+| `inspect_file` | Analyzes header metadata and signature validity without decryption. |
+| `encrypt_file` | Protects local files using specified PQC public keys. |
+| `vault_get` | Retrieves managed secrets via the engine's authenticated interface. |
+| `identity_active` | Queries the host's active cryptographic profiles and public keys. |
+
+### Audit and Compliance
+For organizational accountability, Maknoon supports pluggable audit decorators that record structured metadata for all cryptographic operations.
 
 ```bash
-# 1. Send an entire directory (auto-archived)
-maknoon send project-assets/
-
-# 2. Send a one-time secret snippet (Zero-Disk transport)
-maknoon send --text "API_KEY_12345"
-
-# 3. Identity-based "one-click" P2P (Asymmetric)
-maknoon send data.bin -p alice.pub
-# Alice just runs: maknoon receive <code>
-```
-
-### Ghost Chat (Zero-Trace P2P Messaging)
-Real-time, end-to-end encrypted messaging with no servers, no accounts, and zero logs. 
-
-```bash
-# Start a room
-maknoon chat
-
-# Join a room
-maknoon chat 4-giant-pigeon
-```
-
-### 🏛️ Enterprise Compliance & Auditing
-For organizations requiring strict accountability, Maknoon supports transparent audit logging. Using a **Pluggable Decorator** architecture, Maknoon can record structured JSON metadata for every encryption, decryption, and vault operation without compromising the core cryptographic pipeline.
-
-*   **Stealth-First:** Logging is **disabled by default**. 
-*   **Zero-Trace for Agents:** Audit logging is automatically bypassed in Agent/JSON mode to maintain sandbox integrity.
-*   **Structured Output:** Logs include timestamps, operation duration, identity hashes, and outcome (success or specific typed error).
-
-```bash
-# Enable audit logging
+# Enable structured JSON auditing
 maknoon config set audit.enabled true
-
-# View audit logs
-cat ~/.maknoon/audit.log
 ```
 
-### ⚙️ Universal Configuration
-Manage relays, default identities, and system paths via a machine-readable JSON config.
-
-```bash
-# Initialize defaults
-maknoon config init
-
-# List active settings
-maknoon config list
-
-# Customize Nostr relays
-maknoon config set nostr.relays "wss://my-relay.com,wss://nos.lol"
-
-# Harden Argon2id security
-maknoon config set security.memory 131072 # 128MB
-```
-
-## 🤖 Agentic AI Integration
-Maknoon is the first **Agent-Native** Post-Quantum tool, providing dynamic self-description and structured interfaces.
-
-### Self-Describing CLI (Schema)
-Agents can discover Maknoon's full capabilities dynamically using the `schema` command, which outputs a recursive JSON-Schema of every command and flag.
-
-```bash
-maknoon schema
-```
-
-### Agent Handshake
-If `MAKNOON_AGENT_MODE=1` is set, Maknoon automatically switches to JSON mode whenever its output is piped or redirected (not a TTY), allowing for seamless "zero-config" agent integration.
-
-```bash
-# Automated discovery and encryption
-export MAKNOON_AGENT_MODE=1
-maknoon identity active | jq .
-```
-
-### 🔌 MCP Server (Model Context Protocol)
-Maknoon includes a native Go-based MCP server for deep integration with **Claude Desktop**, IDE extensions (Cursor, VSCode), and other AI ecosystems.
-
-**Available Tools:**
-- `inspect_file`: Get deep cryptographic metadata (KEM/SIG/KDF details).
-- `encrypt_file` / `decrypt_file`: Direct file protection.
-- `gen_password` / `gen_passphrase`: High-entropy credential generation.
-- `vault_get` / `vault_set`: Secure secret management.
-- `identity_active`: Automated key discovery.
-
-### 🛠 Library-First SDK (v3.0)
-Maknoon is built as a highly-modular Go SDK. Integrations like the CLI and MCP server call the centralized `MaknoonEngine` interface directly.
-- **`EngineContext`**: Unified propagation of cancellation, security policies, and telemetry.
-- **Structured Error Typing**: Distinguish programmatically between authentication failures, policy violations, and IO errors.
-- **Capability-Based Security**: Operations strictly validate permissions (e.g., `CapVaultWrite`) before execution.
-- **Privacy-First Logging**: Audit logs automatically sanitize file paths to prevent PII leaks (e.g., masking user home directory names).
-- **Hardened Memory Hygiene**: Sensitive credentials in the Vault and MCP layers are stored in byte slices and deterministically zeroed out using `SafeClear` patterns immediately after use.
-- **Active Security Guardrails**: TTY detection prevents accidental secret leakage (passwords/passphrases) when CLI output is redirected to files or pipes.
-- **Robust Integrity Checks**: Shamir's Secret Sharing (SSS) shards use 128-bit SHA-256 checksums to guarantee reconstruction integrity.
-- **CodeQL Hardened**: All critical and high-severity security alerts have been remediated and verified.
-- **Architectural Integrity**: Fully consolidated library-first SDK with unified context and service interfaces.
+> **Security Compliance:** Audit logs are disabled by default. When enabled, the engine masks PII (e.g., home directory paths) in log outputs to ensure compliance with privacy regulations.
 
 ---
 
-## 🏗 Security Architecture
+## Architecture
 
-### Path & Overwrite Protection
-Safety checks prevent accidental file overwrites. Use the `--overwrite` flag to bypass.
+Maknoon implements the **Policy Provider** and **Decorator** patterns to decouple security logic from implementation.
 
-### Access Control
-In JSON/Agent mode, vault access is strictly restricted to the default directory (`~/.maknoon/vaults`) to prevent unauthorized file-system probes.
+```mermaid
+graph TD
+    A[CLI / MCP / API] --> B[Engine Core]
+    B --> C{Security Policy}
+    C -- Validated --> D[Transformer Pipeline]
+    subgraph Pipeline [Streaming Pipeline]
+        D --> E[TAR Archiver]
+        E --> F[Compression]
+        F --> G[PQC Encryption]
+    end
+    G --> H[I/O Sequencer]
+    H --> I[Encrypted Output]
+    B --> J[Event Stream/Telemetry]
+```
 
-### RAM Security
-All sensitive cryptographic material is stored in `[]byte` and zeroed out using `SafeClear` patterns immediately after its operational lifecycle.
+### Constant-Memory Streaming
+The architecture utilizes a **Sequencer Model** where input streams are divided into 64KB blocks. These blocks are processed in parallel by a worker pool and reassembled by the sequencer, maintaining a stable memory footprint regardless of file size.
+
+### Deterministic Memory Hygiene
+All sensitive cryptographic material, including File Encryption Keys (FEKs) and private key shards, are stored in specialized memory buffers. These buffers are explicitly zeroed out using `SafeClear` patterns immediately upon completion of the operation to mitigate memory-scraping risks.
 
 ---
 
-## 📜 License
+## License
 This project is licensed under the MIT License.

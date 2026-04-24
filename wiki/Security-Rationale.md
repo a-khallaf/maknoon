@@ -1,42 +1,73 @@
 # Security Rationale
+> **Defense-in-Depth for the Post-Quantum Era**
 
-Maknoon is engineered to be a "Zero-Trust" CLI tool, focusing on modern threats like quantum computing and memory-based forensics.
+## Executive Summary
+Maknoon is engineered as a zero-trust cryptographic utility designed to provide long-term data confidentiality and integrity. The system mitigates emerging threats from quantum computation and advanced memory forensics through a combination of hybrid cryptographic models, deterministic memory hygiene, and decentralized identity verification.
 
-## 1. Why Hybrid PQC?
-Pure lattice-based cryptography (like Kyber/ML-KEM) is quantum-resistant but relatively new. To mitigate the risk of hidden mathematical weaknesses, Maknoon implements a **Hybrid Model**:
-*   **X25519**: Provides a rock-solid classical foundation.
-*   **ML-KEM-768**: Provides NIST-standardized quantum resistance.
-*   **Outcome**: An attacker must break **BOTH** mathematical problems to compromise the data.
+---
 
-## 2. Hardware-Locked Memory Safety
-Go is a garbage-collected language, which often leaves sensitive keys in RAM for indeterminate periods. Maknoon addresses this via `memguard`:
-*   **RAM Pinning**: Uses the `mlock()` syscall to prevent secrets from being written to the OS swap file on disk.
-*   **Deterministic Zeroization**: Secrets are manually zeroed out in RAM as soon as their operation completes.
-*   **Guard Pages**: Protects against buffer overflow and unauthorized memory access.
+## Cryptographic Architecture
 
-## 3. Fingerprint Resistance (Stealth Mode)
-Standard encrypted files often contain "Magic Bytes" (e.g., `MAKN`) that identify the tool used. Maknoon's `--stealth` mode removes these identifiers, making the file indistinguishable from random data. This provides **deniability** and resistance against traffic analysis.
+### Hybrid Key Encapsulation (KEM)
+To safeguard against potential mathematical weaknesses in nascent lattice-based algorithms, Maknoon employs a **Hybrid Security Model**. This approach ensures that an adversary must compromise two distinct mathematical primitives to gain access to the underlying data.
 
-## 4. Cryptographic Primitives
-*   **AEAD**: XChaCha20-Poly1305 (192-bit extended nonces).
-*   **KDF**: Argon2id (Memory-hard key derivation).
-*   **Signatures**: ML-DSA-87 (Quantum-resistant authentication).
+| Component | Primitive | Security Basis |
+| :--- | :--- | :--- |
+| **Classical Layer** | X25519 (Curve25519) | Discrete Logarithm Problem (Elliptic Curve). |
+| **Quantum Layer** | ML-KEM-1024 (Kyber) | Module Learning With Errors (Lattice-Based). |
+| **Integration** | HPKE (RFC 9180) | Standardized hybrid encapsulation framework. |
 
-## 5. Threshold Security (SSS)
-Maknoon provides M-of-N secret sharding for identities and vaults using Shamir's Secret Sharing (SSS) over $GF(2^8)$.
+---
 
-### Implementation Details:
-*   **Mnemonic Encoding**: Shares are converted to BIP-39 style mnemonics for human-friendly "break-glass" scenarios.
-*   **Checksum Verification**: Each share includes a SHA-256 based checksum to detect accidental word transposition or corruption.
-*   **Panic-Free Reconstruction**: The reconstruction engine rigorously validates share uniqueness. Providing duplicate shares (e.g., the same mnemonic twice) returns a descriptive error rather than triggering a mathematical panic (division by zero), ensuring robust operation in automated environments.
+## Cryptographic Primitives
+Maknoon utilizes a selection of high-performance, audited primitives for symmetric encryption, authentication, and key derivation.
 
-## 6. File Lifecycle & Secure Deletion
-Encryption only protects the ciphertext. To protect the original plaintext, Maknoon provides an optional `--shred` flag during encryption.
+| Function | Algorithm | Specification |
+| :--- | :--- | :--- |
+| **Symmetric Cipher** | XChaCha20-Poly1305 | 256-bit key, 192-bit nonce, AEAD authenticated. |
+| **Digital Signatures** | ML-DSA-87 (Dilithium) | NIST-standardized quantum-resistant signatures. |
+| **Key Derivation** | Argon2id | Memory-hard, time-hard password hashing. |
+| **Hashing** | SHA-3 / BLAKE3 | High-performance, collision-resistant digests. |
 
-### The Shredding Reality
-On modern storage media, "Secure Deletion" is a best-effort operation:
-*   **SSD Wear Leveling**: SSD controllers remap writes to different physical cells to ensure even wear. Overwriting a file may not touch the original physical blocks.
-*   **Copy-on-Write (COW)**: Filesystems like APFS, ZFS, and Btrfs create new versions of files instead of overwriting in place.
-*   **TRIM/UNMAP**: While Maknoon overwrites data and calls `sync`, the actual physical erasure depends on the OS and hardware implementing TRIM commands.
+---
 
-**Recommendation**: Use `--shred` for immediate local hygiene, but rely on **Full Disk Encryption (FDE)** as your primary defense against physical forensics.
+## Memory Hygiene and Forensics
+The engine prioritizes "Safe-in-Memory" operation to prevent the leakage of sensitive keys via operating system swap files or memory-scraping attacks.
+
+> **Technical Safeguard:** Maknoon utilizes the `mlock()` system call to pin sensitive memory buffers, preventing them from being paged to disk. Upon completion of any cryptographic operation, these buffers are explicitly zeroed using deterministic patterns to ensure no residual data remains in RAM.
+
+*   **Guard Pages**: Implementation of unauthorized-access boundaries around sensitive memory allocations.
+*   **Safe-Clear Patterns**: Manual memory management for all File Encryption Keys (FEKs) and private key material.
+*   **Forensic Resistance**: Minimization of the tool's memory footprint to reduce the attack surface for RAM-based extraction.
+
+---
+
+## Threshold Security and Identity Recovery
+Maknoon implements **M-of-N Shamir’s Secret Sharing (SSS)** over $GF(2^8)$ to enable robust identity recovery without centralized escrow.
+
+### Recovery Implementation
+1.  **Mnemonic Encoding**: Shards are converted into BIP-39 style mnemonics for human-centric "break-glass" recovery.
+2.  **Deterministic Validation**: The reconstruction engine validates share uniqueness and integrity (via SHA-256 checksums) before attempting reconstruction.
+3.  **Fault Tolerance**: The system provides descriptive error reporting for duplicate or corrupted shards, preventing mathematical instabilities during recovery.
+
+---
+
+## Data Integrity and Shredding
+While Maknoon provides tools for secure data disposal, it adheres to a factual assessment of modern storage hardware limitations.
+
+| Mechanism | Capability | Limitation |
+| :--- | :--- | :--- |
+| **Bit-Level Overwrite** | Replaces file contents with high-entropy noise. | May be bypassed by SSD wear-leveling controllers. |
+| **Fsync Integration** | Forces physical I/O writes to the storage medium. | Does not guarantee physical block erasure on COW filesystems. |
+| **Header Stealth** | Removes magic bytes to ensure indistinguishability. | Does not hide file existence or size. |
+
+> **Operational Recommendation:** While the `--shred` flag provides an initial layer of local data hygiene, organizations should utilize **Full Disk Encryption (FDE)** as the primary defense against physical forensics and unauthorized hardware access.
+
+---
+
+## Security Compliance and Auditability
+Maknoon supports enterprise-level governance through its pluggable audit decorator architecture.
+
+*   **Structured Auditing**: Every cryptographic event can be logged as a structured JSON record containing non-sensitive metadata (e.g., algorithm used, timestamp, success/fail status).
+*   **Privacy-Preserving Logs**: The audit system automatically masks PII, such as home directory paths and specific filenames, to comply with privacy regulations like GDPR and CCPA.
+*   **Immutability**: Once an identity is published to a decentralized registry (e.g., Nostr), the record is signed with ML-DSA-87, providing immutable proof of ownership.

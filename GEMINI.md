@@ -60,6 +60,21 @@ All file system operations MUST be validated using the engine's policy. The sand
 ### 8. Memory Hygiene
 Use `crypto.SafeClear` (aliased to `memguard.WipeBytes`) immediately after sensitive data use. Deterministic wiping is mandatory for FEKs and private keys.
 
+## 📝 Documentation Standards
+
+All public-facing documentation (README, Wiki, etc.) must adhere to the following enterprise-grade standards:
+
+1. **Tone & Vocabulary:**
+   - Use objective, factual language (e.g., "64KB chunking" instead of "hyper-efficient").
+   - Maintain a precise, authoritative, and concise tone.
+   - Use active voice and avoid hyperbolic marketing terms.
+2. **Visual Formatting:**
+   - Use standard Markdown badges for status/release indicators.
+   - Restructure feature lists into scannable tables.
+   - Utilize `> blockquotes` for security notices and compliance callouts.
+   - Use Mermaid.js for architectural diagrams.
+3. **Hierarchy:** Executive Summary -> Capabilities -> Installation -> Core Usage -> Enterprise Integrations -> Architecture.
+
 ## 🛠 Building and Running
 
 ### Key Commands

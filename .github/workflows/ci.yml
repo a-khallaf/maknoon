@@ -36,6 +36,21 @@ jobs:
       - name: Run Staticcheck
         run: $(go env GOPATH)/bin/staticcheck ./...
 
+  docs:
+    name: Documentation
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Verify Man Page Sync
+        run: go run ./cmd/maknoon man --verify
+
   test:
     name: Test
     needs: quality

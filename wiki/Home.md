@@ -1,16 +1,40 @@
-# Welcome to the Maknoon Wiki
+# Maknoon Documentation Suite
+> **Enterprise-Grade Post-Quantum Cryptographic Engine**
 
-Maknoon (مكنون) is a premier, high-performance security suite designed for the post-quantum era. It provides robust file protection using bleeding-edge hybrid cryptography and hardware-locked memory safety.
+## Executive Summary
+Maknoon (مكنون) is a high-performance cryptographic engine designed to secure data against classical and quantum computational threats. The system implements NIST-standardized Post-Quantum Cryptography (PQC) within a constant-memory streaming architecture, providing a scalable solution for data protection in both automated and interactive environments.
 
-## 🌟 Key Features
-*   **Hybrid Post-Quantum Cryptography**: Combines NIST-standardized ML-KEM-768 with classical X25519.
-*   **Absolute Memory Safety**: Utilizes `memguard` to pin secrets to RAM, defeating Go's GC and preventing disk swapping.
-*   **Fingerprint Resistance (Stealth Mode)**: New in V3! Optional headerless encryption to make ciphertext indistinguishable from random noise.
-*   **Native AI Agent Integration**: Includes an MCP server and automated discovery tools for seamless LLM integration.
-*   **High Performance**: Efficient 64KB chunk streaming pipeline with multi-core parallelism.
+---
 
-## 📖 Table of Contents
-1.  [[Architecture]] - Deep dive into the V3 streaming engine.
-2.  [[Security Rationale]] - Why we chose Hybrid PQC and RAM pinning.
-3.  [[CLI Reference]] - Exhaustive guide to commands and flags.
-4.  [[Agent Integration]] - How to use Maknoon with AI assistants.
+## Technical Capabilities
+
+| Capability | Specification |
+| :--- | :--- |
+| **PQC Encryption** | Hybrid HPKE utilizing ML-KEM-1024 and X25519. |
+| **Memory Hygiene** | Deterministic buffer zeroization and RAM pinning via `mlock()`. |
+| **Streaming Engine** | Parallel sequencer model with 64KB chunk processing. |
+| **Identity Model** | Decentralized discovery via ML-DSA-87 signed records. |
+| **AI Integration** | Native Model Context Protocol (MCP) server support. |
+
+---
+
+## Documentation Index
+
+### 1. [[Architecture]]
+Technical specification of the streaming pipeline, the parallel sequencer model, and the hybrid cryptographic stack.
+
+### 2. [[Security Rationale]]
+Analysis of the cryptographic primitives, memory forensics mitigation strategies, and the logic behind the hybrid security model.
+
+### 3. [[CLI Command Reference]]
+Comprehensive guide to the command-line interface, including syntax for encryption, identity management, and vault operations.
+
+### 4. [[AI Agent and Automation Integration]]
+Documentation for the MCP server implementation, automated agent handshakes, and schema-based tool discovery.
+
+### 5. [[Post-Quantum Cryptographic Hardening Roadmap]]
+Strategic engineering objectives for future enhancements, including hardware security module (HSM) integration and side-channel hardening.
+
+---
+
+> **Security Advisory:** The Maknoon engine prioritizes cryptographic robustness and memory hygiene. Users are encouraged to review the [[Security Rationale]] to understand the mitigation strategies employed against advanced forensics and quantum threats.

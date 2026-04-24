@@ -103,6 +103,9 @@ func main() {
 	schemaCmd.GroupID = "utils"
 	rootCmd.AddCommand(schemaCmd)
 
+	manCmd := commands.ManCmd()
+	rootCmd.AddCommand(manCmd)
+
 	contactCmd := commands.ContactCmd()
 	contactCmd.GroupID = "identity"
 	rootCmd.AddCommand(contactCmd)
