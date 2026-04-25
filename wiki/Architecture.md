@@ -2,12 +2,90 @@
 > **Streaming-First Post-Quantum Cryptographic Engine**
 
 ## Executive Summary
-Maknoon is architected as a high-performance, constant-memory cryptographic engine designed to mitigate both classical and quantum computational risks. The system utilizes a modular streaming pipeline that decouples I/O operations from cryptographic transformations, ensuring linear scalability and predictable resource utilization across diverse hardware environments.
+Maknoon is architected as a high-performance, constant-memory cryptographic engine designed to mitigate both classical and quantum computational risks.
+
+```mermaid
+graph TD
+    User[Human Operator] -- CLI / Ghost Chat --> Maknoon
+    Agent[AI Agent] -- MCP stdio/sse --> Maknoon
+    
+    subgraph Maknoon [Maknoon Platform]
+        Engine[Engine Core]
+    end
+    
+    Maknoon -- PQC Keys --> Nostr[Nostr DHT / DNS]
+    Maknoon -- Tunnel --> Wormhole[Magic Wormhole Relay]
+    Maknoon -- Audit --> Logs[Compliance Logs]
+    Maknoon -- Storage --> FS[Local Filesystem / Cloud Sidecar]
+```
+
+The system utilizes a modular streaming pipeline that decouples I/O operations from cryptographic transformations.
+
+---
+
+## Unified Binary Architecture
+Starting with V3, Maknoon implements a **Unified Binary** design. A single statically linked binary hosts the CLI, the cryptographic engine, and the native Model Context Protocol (MCP) server.
+
+```mermaid
+graph TD
+    Entry[Binary Entry Point] --> Parse{Command Resolution}
+    Parse -- "encrypt/decrypt/..." --> CLI[CLI Controller]
+    Parse -- "mcp" --> MCP{Transport Selection}
+    
+    CLI --> Engine[Central Engine Core]
+    
+    MCP -- "--transport stdio" --> Stdio[Stdio Transport]
+    MCP -- "--transport sse" --> SSE[Secure SSE Transport]
+    
+    Stdio --> Engine
+    SSE --> Engine
+    
+    Engine --> Policy{AgentPolicy?}
+    Policy -- Yes --> Sandbox[Restricted OS View]
+    Policy -- No --> OS[Standard OS View]
+```
+
+*   **Logic Consolidation**: The core logic resides in `pkg/crypto/engine.go`, which is consumed by both the CLI and MCP layers.
+*   **Reduced Attack Surface**: By eliminating external dependencies and shared libraries, the binary provides a consistent security posture across all operational modes.
+*   **Mode Selection**: The mode of operation is determined by the command-line entry point (e.g., `maknoon mcp` for server mode vs. `maknoon encrypt` for CLI mode).
+
+---
+
+## Dual-Transport MCP
+Maknoon supports the Model Context Protocol (MCP) via two distinct transport mechanisms, enabling both local and remote agent orchestration.
+
+| Transport | Implementation | Use Case |
+| :--- | :--- | :--- |
+| **Stdio** | Standard Input/Output pipe. | Local integration with IDEs (Cursor, VS Code) and desktop agents. |
+| **SSE** | Server-Sent Events over HTTPS. | Remote gateways and cloud-native agentic microservices. |
+
+### Post-Quantum Transport Security
+Remote SSE sessions are secured via **PQ-TLS 1.3**. The server utilizes Go 1.23's native support for the `X25519MLKEM768` hybrid key exchange, ensuring the transport layer itself is resilient against "harvest now, decrypt later" attacks.
 
 ---
 
 ## Core Streaming Pipeline
-The architecture centers on a **Parallel Sequencer Model** that processes data in discrete segments, allowing for high-throughput operations without the memory overhead associated with traditional buffer-and-process models.
+The architecture centers on a **Parallel Sequencer Model** that processes data in discrete segments.
+
+```mermaid
+graph LR
+    Input[Data Stream] --> Reader[64KB Chunk Reader]
+    Reader --> W1[Worker 1]
+    Reader --> W2[Worker 2]
+    Reader --> Wn[Worker N]
+    
+    subgraph Transformation [Transformations]
+        W1 -- Encrypt --> S1[Segment 1]
+        W2 -- Encrypt --> S2[Segment 2]
+        Wn -- Encrypt --> Sn[Segment N]
+    end
+    
+    S1 --> Seq[Sequencer]
+    S2 --> Seq
+    Sn --> Seq
+    
+    Seq --> Output[Authenticated Ciphertext]
+```
 
 | Component | Technical Function |
 | :--- | :--- |
@@ -15,6 +93,42 @@ The architecture centers on a **Parallel Sequencer Model** that processes data i
 | **Worker Pool** | Executes cryptographic transformations in parallel across available CPU cores. |
 | **Sequencer** | Reassembles processed segments in deterministic order, ensuring strict file integrity. |
 | **Transformer Middleware** | Modular layer for on-the-fly archival (TAR), compression, and encryption. |
+
+---
+
+## Industrial Sandbox Layout
+For containerized deployments, Maknoon utilizes a zero-OS `scratch` build. This environment enforces a minimal filesystem layout required for secure operation.
+
+```mermaid
+graph TD
+    subgraph Host [Host Machine]
+        direction TB
+        subgraph Docker [Docker / K8s Node]
+            direction LR
+            Bin[maknoon binary]
+            Config[config.json]
+        end
+    end
+    
+    subgraph Sandbox [Isolated Container Sandbox]
+        direction TB
+        Proc[Running Process UID 1000]
+        Policy{AgentPolicy}
+        
+        Proc -- Validates --> Policy
+        Policy -- "Allow (~/)" --> Workspace[Persistent Workspace]
+        Policy -- "Block (/etc/)" --> Denied[Host Access DENIED]
+    end
+    
+    Docker -- "volume mount" --> Workspace
+    Docker -- "immutable" --> Bin
+```
+
+| Path | Purpose | Permissions |
+| :--- | :--- | :--- |
+| `/usr/local/bin/maknoon` | The immutable unified binary. | Read-Only (Root) |
+| `/home/maknoon` | Primary working directory and persistent storage. | Read/Write (UID 1000) |
+| `/tmp/maknoon` | Ephemeral storage for transient operations. | Read/Write (UID 1000) |
 
 ---
 
@@ -29,39 +143,20 @@ The system utilizes **HPKE (RFC 9180)** to wrap File Encryption Keys (FEKs). Thi
 ### Context-Aware Security
 All cryptographic operations are bound to the file's metadata via the HPKE `info` parameter. This binding includes `ProfileID` and `Header Flags`, effectively mitigating "Recipient Transplantation" and metadata-tampering attacks.
 
-> **Security Compliance:** The engine enforces strict memory hygiene. All sensitive buffers are zeroed out using `SafeClear` patterns immediately after use to prevent leakage via memory-scraping or swap-file persistence.
+---
+
+## Configuration Management (Viper)
+V3 standardizes configuration using the **Viper** framework, providing a strict hierarchy for parameter resolution.
+
+1.  **CLI Flags**: Immediate overrides provided during execution.
+2.  **Environment Variables**: Prefixed with `MAKNOON_` (e.g., `MAKNOON_AGENT_MODE`).
+3.  **Config File**: `config.json` or `.maknoon.yaml` in the user's home directory.
+4.  **Defaults**: Hardcoded safe defaults within the engine.
 
 ---
 
-## Directory and Stream Processing
-Maknoon processes directory structures as continuous streams rather than discrete file operations.
+## Testing Strategy
+The V3 suite introduces a **Transport-Agnostic Mission** testing model.
 
-*   **Internal TAR Encoding**: Directory trees are converted to a TAR stream on-the-fly within the pipeline.
-*   **Zero-Disk Footprint**: Archival and encryption occur in a single pass, eliminating the need for temporary storage or intermediate archive files.
-*   **Indistinguishability**: In "Stealth Mode," header magic bytes are omitted, rendering the output cryptographically indistinguishable from high-entropy random noise.
-
----
-
-## Identity and Discovery
-The architecture supports a decentralized identity layer designed for serverless environments.
-
-| Feature | Specification |
-| :--- | :--- |
-| **Identity Registry** | Abstract interface supporting local petnames and decentralized discovery. |
-| **Signature Scheme** | ML-DSA-87 (Dilithium) for all self-signed identity records. |
-| **Nostr Integration** | Utilizes the global Nostr relay network for public key discovery and transport. |
-| **Bridge Design** | Pluggable registry factory allowing integration with LDAP, DNS, or private keybases. |
-
----
-
-## Technical Philosophy
-Maknoon adheres to a "Modern Unix" philosophy, balancing traditional modularity with contemporary requirements for automation and quantum security.
-
-### 1. Atomic Composition
-Every core function within `pkg/crypto` is designed to accept `io.Reader` and `io.Writer` interfaces. This ensures that the engine can be integrated into larger pipelines while maintaining a 64KB RAM window for files of any scale.
-
-### 2. Structured Orchestration
-While maintaining CLI utility, Maknoon prioritizes **JSON-based observability**. The `maknoon schema` command provides machine-readable capability descriptions, enabling seamless integration with AI agents and CI/CD pipelines.
-
-### 3. Scalable Security
-Acknowledging the increased size of PQC payloads (~5KB for keys and signatures), the architecture prioritizes cryptographic robustness over minimal byte-count, ensuring long-term viability against advancing computational threats.
+*   **Mission Suites**: Tests verify engine behavior through high-level missions that run identically over CLI, Stdio-MCP, and SSE-MCP transports.
+*   **Short Standardization**: Use of `testing.Short()` to skip network-intensive or hardware-bound (FIDO2) tests during rapid local iteration, while ensuring full coverage in CI/CD pipelines.

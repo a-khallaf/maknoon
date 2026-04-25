@@ -109,20 +109,35 @@ type Utils interface {
 	GeneratePassphrase(ectx *EngineContext, words int, separator string) (string, error)
 }
 
-// StateProvider exposes the engine's internal configuration and policy.
+// StateProvider provides a standardized interface for accessing and managing
+// the engine's internal configuration state and security policy. It ensures
+// that state modifications are governed by the active capability policy.
 type StateProvider interface {
+	// GetPolicy returns the current security policy enforced by the engine.
 	GetPolicy() SecurityPolicy
+	// GetConfig returns the active configuration parameters.
 	GetConfig() *Config
+	// UpdateConfig replaces the current configuration with newConf, subject to policy validation.
 	UpdateConfig(ectx *EngineContext, newConf *Config) error
+	// RegisterProfile adds a new cryptographic profile to the engine's registry.
 	RegisterProfile(ectx *EngineContext, name string, dp *DynamicProfile) error
+	// RemoveProfile deletes a custom profile from the engine's registry.
 	RemoveProfile(ectx *EngineContext, name string) error
 }
 
+// Inspector provides non-destructive analysis of encrypted Maknoon data.
 type Inspector interface {
+	// Inspect reads the header of an encrypted stream and returns its metadata
+	// and cryptographic parameters without attempting full decryption.
 	Inspect(ectx *EngineContext, in io.Reader) (*HeaderInfo, error)
 }
 
-// MaknoonEngine is the unified facade for the Maknoon system, composing all specialized services.
+// MaknoonEngine is the primary high-level facade for all Maknoon services.
+// It orchestrates low-level cryptographic primitives into high-level missions
+// while strictly enforcing the configured SecurityPolicy at every entry point.
+//
+// In v3.0, MaknoonEngine is the single source of truth for both CLI and MCP server
+// logic, ensuring zero logic drift across different integration layers.
 type MaknoonEngine interface {
 	Protector
 	IdentityService

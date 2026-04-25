@@ -32,6 +32,20 @@ man:
 	@echo "📖  Verifying manual page integrity..."
 	go run $(PKG) man --verify
 
+# Launch local documentation server (Industrial API browsing)
+serve-docs:
+	@echo "📚  Launching professional API documentation server..."
+	@echo "👉  Open: http://localhost:6060/github.com/al-Zamakhshari/maknoon"
+	go install golang.org/x/pkgsite/cmd/pkgsite@latest
+	$(shell go env GOPATH)/bin/pkgsite -http localhost:6060
+
+# Generate dynamic call graph (Visual code audit)
+map-calls:
+	@echo "🎨  Generating interactive call graph (SVG)..."
+	go install github.com/ofabry/go-callvis@latest
+	$(shell go env GOPATH)/bin/go-callvis -format svg -file engine_map ./cmd/maknoon
+	@echo "✅  Call graph generated: engine_map.svg"
+
 # Cleanup build artifacts
 clean:
 	@echo "🧹  Cleaning up..."

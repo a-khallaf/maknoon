@@ -2,7 +2,22 @@
 > **Technical Specification for the Maknoon Command-Line Interface**
 
 ## Executive Summary
-The Maknoon CLI provides a unified interface for post-quantum cryptographic operations, identity management, and secure secret storage. Designed for both interactive use and automated integration, the interface supports structured JSON output and follows a deterministic command hierarchy.
+The Maknoon CLI provides a unified interface for post-quantum cryptographic operations, identity management, and secure secret storage. Designed for both interactive use and automated integration, the interface supports structured JSON output and follows a deterministic command hierarchy governed by the Viper configuration framework.
+
+---
+
+## Agent Orchestration (MCP)
+Maknoon serves as a native Model Context Protocol (MCP) server, allowing AI agents to perform cryptographic operations through standardized tool calls.
+
+| Command | Functionality | Key Parameters |
+| :--- | :--- | :--- |
+| `mcp` | Launches the MCP server gateway. | `--transport`, `--address`, `--tls-cert`, `--tls-key` |
+
+### MCP Transport Flags
+*   **`--transport`**: Specifies the communication protocol. Options: `stdio` (default), `sse`.
+*   **`--address`**: The network address for SSE mode (default: `:8080`).
+*   **`--tls-cert`**: Path to the TLS certificate for secure SSE communication.
+*   **`--tls-key`**: Path to the TLS private key for secure SSE communication.
 
 ---
 
@@ -16,6 +31,25 @@ These commands manage the primary data protection pipeline, including hybrid enc
 | `info` | Provides deep technical metadata for encrypted files. | `--json` |
 | `sign` | Generates a standalone ML-DSA-87 signature. | `--identity`, `--output` |
 | `verify` | Validates data integrity and provenance. | `--public-key`, `--signature` |
+
+---
+
+## Configuration Management (Viper)
+Maknoon uses the **Viper** framework to manage configuration across flags, environment variables, and configuration files.
+
+### Precedence Hierarchy
+1.  **Command Flags** (e.g., `--passphrase "secret"`)
+2.  **Environment Variables** (prefixed with `MAKNOON_`, e.g., `MAKNOON_PASSPHRASE`)
+3.  **Config File** (`config.json` or `.maknoon.yaml`)
+4.  **Internal Defaults**
+
+### Common Environment Variables
+| Variable | Configuration Key | Description |
+| :--- | :--- | :--- |
+| `MAKNOON_AGENT_MODE` | `agent_mode` | Activates JSON output and security sandbox. |
+| `MAKNOON_PASSPHRASE` | `passphrase` | Master key for vault and identity unlocking. |
+| `MAKNOON_MCP_TRANSPORT`| `mcp.transport` | Default transport mode for the MCP server. |
+| `MAKNOON_PERF_CONCURRENCY`| `perf.concurrency` | Number of parallel worker threads. |
 
 ---
 
@@ -45,17 +79,6 @@ The vault provides an authenticated, quantum-resistant storage layer for credent
 
 ---
 
-## Communication and P2P
-Secure transport commands facilitate ephemeral data exchange and real-time communication across disparate networks.
-
-| Command | Functionality | Key Parameters |
-| :--- | :--- | :--- |
-| `send` | Initiates a secure ephemeral P2P file transfer. | `--text`, `--public-key`, `--stealth` |
-| `receive` | Ingests data from a remote peer via wormhole code. | `--output`, `--private-key` |
-| `chat` | Establishes a real-time, end-to-end encrypted session. | `--jsonl` (for agents) |
-
----
-
 ## System Utilities
 Administrative commands for system configuration, capability discovery, and cryptographic profiling.
 
@@ -68,16 +91,8 @@ Administrative commands for system configuration, capability discovery, and cryp
 
 ---
 
-## Configuration Management
-Maknoon behavior is governed by a centralized configuration that dictates resource allocation and security parameters.
+## Testing and Verification
+For developers and auditors, Maknoon provides standardized testing hooks.
 
-> **Performance Optimization:** Users can configure `perf.concurrency` to align with host CPU resources. The default streaming chunk size is fixed at 64KB to ensure stable memory profiles.
-
-### Security Parameters (Argon2id)
-| Key | Default | Description |
-| :--- | :--- | :--- |
-| `security.time` | `3` | Number of KDF iterations. |
-| `security.memory` | `64MB` | Memory allocation for the Argon2id process. |
-| `security.threads` | `4` | Parallelism factor for key derivation. |
-
-> **Compliance Notice:** Modifying security parameters may impact compatibility with existing encrypted assets. It is recommended to maintain standardized profiles across organizational deployments.
+*   **Fast Suite**: Run `go test -short ./...` to execute core logic while skipping network-dependent tests.
+*   **Mission Suite**: Integration tests that verify behavioral consistency across all transport modes (CLI, Stdio, SSE).

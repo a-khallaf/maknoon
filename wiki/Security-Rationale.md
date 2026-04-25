@@ -9,13 +9,22 @@ Maknoon is engineered as a zero-trust cryptographic utility designed to provide 
 ## Cryptographic Architecture
 
 ### Hybrid Key Encapsulation (KEM)
-To safeguard against potential mathematical weaknesses in nascent lattice-based algorithms, Maknoon employs a **Hybrid Security Model**. This approach ensures that an adversary must compromise two distinct mathematical primitives to gain access to the underlying data.
+To safeguard against potential mathematical weaknesses in nascent lattice-based algorithms, Maknoon employs a **Hybrid Security Model** for data-at-rest. This approach ensures that an adversary must compromise two distinct mathematical primitives to gain access to the underlying data.
 
 | Component | Primitive | Security Basis |
 | :--- | :--- | :--- |
 | **Classical Layer** | X25519 (Curve25519) | Discrete Logarithm Problem (Elliptic Curve). |
 | **Quantum Layer** | ML-KEM-1024 (Kyber) | Module Learning With Errors (Lattice-Based). |
 | **Integration** | HPKE (RFC 9180) | Standardized hybrid encapsulation framework. |
+
+---
+
+## Transport Layer PQC (PQ-TLS 1.3)
+V3 introduces native support for **Post-Quantum TLS 1.3** to secure remote agent communications (MCP SSE transport). This ensures that even the transmission of encrypted assets is resilient against "Harvest Now, Decrypt Later" (SNDL) attacks.
+
+*   **Hybrid Key Exchange**: Remote sessions prioritize the `X25519MLKEM768` curve preference. This uses a hybrid handshake where the session key is derived from both a classical Elliptic Curve Diffie-Hellman (ECDH) exchange and an ML-KEM (Kyber) encapsulation.
+*   **Security ROI**: By securing the transport layer with PQC, Maknoon provides an additional layer of protection for metadata and command parameters that are processed before the engine's primary file encryption is applied.
+*   **Protocol Compliance**: The implementation adheres to the latest IETF drafts for PQC in TLS 1.3, ensuring interoperability with modern secure gateways.
 
 ---
 

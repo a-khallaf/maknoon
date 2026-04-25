@@ -21,14 +21,18 @@ const (
 	CapP2P         Capability = "p2p"
 )
 
-// SecurityPolicy dictates the operational constraints for the Maknoon Engine.
+// SecurityPolicy defines the behavioral boundaries and capabilities of the engine.
+// It implements the 'Policy Provider Pattern', allowing the engine core to remain
+// agnostic of its execution environment (e.g., Human vs. AI Agent) while
+// enforcing environment-specific security constraints.
 type SecurityPolicy interface {
-	// Name returns a human-readable name for the policy.
+	// Name returns a human-readable name for the policy (e.g., "Human", "Agent").
 	Name() string
-	// HasCapability checks if the policy permits a specific action.
+	// HasCapability checks if the policy permits a specific functional action.
 	HasCapability(cap Capability) bool
 
 	// ValidatePath ensures a filesystem path is permitted under the policy.
+	// This is the primary defense against path traversal and sandbox escape.
 	ValidatePath(path string) error
 
 	// ValidateWormholeURL ensures a network endpoint is permitted.
@@ -37,16 +41,16 @@ type SecurityPolicy interface {
 	// ClampConcurrency returns the allowed number of parallel workers.
 	ClampConcurrency(requested int, maxAllowed int) int
 
-	// ClampProfileGeneration caps the KDF parameters during random generation.
+	// ClampProfileGeneration caps the KDF parameters during random generation to prevent DoS.
 	ClampProfileGeneration(maxTime, maxMem uint32, maxThrd uint8) (uint32, uint32, uint8)
 
-	// ValidateProfileResource ensures a profile does not exceed resource ceilings.
+	// ValidateProfileResource ensures a cryptographic profile does not exceed resource ceilings.
 	ValidateProfileResource(memKB, time uint32, threads uint8, limits AgentLimitsConfig) error
 
-	// AllowConfigModification returns true if global state changes are permitted.
+	// AllowConfigModification returns true if global configuration changes are permitted.
 	AllowConfigModification() bool
 
-	// IsAgent returns true if this is a restricted agent policy.
+	// IsAgent returns true if this is a restricted agent policy (used for UI-branching).
 	IsAgent() bool
 }
 

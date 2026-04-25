@@ -7,34 +7,92 @@ Maknoon is designed for seamless integration with autonomous systems, Large Lang
 ---
 
 ## Model Context Protocol (MCP) Integration
-Maknoon includes a native MCP server that exposes the engine's capabilities as structured tools. This allows AI assistants (e.g., Claude, Cursor) to interact with the cryptographic layer without manual command construction.
+Maknoon operates as a native MCP server, supporting both local and remote transport protocols.
 
-### Available Tools
+### Dual-Transport Support
 
-| Tool | Capability |
-| :--- | :--- |
-| `inspect_file` | Analyzes header metadata, profile versions, and signature validity. |
-| `encrypt_file` | Performs hybrid PQC encryption on local filesystem resources. |
-| `decrypt_file` | Restores encrypted assets using managed private identities. |
-| `vault_get` / `set` | Secure storage and retrieval of credentials via the authenticated engine. |
-| `identity_active` | Enumerates available public keys and cryptographic profiles. |
-| `identity_publish` | Provisions and announces identity records to decentralized registries. |
+| Transport | Implementation | Primary Use Case |
+| :--- | :--- | :--- |
+| **Stdio** | Standard I/O streams. | Local integration with Cursor, VS Code, and Desktop agents. |
+| **SSE** | Server-Sent Events (HTTPS). | Remote agentic microservices and cloud-native gateways. |
 
-### Configuration Example (Claude Desktop)
-To register the Maknoon MCP server, update the `mcpServers` configuration block:
+### SSE Transport Security (PQ-TLS 1.3)
+Remote MCP sessions are secured using **Post-Quantum TLS 1.3**. This integration provides a significant Security ROI by protecting agent communications against "Store Now, Decrypt Later" (SNDL) attacks.
+
+```mermaid
+sequenceDiagram
+    participant Agent as AI Agent (Remote)
+    participant TLS as PQ-TLS 1.3 Tunnel
+    participant MCP as Maknoon MCP Server
+    participant Eng as Engine Core (Sandbox)
+    
+    Note over Agent, Eng: 1. Transport Layer Security (Post-Quantum)
+    Agent->>TLS: Client Hello (ML-KEM Hybrid)
+    TLS->>Agent: Server Hello (X25519MLKEM768)
+    Note right of TLS: Tunnel established with NIST PQC
+    
+    Note over Agent, Eng: 2. Protocol Handshake
+    Agent->>MCP: initialize (JSON-RPC)
+    MCP-->>Agent: server_info (v1.3.2)
+    
+    Note over Agent, Eng: 3. Governed Task Execution
+    Agent->>MCP: tools/call (vault_get)
+    MCP->>Eng: Policy Check (ValidatePath)
+    Eng-->>MCP: Secret Payload
+    MCP-->>Agent: Encrypted Response
+```
+
+*   **Hybrid Key Exchange**: Combines `X25519` (classical) and `ML-KEM-768` (quantum-resistant).
+*   **Authentication**: Server identities are validated using standard TLS certificates, with the option for PQC-signed client certificates in future releases.
+*   **Zero-Configuration Safety**: The server defaults to the highest security parameters when `--tls-cert` and `--tls-key` are provided.
+
+---
+
+## Configuration Example (Claude Desktop)
+
+### Local Stdio Mode
+To register Maknoon for local use:
 
 ```json
 {
   "mcpServers": {
     "maknoon": {
       "command": "maknoon",
-      "args": ["mcp", "serve"],
+      "args": ["mcp", "--transport", "stdio"],
       "env": {
         "MAKNOON_AGENT_MODE": "1"
       }
     }
   }
 }
+```
+
+### Remote SSE Mode
+To connect to a remote Maknoon gateway:
+
+```json
+{
+  "mcpServers": {
+    "maknoon-remote": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/client-sse", "https://maknoon.example.com/sse"]
+    }
+  }
+}
+```
+
+---
+
+## Launching the MCP Server
+
+### Stdio Gateway (Default)
+```bash
+maknoon mcp
+```
+
+### Secure SSE Gateway
+```bash
+maknoon mcp --transport sse --address :8443 --tls-cert server.crt --tls-key server.key
 ```
 
 ---
@@ -44,6 +102,7 @@ Maknoon implements an automated detection mechanism to transition into machine-r
 
 The engine activates **Agent Mode** when the following condition is met:
 *   **Environment Variable**: `MAKNOON_AGENT_MODE=1` is explicitly set.
+*   **Command Invocation**: The `mcp` command is executed (automatically sets `agent_mode=1`).
 
 ---
 
@@ -51,43 +110,31 @@ The engine activates **Agent Mode** when the following condition is met:
 For maximum security in production AI environments, Maknoon should be deployed as a containerized sandbox. This provides process-level isolation, preventing an AI agent from accessing any sensitive data outside the explicitly mounted workspace.
 
 ### Docker Implementation
-Maknoon utilizes a **multi-stage build** starting from an empty `scratch` image, resulting in a minimal (~15MB) container with **zero OS-level attack surface**. Using **Docker Buildx** ensures optimized, multi-platform builds.
+Maknoon utilizes a **multi-stage build** starting from an empty `scratch` image, resulting in a minimal (~13MB) container with **zero OS-level attack surface**.
 
 ```bash
-# Build the secure sandbox image using BuildKit (buildx)
-docker buildx build -t maknoon-sandbox --load .
-
-# Multi-platform build (AMD64 + ARM64)
-docker buildx build --platform linux/amd64,linux/arm64 -t maknoon-sandbox .
+# Launch a physically isolated sandbox with Stdio MCP
+docker run -v ~/workspace:/home/maknoon -e MAKNOON_AGENT_MODE=1 maknoon-sandbox
 ```
 
-### Orchestration via Docker Compose
-For persistent MCP server deployments, use the provided `docker-compose.yml` to manage environment variables and volume mounts.
-
-```yaml
-services:
-  maknoon-mcp:
-    image: maknoon-sandbox:latest
-    environment:
-      - MAKNOON_AGENT_MODE=1
-      - MAKNOON_PASSPHRASE=${MAKNOON_PASSPHRASE}
-    volumes:
-      - ./agent-workspace:/home/maknoon
-    stdin_open: true
-    tty: true
-```
+### Filesystem Governance
+When operating in a containerized sandbox, Maknoon enforces strict path validation:
+*   **Permitted**: `/home/maknoon` (and subdirectories), `/tmp/maknoon`.
+*   **Prohibited**: System directories, root-level sensitive paths, and dotfiles outside the workspace.
 
 ---
 
-## Schema-Based Discovery
-To facilitate autonomous discovery, Maknoon provides a comprehensive JSON-Schema of its entire command hierarchy.
+## Environment Configuration (Viper-Based)
+The following variables govern the behavior of Maknoon in automated and non-interactive environments.
 
-```bash
-# Generate machine-readable command specification
-maknoon schema
-```
+| Variable | Description |
+| :--- | :--- |
+| `MAKNOON_AGENT_MODE` | Activates structured JSON output and non-interactive prompts. |
+| `MAKNOON_PASSPHRASE` | Supplies the master key for vault and identity unlocking. |
+| `MAKNOON_PRIVATE_KEY` | Specifies the path to the primary private identity file. |
+| `MAKNOON_PUBLIC_KEY` | Sets the default recipient path for encryption tasks. |
 
-> **Integration Note:** Autonomous agents are encouraged to execute `maknoon schema` during initialization. This allows the agent to dynamically map available flags (e.g., `--stealth`, `--nostr`, `--profile`) to its internal tool definitions without external documentation dependencies.
+> **Note:** All environment variables are prefixed with `MAKNOON_` and map to configuration keys using underscores (e.g., `mcp.transport` maps to `MAKNOON_MCP_TRANSPORT`).
 
 ---
 
@@ -102,13 +149,22 @@ The following variables govern the behavior of Maknoon in automated and non-inte
 | `MAKNOON_PRIVATE_KEY` | Specifies the path to the primary private identity file. |
 | `MAKNOON_PUBLIC_KEY` | Sets the default recipient path for encryption tasks. |
 
+## Tool Specification Reference
+Maknoon is fully self-describing. AI Agents can query the current tool registry and schema dynamically to understand the available cryptographic capabilities.
+
+```bash
+# Generate human-readable tool documentation from schema
+maknoon schema --format markdown > wiki/Tool-Reference.md
+```
+
+| Tool Name | Mission Role | Description |
+| :--- | :--- | :--- |
+| `vault_get` | Identity | Secure retrieval of agent credentials from the PQC vault. |
+| `encrypt_file` | Protection | Multi-recipient Post-Quantum encryption of local assets. |
+| `inspect_file` | Analysis | Forensic header analysis without private key access. |
+| `p2p_send` | Transport | Direct peer-to-peer authenticated file transfer. |
+| `gen_passphrase` | Logic | Provisioning of secure, high-entropy master mnemonics. |
+
 ---
 
-## Security and Governance
-When operating in Agent Mode, Maknoon enforces a strict security sandbox to prevent unauthorized resource access or policy modification.
-
-*   **Restricted Filesystem**: Agents are limited to specific permitted directories (e.g., project root, system temp).
-*   **Immutable Configuration**: Global security policies and identity registries cannot be modified via agent-initiated commands.
-*   **Resource Throttling**: Parallel worker counts and Argon2id complexity parameters are clamped to prevent resource exhaustion.
-
-> **Governance Notice:** Organizations should monitor MCP tool usage via the Maknoon audit decorator. All agent-initiated cryptographic operations are logged with structured metadata, ensuring full traceability of automated actions.
+## Governance & Compliance

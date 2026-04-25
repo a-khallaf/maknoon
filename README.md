@@ -1,12 +1,14 @@
 # Maknoon (مكنون)
-> **Enterprise-Grade Post-Quantum Encryption and Identity Management**
+> **Enterprise-Grade Post-Quantum Encryption Engine and MCP Server**
 
 [![Release](https://img.shields.io/github/v/release/al-Zamakhshari/maknoon)](https://github.com/al-Zamakhshari/maknoon/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Go Report Card](https://goreportcard.com/badge/github.com/al-Zamakhshari/maknoon)](https://goreportcard.com/report/github.com/al-Zamakhshari/maknoon)
 
+Maknoon is an industrial-grade cryptographic engine and Model Context Protocol (MCP) server designed to secure data against classical and quantum computational threats. By implementing NIST-standardized Post-Quantum Cryptography (PQC) within a constant-memory streaming architecture, Maknoon provides a scalable, zero-OS sandbox for securing sensitive assets.
+
 ## Executive Summary
-Maknoon is a high-performance cryptographic engine and Model Context Protocol (MCP) server designed to secure data against classical and quantum computational threats. By implementing NIST-standardized Post-Quantum Cryptography (PQC) within a constant-memory streaming architecture, Maknoon provides a scalable solution for securing sensitive assets in both automated pipelines and interactive environments.
+Maknoon utilizes a **Unified Binary Architecture**—hosting both its CLI and native MCP server in a single, statically linked binary. It offers dual-transport capabilities for AI agents (Stdio/SSE) and features a physically isolated container sandbox to prevent unauthorized data access.
 
 ---
 
@@ -14,13 +16,13 @@ Maknoon is a high-performance cryptographic engine and Model Context Protocol (M
 
 | Feature | Technical Specification |
 | :--- | :--- |
-| **Asymmetric Encryption** | Hybrid HPKE (RFC 9180) utilizing ML-KEM-1024 (Kyber) and X25519. |
+| **PQC Encryption** | Hybrid HPKE (RFC 9180) utilizing ML-KEM-1024 (Kyber) and X25519. |
 | **Digital Signatures** | ML-DSA-87 (Dilithium) for high-integrity provenance. |
-| **Symmetric Cipher** | XChaCha20-Poly1305 AEAD with 192-bit nonces. |
-| **Key Derivation** | Argon2id with configurable time, memory, and parallelism parameters. |
+| **Dual-Transport MCP** | Support for local `stdio` and remote `sse` (HTTPS) agent integrations. |
+| **Secure Transport** | Native **Post-Quantum TLS 1.3** prioritization (ML-KEM hybrid). |
 | **Streaming Engine** | 64KB chunked pipeline ensuring $O(1)$ memory complexity. |
-| **Secret Sharing** | M-of-N Shamir’s Secret Sharing over $GF(2^8)$ for identity recovery. |
-| **Stealth Mode** | Removal of header magic bytes for cryptographic indistinguishability. |
+| **Container Sandbox** | Minimal 13MB `scratch` build with zero OS attack surface. |
+| **Configuration** | Standardized **Viper** management with environment-variable overrides. |
 
 ---
 
@@ -28,54 +30,35 @@ Maknoon is a high-performance cryptographic engine and Model Context Protocol (M
 
 ### Homebrew (macOS/Linux)
 ```bash
-brew tap al-Zamakhshari/tap
-brew install maknoon
+brew install al-Zamakhshari/tap/maknoon
 ```
 
-### From Source
+### From Source (Makefile)
 ```bash
 git clone https://github.com/al-Zamakhshari/maknoon
 cd maknoon
-go build -o maknoon ./cmd/maknoon
-```
-
-### AI Agent Extension
-```bash
-gemini-cli extension install https://github.com/al-Zamakhshari/maknoon --path extensions/maknoon-extension
+make build
 ```
 
 ---
 
 ## Core Usage
 
-### 1. Identity Management
-Generate and manage PQC identities. Maknoon supports multiple security profiles (e.g., `v3` for standard hybrid lattice, `conservative` for non-lattice fallbacks).
+### Identity Management
+Generate and manage PQC identities. Supports hardware-bound protection via FIDO2.
 ```bash
 # Generate a new PQC identity
-maknoon keygen -o primary_id --profile v3
-
-# List local identities
-maknoon identity list
+maknoon keygen -o production_id --profile nist
 ```
 
-### 2. Encryption and Decryption
-Encryption supports multiple recipients. The engine orchestrates archival and compression middleware before applying the cryptographic layer.
+### Data Protection
+Orchestrate archival, compression, and PQC encryption in a single stream.
 ```bash
 # Encrypt for multiple recipients
-maknoon encrypt document.pdf -p recipient_a.pub -p recipient_b.pub
+maknoon encrypt dataset.tar.gz -p user1.pub -p user2.pub
 
-# Decrypt using a private identity
-maknoon decrypt document.pdf.makn -i primary_id -o document.pdf
-```
-
-### 3. Password and Secret Vault
-Manage credentials in a quantum-resistant vault, utilizing authenticated encryption for local storage.
-```bash
-# Store a credential
-maknoon vault set database.prod --user admin
-
-# Retrieve a credential
-maknoon vault get database.prod
+# Inspect metadata without decryption
+maknoon info dataset.makn
 ```
 
 ---
@@ -83,30 +66,29 @@ maknoon vault get database.prod
 ## Enterprise Integrations
 
 ### Model Context Protocol (MCP)
-Maknoon includes a native MCP server implementation, allowing AI agents (e.g., Claude, Cursor) to interact with the cryptographic engine within a governed security sandbox.
+Maknoon operates as a native MCP server for AI agents. Remote deployments are secured via PQ-TLS.
 
-| Tool | Functionality |
+| Transport | Description |
 | :--- | :--- |
-| `inspect_file` | Analyzes header metadata and signature validity without decryption. |
-| `encrypt_file` | Protects local files using specified PQC public keys. |
-| `vault_get` | Retrieves managed secrets via the engine's authenticated interface. |
-| `identity_active` | Queries the host's active cryptographic profiles and public keys. |
-
-### Audit and Compliance
-For organizational accountability, Maknoon supports pluggable audit decorators that record structured metadata for all cryptographic operations.
+| **Stdio** | Local integration for IDEs (Cursor) and Desktop agents (Claude). |
+| **SSE** | Secure remote gateway for cloud-native agentic microservices. |
 
 ```bash
-# Enable structured JSON auditing
-maknoon config set audit.enabled true
+# Start a secure remote SSE gateway
+maknoon mcp --transport sse --address :8443 --tls-cert server.crt --tls-key server.key
 ```
 
-> **Security Compliance:** Audit logs are disabled by default. When enabled, the engine masks PII (e.g., home directory paths) in log outputs to ensure compliance with privacy regulations.
+### Industrial Sandbox
+For maximum isolation, deploy Maknoon as a containerized sidecar. The image is derived from an empty `scratch` layer, containing only the immutable binary.
+
+```bash
+# Launch a physically isolated sandbox
+docker run -v ~/workspace:/home/maknoon -e MAKNOON_AGENT_MODE=1 maknoon-sandbox
+```
 
 ---
 
 ## Architecture
-
-Maknoon implements the **Policy Provider** and **Decorator** patterns to decouple security logic from implementation.
 
 ```mermaid
 graph TD
@@ -115,19 +97,29 @@ graph TD
     C -- Validated --> D[Transformer Pipeline]
     subgraph Pipeline [Streaming Pipeline]
         D --> E[TAR Archiver]
-        E --> F[Compression]
-        F --> G[PQC Encryption]
+        E --> F[Zstd Compression]
+        F --> G[PQC HPKE Encryption]
     end
     G --> H[I/O Sequencer]
     H --> I[Encrypted Output]
-    B --> J[Event Stream/Telemetry]
+    B --> J[Audit Event Stream]
 ```
 
 ### Constant-Memory Streaming
-The architecture utilizes a **Sequencer Model** where input streams are divided into 64KB blocks. These blocks are processed in parallel by a worker pool and reassembled by the sequencer, maintaining a stable memory footprint regardless of file size.
+The engine utilizes a parallel **Sequencer Model**. Input streams are divided into 64KB blocks, processed independently by a worker pool, and reassembled by the sequencer. This ensures a stable memory footprint (~13MB) regardless of file size.
 
 ### Deterministic Memory Hygiene
-All sensitive cryptographic material, including File Encryption Keys (FEKs) and private key shards, are stored in specialized memory buffers. These buffers are explicitly zeroed out using `SafeClear` patterns immediately upon completion of the operation to mitigate memory-scraping risks.
+All sensitive material (FEKs, private key shards) is stored in specialized buffers. These buffers are explicitly zeroed out using `SafeClear` patterns immediately upon completion of the operation.
+
+---
+
+## Technical Deep-Dive
+For a comprehensive understanding of the platform's internal mechanics, refer to the following specifications in the [Wiki](https://github.com/al-Zamakhshari/maknoon/wiki):
+
+*   **[[Architecture]]**: Detailed analysis of the Sequencer Model and Unified Binary design.
+*   **[[Security Rationale]]**: Deep dive into the Post-Quantum cryptographic stack and transport security.
+*   **[[Agent Integration]]**: Standardized instructions for Model Context Protocol (MCP) orchestration.
+*   **[[CLI Reference]]**: Scannable technical specification of the entire command hierarchy.
 
 ---
 
