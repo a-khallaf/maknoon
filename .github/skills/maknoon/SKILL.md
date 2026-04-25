@@ -45,8 +45,10 @@ You are an expert specialist in Post-Quantum Cryptography (PQC) utilizing the **
 *   **Registry**: Use `mcp_maknoon_identity_publish` to anchor handles to global registries (Nostr/DNS).
 *   **Contacts**: Use `maknoon contact` to manage trusted petnames and public key discovery.
 
-### 3. P2P & Network (Magic Wormhole)
+### 3. P2P & Network (QUIC Tunnel)
 *   **Transfers**: Use `mcp_maknoon_send_file` or `mcp_maknoon_receive_file`.
+*   **L4 Gateway**: Use `mcp_maknoon_tunnel_start` to provision a secure network perimeter and SOCKS5 proxy.
+*   **Management**: Monitor with `mcp_maknoon_tunnel_status` and terminate with `mcp_maknoon_tunnel_stop`.
 *   **Remote Gateway**: Connect to remote gateways via **Post-Quantum TLS 1.3** (`maknoon mcp --transport sse`).
 
 ### 4. Enterprise Secret Vault

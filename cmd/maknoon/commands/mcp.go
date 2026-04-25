@@ -217,6 +217,47 @@ func createMCPServer() *server.MCPServer {
 		})
 
 	// 3. P2P & Network Tools
+	s.AddTool(mcp.NewTool("tunnel_start", mcp.WithDescription("Provision a Post-Quantum L4 tunnel and SOCKS5 gateway")),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := getArgs(request)
+			remote := getString(args, "remote", "")
+			port, _ := args["port"].(float64)
+			if port == 0 {
+				port = 1080 // Default SOCKS5 port
+			}
+
+			opts := crypto.TunnelOptions{
+				RemoteEndpoint: remote,
+				LocalProxyPort: int(port),
+			}
+
+			status, err := engine.TunnelStart(nil, opts)
+			if err != nil {
+				return formatMCPError(err, "tunnel_start")
+			}
+			res, _ := json.Marshal(status)
+			return mcp.NewToolResultText(string(res)), nil
+		})
+
+	s.AddTool(mcp.NewTool("tunnel_stop", mcp.WithDescription("Terminate the active PQC tunnel")),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			err := engine.TunnelStop(nil)
+			if err != nil {
+				return formatMCPError(err, "tunnel_stop")
+			}
+			return mcp.NewToolResultText(`{"status":"stopped"}`), nil
+		})
+
+	s.AddTool(mcp.NewTool("tunnel_status", mcp.WithDescription("Retrieve status of the active tunnel")),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			status, err := engine.TunnelStatus(nil)
+			if err != nil {
+				return formatMCPError(err, "tunnel_status")
+			}
+			res, _ := json.Marshal(status)
+			return mcp.NewToolResultText(string(res)), nil
+		})
+
 	s.AddTool(mcp.NewTool("p2p_send", mcp.WithDescription("Start a secure P2P file transfer")),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)

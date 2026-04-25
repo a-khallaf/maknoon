@@ -6,6 +6,9 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
+
+	"github.com/al-Zamakhshari/maknoon/pkg/tunnel"
 )
 
 // EngineEvent is the base interface for all telemetry events.
@@ -167,6 +170,7 @@ type Engine struct {
 
 	// Tunnel State
 	activeTunnel *TunnelStatus
+	gateway      *tunnel.TunnelGateway
 	tunnelMu     sync.RWMutex
 }
 
@@ -245,14 +249,50 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts TunnelOptions) (TunnelSta
 		return *e.activeTunnel, fmt.Errorf("a tunnel is already active")
 	}
 
-	// Implementation logic will reside in Phase 2
-	return TunnelStatus{}, fmt.Errorf("tunnel implementation pending Phase 2")
+	// 1. Establish PQC QUIC Connection
+	tlsConf := tunnel.GetPQCConfig()
+	tlsConf.InsecureSkipVerify = true // Prototype mode: assume trust on first use
+
+	client, err := tunnel.Dial(ectx.Context, opts.RemoteEndpoint, tlsConf)
+	if err != nil {
+		return TunnelStatus{}, fmt.Errorf("failed to establish PQC tunnel: %w", err)
+	}
+
+	// 2. Start SOCKS5 Gateway
+	gw := &tunnel.TunnelGateway{
+		Port:   opts.LocalProxyPort,
+		Client: client,
+	}
+	if err := gw.Start(); err != nil {
+		client.Close()
+		return TunnelStatus{}, fmt.Errorf("failed to start SOCKS5 gateway: %w", err)
+	}
+
+	// 3. Update State
+	e.activeTunnel = &TunnelStatus{
+		Active:         true,
+		LocalAddress:   fmt.Sprintf("127.0.0.1:%d", opts.LocalProxyPort),
+		RemoteEndpoint: opts.RemoteEndpoint,
+		HandshakeTime:  time.Now().Format(time.RFC3339),
+	}
+	e.gateway = gw
+
+	return *e.activeTunnel, nil
 }
 
 func (e *Engine) TunnelStop(ectx *EngineContext) error {
 	e.tunnelMu.Lock()
 	defer e.tunnelMu.Unlock()
+
+	if e.gateway != nil {
+		e.gateway.Stop()
+		if e.gateway.Client != nil {
+			e.gateway.Client.Close()
+		}
+	}
+
 	e.activeTunnel = nil
+	e.gateway = nil
 	return nil
 }
 

@@ -145,6 +145,28 @@ All cryptographic operations are bound to the file's metadata via the HPKE `info
 
 ---
 
+## Post-Quantum L4 Tunnel Gateway
+Maknoon implements a user-space **Post-Quantum L4 Tunnel** that allows AI Agents and human operators to provision secure network perimeters without requiring kernel-level modifications or root privileges.
+
+```mermaid
+graph TD
+    Client[SOCKS5 Client] --> Proxy[SOCKS5 Gateway]
+    Proxy -- Encapsulate --> QUIC[QUIC Stream]
+    
+    subgraph Tunnel [PQC Transport Layer]
+        QUIC -- PQ-TLS 1.3 --> UDP[UDP Socket]
+    end
+    
+    UDP -- ML-KEM Hybrid --> Peer[Remote Maknoon Peer]
+```
+
+*   **QUIC Transport**: Uses `github.com/quic-go/quic-go` for native user-space multiplexing and congestion control.
+*   **Encapsulation Protocol**: Local TCP connections are bridged into independent QUIC streams. The destination address is transmitted as a post-quantum-secured metadata header during stream initiation.
+*   **Memory Hygiene**: Plaintext network data is processed exclusively within hardware-locked **memguard enclaves**, with deterministic zeroization of buffers after every packet transmission.
+*   **Zero-Trust Identity**: Tunnel handshakes utilize the platform's **ML-KEM-1024 + X25519** hybrid posture, neutralizing "harvest now, decrypt later" transport threats.
+
+---
+
 ## Configuration Management (Viper)
 V3 standardizes configuration using the **Viper** framework, providing a strict hierarchy for parameter resolution.
 

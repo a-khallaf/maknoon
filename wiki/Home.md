@@ -32,10 +32,13 @@ Analysis of the cryptographic primitives, the **Transport-Layer PQC** integratio
 ### 3. [[CLI Command Reference]]
 Comprehensive guide to the command-line interface, including the new `mcp` orchestration commands and **Viper** configuration.
 
-### 4. [[AI Agent and Automation Integration]]
+### 4. [[Post-Quantum L4 Tunnel Gateway]]
+Documentation for the user-space **QUIC Tunnel**, SOCKS5 encapsulation, and enclave-managed memory hygiene.
+
+### 5. [[AI Agent and Automation Integration]]
 Documentation for the **Dual-Transport MCP** implementation, automated agent handshakes, and secure SSE gateways.
 
-### 5. [[Post-Quantum Cryptographic Hardening Roadmap]]
+### 6. [[Post-Quantum Cryptographic Hardening Roadmap]]
 Strategic engineering objectives for future enhancements, including hardware security module (HSM) integration and side-channel hardening.
 
 ---
