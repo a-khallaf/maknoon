@@ -42,10 +42,42 @@ To register the Maknoon MCP server, update the `mcpServers` configuration block:
 ## Automated Agent Handshake
 Maknoon implements an automated detection mechanism to transition into machine-readable (JSON) output modes, ensuring compatibility with automated pipelines.
 
-The engine activates **Agent Mode** under the following conditions:
-1.  **Environment Variable**: `MAKNOON_AGENT_MODE=1` is present.
-2.  **I/O Redirection**: The output stream is piped or redirected (Non-TTY detection).
-3.  **Explicit Flag**: The `--json` parameter is provided in the command string.
+The engine activates **Agent Mode** when the following condition is met:
+*   **Environment Variable**: `MAKNOON_AGENT_MODE=1` is explicitly set.
+
+---
+
+## Sandboxed Container Deployment
+For maximum security in production AI environments, Maknoon should be deployed as a containerized sandbox. This provides process-level isolation, preventing an AI agent from accessing any sensitive data outside the explicitly mounted workspace.
+
+### Docker Implementation
+Maknoon utilizes a **multi-stage build** starting from an empty `scratch` image, resulting in a minimal (~15MB) container with **zero OS-level attack surface** (no shell, no package manager).
+
+```bash
+# Build the secure sandbox image
+docker build -t maknoon-sandbox .
+
+# Execute a sandboxed encryption task
+docker run -v ~/workspace:/home/maknoon \
+  -e MAKNOON_AGENT_MODE=1 \
+  maknoon-sandbox encrypt secret.txt -s "mypass"
+```
+
+### Orchestration via Docker Compose
+For persistent MCP server deployments, use the provided `docker-compose.yml` to manage environment variables and volume mounts.
+
+```yaml
+services:
+  maknoon-mcp:
+    image: maknoon-sandbox:latest
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=${MAKNOON_PASSPHRASE}
+    volumes:
+      - ./agent-workspace:/home/maknoon
+    stdin_open: true
+    tty: true
+```
 
 ---
 

@@ -1,0 +1,25 @@
+services:
+  maknoon-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: maknoon-sandbox:latest
+    container_name: maknoon-mcp-server
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=${MAKNOON_PASSPHRASE:-}
+    volumes:
+      # Mount a local directory for the agent's workspace
+      - ./agent-workspace:/home/maknoon
+      # Optional: Mount your local keys if you want the agent to use them
+      # - ~/.maknoon/keys:/home/maknoon/.maknoon/keys:ro
+    restart: unless-stopped
+    # Use standard I/O for MCP communication
+    stdin_open: true
+    tty: true
+    networks:
+      - maknoon-net
+
+networks:
+  maknoon-net:
+    driver: bridge

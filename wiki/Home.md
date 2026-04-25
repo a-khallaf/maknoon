@@ -15,6 +15,7 @@ Maknoon (مكنون) is a high-performance cryptographic engine designed to secu
 | **Streaming Engine** | Parallel sequencer model with 64KB chunk processing. |
 | **Identity Model** | Decentralized discovery via ML-DSA-87 signed records. |
 | **AI Integration** | Native Model Context Protocol (MCP) server support. |
+| **Containerization** | Minimal 'scratch' sandbox for secure agent isolation. |
 
 ---
 
