@@ -183,8 +183,7 @@ func (e *Engine) RemoveProfile(ectx *EngineContext, name string) error {
 	return e.Config.Save()
 }
 
-func (e *Engine) Inspect(ectx *EngineContext, in io.Reader) (*HeaderInfo, error) {
-	ectx = e.context(ectx)
+func (e *Engine) Inspect(_ *EngineContext, in io.Reader) (*HeaderInfo, error) {
 	// Non-destructive read of the header
 	magic, profile, flags, recipients, err := ReadHeader(in, false)
 	if err != nil {
