@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -26,6 +27,11 @@ type QUICServer struct {
 
 // Listen starts a post-quantum QUIC listener with governed settings.
 func Listen(address string, tlsConf *tls.Config, conf TunnelConfig) (*QUICServer, error) {
+	return ListenWithConn(nil, address, tlsConf, conf)
+}
+
+// ListenWithConn starts a QUIC listener over a specific PacketConn.
+func ListenWithConn(pconn net.PacketConn, address string, tlsConf *tls.Config, conf TunnelConfig) (*QUICServer, error) {
 	// Enforce hard cap
 	if conf.MaxStreams > 2000 {
 		conf.MaxStreams = 2000
@@ -39,7 +45,15 @@ func Listen(address string, tlsConf *tls.Config, conf TunnelConfig) (*QUICServer
 		HandshakeIdleTimeout:   time.Duration(conf.HandshakeTimeout) * time.Second,
 	}
 
-	ln, err := quic.ListenAddr(address, tlsConf, quicConf)
+	var ln *quic.Listener
+	var err error
+
+	if pconn != nil {
+		ln, err = quic.Listen(pconn, tlsConf, quicConf)
+	} else {
+		ln, err = quic.ListenAddr(address, tlsConf, quicConf)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to start QUIC listener: %w", err)
 	}
@@ -94,6 +108,11 @@ func GetPQCConfig() *tls.Config {
 
 // Dial establishes a secure QUIC connection with governed settings.
 func Dial(ctx context.Context, address string, tlsConf *tls.Config, conf TunnelConfig) (*QUICClient, error) {
+	return DialWithConn(ctx, nil, address, tlsConf, conf)
+}
+
+// DialWithConn establishes a QUIC connection over a specific PacketConn.
+func DialWithConn(ctx context.Context, pconn net.PacketConn, address string, tlsConf *tls.Config, conf TunnelConfig) (*QUICClient, error) {
 	// Enforce hard cap
 	if conf.MaxStreams > 2000 {
 		conf.MaxStreams = 2000
@@ -107,9 +126,25 @@ func Dial(ctx context.Context, address string, tlsConf *tls.Config, conf TunnelC
 		HandshakeIdleTimeout:   time.Duration(conf.HandshakeTimeout) * time.Second,
 	}
 
-	conn, err := quic.DialAddr(ctx, address, tlsConf, quicConf)
+	var conn *quic.Conn
+	var err error
+
+	if pconn != nil {
+		// Dial over specific virtual packet connection
+		addr, _ := net.ResolveUDPAddr("udp", address)
+		if addr == nil {
+			// Virtual addresses like WormholeAddr aren't real UDP addrs
+			// We pass a dummy addr if the pconn handles routing
+			addr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+		}
+		conn, err = quic.Dial(ctx, pconn, addr, tlsConf, quicConf)
+	} else {
+		// Standard UDP dial
+		conn, err = quic.DialAddr(ctx, address, tlsConf, quicConf)
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial QUIC endpoint: %w", err)
+		return nil, fmt.Errorf("failed to establish QUIC session: %w", err)
 	}
 
 	return &QUICClient{Session: conn}, nil

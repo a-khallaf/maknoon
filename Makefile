@@ -46,6 +46,12 @@ map-calls:
 	$(shell go env GOPATH)/bin/go-callvis -format svg -file engine_map ./cmd/maknoon
 	@echo "✅  Call graph generated: engine_map.svg"
 
+# High-fidelity L4 Gateway smoke test (Docker required)
+test-gateway: build
+	@echo "🛡️  Executing High-Fidelity Forensic Smoke Test..."
+	@chmod +x scripts/test-gateway.sh
+	@./scripts/test-gateway.sh
+
 # Cleanup build artifacts
 clean:
 	@echo "🧹  Cleaning up..."

@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -15,6 +16,9 @@ type TunnelServer struct {
 
 // Start begins accepting connections and streams.
 func (s *TunnelServer) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for {
 		conn, err := s.Listener.Accept(ctx)
 		if err != nil {
@@ -25,6 +29,11 @@ func (s *TunnelServer) Start(ctx context.Context) error {
 }
 
 func (s *TunnelServer) handleConnection(conn *quic.Conn) {
+	state := conn.ConnectionState()
+	slog.Info("tunnel server: new connection established", 
+		"remote", conn.RemoteAddr(),
+		"curve_id", fmt.Sprintf("0x%04x", state.TLS.CurveID),
+	)
 	for {
 		stream, err := conn.AcceptStream(context.Background())
 		if err != nil {
