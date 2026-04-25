@@ -159,18 +159,35 @@ func createMCPServer() *server.MCPServer {
 	s.AddTool(mcp.NewTool("encrypt_file", mcp.WithDescription("Encrypt a file")), 
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)
-			opts := crypto.Options{Passphrase: []byte(viper.GetString("passphrase")), ProfileID: 1}
+			opts := crypto.Options{ProfileID: 1}
+			
+			passRaw := viper.GetString("passphrase")
+			if passRaw != "" {
+				opts.Passphrase = []byte(passRaw)
+			}
+
 			if pk := getString(args, "public_key", ""); pk != "" {
 				m := crypto.NewIdentityManager()
 				if res := m.ResolveKeyPath(pk, ""); res != "" {
-					data, _ := os.ReadFile(res)
-					opts.Recipients = append(opts.Recipients, data)
+					data, err := os.ReadFile(res)
+					if err == nil {
+						opts.Recipients = append(opts.Recipients, data)
+					}
 				}
 			}
-			in, _ := os.Open(getString(args, "input", ""))
-			out, _ := os.Create(getString(args, "output", ""))
+			
+			input := getString(args, "input", "")
+			output := getString(args, "output", "")
+			
+			in, err := os.Open(input)
+			if err != nil { return formatMCPError(err, "encrypt_file") }
+			defer in.Close()
+			
+			out, err := os.Create(output)
+			if err != nil { return formatMCPError(err, "encrypt_file") }
 			defer out.Close()
-			_, err := engine.Protect(nil, "", in, out, opts)
+			
+			_, err = engine.Protect(nil, "", in, out, opts)
 			if err != nil { return formatMCPError(err, "encrypt_file") }
 			return mcp.NewToolResultText(`{"status":"success"}`), nil
 		})

@@ -267,8 +267,8 @@ func TestMCPServerTools(t *testing.T) {
 	})
 
 	t.Run("Start Chat Tool", func(t *testing.T) {
-		if testing.Short() || os.Getenv("GITHUB_ACTIONS") == "true" {
-			t.Skip("skipping network test in short mode or CI")
+		if os.Getenv("MAKNOON_ALLOW_NETWORK") != "1" {
+			t.Skip("skipping network test (set MAKNOON_ALLOW_NETWORK=1 to enable)")
 		}
 		req := json.RawMessage(`{
 			"jsonrpc": "2.0",
@@ -280,7 +280,10 @@ func TestMCPServerTools(t *testing.T) {
 			}
 		}`)
 
-		res := s.HandleMessage(ctx, req)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		res := s.HandleMessage(timeoutCtx, req)
 		resRaw, _ := json.Marshal(res)
 
 		if !strings.Contains(string(resRaw), "established") || !strings.Contains(string(resRaw), "status") {
