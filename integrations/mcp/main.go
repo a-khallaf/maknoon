@@ -811,7 +811,7 @@ func startChatHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 }
 
 func identityActiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	keys, err := engine.IdentityActive(nil)
+	keys, err := engine.IdentityActive(&crypto.EngineContext{Context: ctx})
 	if err != nil {
 		return formatError(err, "identity_active")
 	}
@@ -833,7 +833,7 @@ func identitySplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	shards, err := engine.IdentitySplit(nil, name, threshold, shares, passphrase)
+	shards, err := engine.IdentitySplit(&crypto.EngineContext{Context: ctx}, name, threshold, shares, passphrase)
 	if err != nil {
 		return formatError(err, "identity_split")
 	}
@@ -848,7 +848,7 @@ func identitySplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 func vaultListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	vault := request.GetString("vault", "default")
-	services, err := engine.VaultList(nil, "")
+	services, err := engine.VaultList(&crypto.EngineContext{Context: ctx}, "")
 	if err != nil {
 		return formatError(err, "vault_list")
 	}
@@ -866,7 +866,7 @@ func vaultSplitHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	shares := request.GetInt("shares", 3)
 	passphrase := request.GetString("passphrase", "")
 
-	shards, err := engine.VaultSplit(nil, "", threshold, shares, passphrase)
+	shards, err := engine.VaultSplit(&crypto.EngineContext{Context: ctx}, "", threshold, shares, passphrase)
 	if err != nil {
 		return formatError(err, "vault_split")
 	}
@@ -884,7 +884,7 @@ func vaultRecoverHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	output := request.GetString("output", "recovered")
 	passphrase := request.GetString("passphrase", "")
 
-	path, err := engine.VaultRecover(nil, shards, "", output, passphrase)
+	path, err := engine.VaultRecover(&crypto.EngineContext{Context: ctx}, shards, "", output, passphrase)
 	if err != nil {
 		return formatError(err, "vault_recover")
 	}
@@ -898,7 +898,7 @@ func identityCombineHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	passphrase := request.GetString("passphrase", "")
 	noPassword := request.GetBool("no_password", false)
 
-	path, err := engine.IdentityCombine(nil, shards, output, passphrase, noPassword)
+	path, err := engine.IdentityCombine(&crypto.EngineContext{Context: ctx}, shards, output, passphrase, noPassword)
 	if err != nil {
 		return formatError(err, "identity_combine")
 	}
@@ -941,7 +941,7 @@ func identityPublishHandler(ctx context.Context, request mcp.CallToolRequest) (*
 
 func identityInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("name", "")
-	path, err := engine.IdentityInfo(nil, name)
+	path, err := engine.IdentityInfo(&crypto.EngineContext{Context: ctx}, name)
 	if err != nil {
 		return formatError(err, "identity_info")
 	}
@@ -958,7 +958,7 @@ func identityRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 	oldName := request.GetString("old", "")
 	newName := request.GetString("new", "")
 
-	err := engine.IdentityRename(nil, oldName, newName)
+	err := engine.IdentityRename(&crypto.EngineContext{Context: ctx}, oldName, newName)
 	if err != nil {
 		return formatError(err, "identity_rename")
 	}
@@ -972,7 +972,7 @@ func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	sigPub := request.GetString("sig_pub", "")
 	note := request.GetString("note", "")
 
-	err := engine.ContactAdd(nil, petname, kemPub, sigPub, note)
+	err := engine.ContactAdd(&crypto.EngineContext{Context: ctx}, petname, kemPub, sigPub, note)
 	if err != nil {
 		return formatError(err, "contact_add")
 	}
@@ -981,7 +981,7 @@ func contactAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 }
 
 func contactListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	contacts, err := engine.ContactList(nil)
+	contacts, err := engine.ContactList(&crypto.EngineContext{Context: ctx})
 	if err != nil {
 		return formatError(err, "contact_list")
 	}

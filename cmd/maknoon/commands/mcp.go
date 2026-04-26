@@ -232,7 +232,7 @@ func createMCPServer() *server.MCPServer {
 				LocalProxyPort: int(port),
 			}
 
-			status, err := engine.TunnelStart(nil, opts)
+			status, err := engine.TunnelStart(&crypto.EngineContext{Context: ctx}, opts)
 			if err != nil {
 				return formatMCPError(err, "tunnel_start")
 			}
@@ -242,7 +242,7 @@ func createMCPServer() *server.MCPServer {
 
 	s.AddTool(mcp.NewTool("tunnel_stop", mcp.WithDescription("Terminate the active PQC tunnel")),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			err := engine.TunnelStop(nil)
+			err := engine.TunnelStop(&crypto.EngineContext{Context: ctx})
 			if err != nil {
 				return formatMCPError(err, "tunnel_stop")
 			}
@@ -251,7 +251,7 @@ func createMCPServer() *server.MCPServer {
 
 	s.AddTool(mcp.NewTool("tunnel_status", mcp.WithDescription("Retrieve status of the active tunnel")),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			status, err := engine.TunnelStatus(nil)
+			status, err := engine.TunnelStatus(&crypto.EngineContext{Context: ctx})
 			if err != nil {
 				return formatMCPError(err, "tunnel_status")
 			}

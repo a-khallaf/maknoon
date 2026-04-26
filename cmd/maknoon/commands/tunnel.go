@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/al-Zamakhshari/maknoon/pkg/tunnel"
 	"github.com/spf13/cobra"
 )
@@ -58,7 +60,7 @@ func tunnelListenCmd() *cobra.Command {
 			server := &tunnel.TunnelServer{Listener: srv.Listener}
 			fmt.Printf("🚀 PQC Tunnel Server listening on %s (UDP)\n", addr)
 
-			return server.Start(nil)
+			return server.Start(cmd.Context())
 		},
 	}
 
@@ -100,7 +102,7 @@ func tunnelStartCmd() *cobra.Command {
 			<-sig
 
 			fmt.Println("\n🛑 Tearing down tunnel...")
-			return GlobalContext.Engine.TunnelStop(nil)
+			return GlobalContext.Engine.TunnelStop(&crypto.EngineContext{Context: cmd.Context()})
 		},
 	}
 
