@@ -1,0 +1,27 @@
+services:
+  mcp-server:
+    build: .
+    command: mcp --transport sse --address :8080
+    ports:
+      - "8080:8080"
+      - "1080:1080" # Map SOCKS5 port to host for verification
+    environment:
+      - MAKNOON_PASSPHRASE=mcp-test-secret
+    networks:
+      mcp-net:
+        ipv4_address: 172.25.0.10
+
+  p2p-gateway:
+    build: .
+    command: tunnel listen --p2p --address :4435
+    networks:
+      mcp-net:
+        ipv4_address: 172.25.0.12
+    environment:
+      - MAKNOON_PASSPHRASE=mcp-test-secret
+
+networks:
+  mcp-net:
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

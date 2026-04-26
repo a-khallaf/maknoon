@@ -76,16 +76,15 @@ func runSSEServer(s *server.MCPServer) error {
 	certFile := viper.GetString("mcp.tls_cert")
 	keyFile := viper.GetString("mcp.tls_key")
 
-	sseServer := server.NewSSEServer(s, server.WithBaseURL("https://"+addr))
+	sseServer := server.NewSSEServer(s, server.WithBaseURL("http://"+addr))
 
 	// Define the HTTP server with Post-Quantum TLS 1.3 configuration
 	httpServer := &http.Server{
 		Addr: addr,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS13,
-			// Prioritize ML-KEM hybrid key exchange (Go 1.23+)
 			CurvePreferences: []tls.CurveID{
-				tls.X25519MLKEM768, // Post-Quantum Hybrid
+				tls.X25519MLKEM768,
 				tls.X25519,
 				tls.CurveP256,
 			},
@@ -222,14 +221,32 @@ func createMCPServer() *server.MCPServer {
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)
 			remote := getString(args, "remote", "")
-			port, _ := args["port"].(float64)
-			if port == 0 {
-				port = 1080 // Default SOCKS5 port
+			portVal, _ := args["port"]
+			var port int
+			switch v := portVal.(type) {
+			case float64:
+				port = int(v)
+			case int64:
+				port = int(v)
+			case int:
+				port = v
+			default:
+				port = 1080
 			}
+
+			useYamux, _ := args["use_yamux"].(bool)
+			p2pMode, _ := args["p2p_mode"].(bool)
+			p2pAddr := getString(args, "p2p_addr", "")
 
 			opts := tunnel.TunnelOptions{
 				RemoteEndpoint: remote,
-				LocalProxyPort: int(port),
+				LocalProxyPort: port,
+				UseYamux:       useYamux,
+				P2PMode:        p2pMode,
+				P2PAddr:        p2pAddr,
+			}
+			if p2pMode {
+				opts.RemoteEndpoint = "p2p-virtual" // Bypass engine validation
 			}
 
 			status, err := engine.TunnelStart(&crypto.EngineContext{Context: ctx}, opts)

@@ -3,16 +3,20 @@ package tunnel
 import (
 	"context"
 	"fmt"
-	"github.com/quic-go/quic-go"
 	"io"
 	"log/slog"
 	"net"
+
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/quic-go/quic-go"
 )
 
 // TunnelServer handles incoming multiplexed connections and forwards them to internal targets.
 type TunnelServer struct {
 	Listener *quic.Listener
 	Session  *YamuxSession
+	P2PHost  host.Host
 }
 
 // Start begins accepting QUIC connections.
@@ -44,6 +48,21 @@ func (s *TunnelServer) StartYamux(ctx context.Context) error {
 		}
 		go s.handleStream(stream)
 	}
+}
+
+// StartLibp2p begins accepting streams from libp2p.
+func (s *TunnelServer) StartLibp2p(ctx context.Context) error {
+	if s.P2PHost == nil {
+		return fmt.Errorf("libp2p host not initialized")
+	}
+
+	s.P2PHost.SetStreamHandler(MaknoonProtocol, func(stream network.Stream) {
+		slog.Info("tunnel server: new libp2p stream established", "remote", stream.Conn().RemotePeer())
+		s.handleStream(&libp2pConn{Stream: stream})
+	})
+
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (s *TunnelServer) handleQUICConnection(conn *quic.Conn) {

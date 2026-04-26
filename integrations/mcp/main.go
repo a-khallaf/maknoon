@@ -423,6 +423,42 @@ func createServer() *server.MCPServer {
 	}
 	s.AddTool(profilesGen, profilesGenHandler)
 
+	// Tool: tunnel_start
+	tunnelStart := mcp.NewTool("tunnel_start",
+		mcp.WithDescription("Provision a Post-Quantum L4 tunnel and SOCKS5 gateway"),
+	)
+	tunnelStart.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"remote":    map[string]interface{}{"type": "string", "description": "Remote PQC Tunnel endpoint (host:port)"},
+			"port":      map[string]interface{}{"type": "integer", "description": "Local SOCKS5 proxy port (default 1080)"},
+			"use_yamux": map[string]interface{}{"type": "boolean", "description": "Use TCP+Yamux mode"},
+			"p2p_mode":  map[string]interface{}{"type": "boolean", "description": "Use libp2p for P2P mode"},
+			"p2p_addr":  map[string]interface{}{"type": "string", "description": "Remote P2P Multiaddr"},
+		},
+	}
+	s.AddTool(tunnelStart, tunnelStartHandler)
+
+	// Tool: tunnel_stop
+	tunnelStop := mcp.NewTool("tunnel_stop",
+		mcp.WithDescription("Terminate the active PQC tunnel"),
+	)
+	tunnelStop.InputSchema = mcp.ToolInputSchema{
+		Type:       "object",
+		Properties: map[string]interface{}{},
+	}
+	s.AddTool(tunnelStop, tunnelStopHandler)
+
+	// Tool: tunnel_status
+	tunnelStatus := mcp.NewTool("tunnel_status",
+		mcp.WithDescription("Retrieve status of the active tunnel"),
+	)
+	tunnelStatus.InputSchema = mcp.ToolInputSchema{
+		Type:       "object",
+		Properties: map[string]interface{}{},
+	}
+	s.AddTool(tunnelStatus, tunnelStatusHandler)
+
 	return s
 }
 
@@ -1056,5 +1092,46 @@ func profilesGenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		"id":     nextID,
 	}
 	raw, _ := json.Marshal(res)
+	return mcp.NewToolResultText(string(raw)), nil
+}
+
+func tunnelStartHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	remote := request.GetString("remote", "")
+	port := request.GetInt("port", 1080)
+	useYamux := request.GetBool("use_yamux", false)
+	p2pMode := request.GetBool("p2p_mode", false)
+	p2pAddr := request.GetString("p2p_addr", "")
+
+	opts := tunnel.TunnelOptions{
+		RemoteEndpoint: remote,
+		LocalProxyPort: port,
+		UseYamux:       useYamux,
+		P2PMode:        p2pMode,
+		P2PAddr:        p2pAddr,
+	}
+
+	status, err := engine.TunnelStart(&crypto.EngineContext{Context: ctx}, opts)
+	if err != nil {
+		return formatError(err, "tunnel_start")
+	}
+
+	raw, _ := json.Marshal(status)
+	return mcp.NewToolResultText(string(raw)), nil
+}
+
+func tunnelStopHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	err := engine.TunnelStop(&crypto.EngineContext{Context: ctx})
+	if err != nil {
+		return formatError(err, "tunnel_stop")
+	}
+	return mcp.NewToolResultText(`{"status":"stopped"}`), nil
+}
+
+func tunnelStatusHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	status, err := engine.TunnelStatus(&crypto.EngineContext{Context: ctx})
+	if err != nil {
+		return formatError(err, "tunnel_status")
+	}
+	raw, _ := json.Marshal(status)
 	return mcp.NewToolResultText(string(raw)), nil
 }

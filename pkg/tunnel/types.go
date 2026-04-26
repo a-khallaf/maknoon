@@ -20,6 +20,8 @@ type TunnelOptions struct {
 	PQPublicKey    []byte `json:"pq_public_key"`
 	Passphrase     []byte `json:"passphrase,omitempty"`
 	UseYamux       bool   `json:"use_yamux,omitempty"`
+	P2PMode        bool   `json:"p2p_mode,omitempty"`
+	P2PAddr        string `json:"p2p_addr,omitempty"` // Multiaddr or PeerID
 }
 
 // TunnelStatus represents the current state of an active L4 tunnel.

@@ -1,3 +1,5 @@
 🔒 PQC L4 Tunnel Active
 📡 Local Proxy: 127.0.0.1:1081
-🌍 Remote Peer: 127.0.0.1:4434
+🌍 Remote Peer: pqc-tcp:127.0.0.1:4434
+
+🛑 Tearing down tunnel...

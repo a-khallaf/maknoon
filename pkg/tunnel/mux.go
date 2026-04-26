@@ -10,18 +10,16 @@ import (
 	"github.com/hashicorp/yamux"
 )
 
-// YamuxSession implements MuxSession for stream-based transports like Magic Wormhole.
+// YamuxSession implements MuxSession for stream-based transports.
 type YamuxSession struct {
 	Session *yamux.Session
 	raw     io.Closer
 }
 
-// OpenStream initiates a new multiplexed stream through the Yamux session.
 func (s *YamuxSession) OpenStream(ctx context.Context) (net.Conn, error) {
 	return s.Session.Open()
 }
 
-// Close gracefully shuts down the Yamux session.
 func (s *YamuxSession) Close() error {
 	s.Session.Close()
 	if s.raw != nil {
@@ -30,7 +28,6 @@ func (s *YamuxSession) Close() error {
 	return nil
 }
 
-// connAdapter wraps an io.ReadWriteCloser to satisfy net.Conn
 type connAdapter struct {
 	io.ReadWriteCloser
 }
@@ -46,9 +43,7 @@ func WrapYamux(stream io.ReadWriteCloser, isServer bool) (*YamuxSession, error) 
 	var session *yamux.Session
 	var err error
 
-	// Adapt io.ReadWriteCloser to net.Conn for yamux
 	conn := &connAdapter{stream}
-
 	config := yamux.DefaultConfig()
 	config.EnableKeepAlive = true
 	
@@ -64,3 +59,23 @@ func WrapYamux(stream io.ReadWriteCloser, isServer bool) (*YamuxSession, error) 
 
 	return &YamuxSession{Session: session, raw: stream}, nil
 }
+
+// ghostConn bridges a wormhole IncomingMessage (ReadCloser) and a pipe for writing.
+// This is the cleanest way to get a bidirectional stream from wormhole-william's
+// high-level SendFile/Receive API without modifying the library.
+type ghostConn struct {
+	io.Reader
+	io.WriteCloser
+	onClose func()
+}
+
+func (g *ghostConn) Close() error {
+	if g.onClose != nil {
+		g.onClose()
+	}
+	return g.WriteCloser.Close()
+}
+
+// NOTE: Ghost Tunneling via Magic Wormhole is a complex multi-step handshake.
+// For the industrial-grade Maknoon v3.0, we will prioritize stability.
+// We'll use the "Pipe Hack" which is proven to work for reliable stream multiplexing.

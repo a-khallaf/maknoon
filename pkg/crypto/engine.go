@@ -251,9 +251,26 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 	}
 
 	var session tunnel.MuxSession
+	var remoteDisplay string
 
-	if opts.UseYamux {
+	if opts.P2PMode {
+		// libp2p Path (The "Smart Path")
+		h, err := tunnel.NewLibp2pHost()
+		if err != nil {
+			return tunnel.TunnelStatus{}, fmt.Errorf("failed to start libp2p host: %w", err)
+		}
+		
+		session, err = tunnel.DialLibp2p(ectx.Context, h, opts.P2PAddr)
+		if err != nil {
+			h.Close()
+			return tunnel.TunnelStatus{}, fmt.Errorf("failed to dial p2p peer: %w", err)
+		}
+		remoteDisplay = "p2p:" + session.(*tunnel.Libp2pSession).PeerID.String()
+	} else if opts.UseYamux {
 		// TCP + Yamux Path with PQC TLS (Bleeding-Edge Hybrid)
+		if opts.RemoteEndpoint == "" {
+			return tunnel.TunnelStatus{}, fmt.Errorf("remote endpoint is required for TCP tunnel")
+		}
 		tlsConf := tunnel.GetPQCConfig()
 		tlsConf.InsecureSkipVerify = true
 		
@@ -267,8 +284,12 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 			return tunnel.TunnelStatus{}, err
 		}
 		session = yamuxSess
+		remoteDisplay = "pqc-tcp:" + opts.RemoteEndpoint
 	} else {
 		// Standard PQC QUIC Connection
+		if !opts.P2PMode && opts.RemoteEndpoint == "" {
+			return tunnel.TunnelStatus{}, fmt.Errorf("remote endpoint is required for direct tunnel")
+		}
 		tlsConf := tunnel.GetPQCConfig()
 		tlsConf.InsecureSkipVerify = true // Prototype mode
 
@@ -277,6 +298,7 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 			return tunnel.TunnelStatus{}, fmt.Errorf("failed to establish PQC tunnel: %w", err)
 		}
 		session = client
+		remoteDisplay = opts.RemoteEndpoint
 	}
 
 	// Start SOCKS5 Gateway
@@ -293,7 +315,7 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 	e.activeTunnel = &tunnel.TunnelStatus{
 		Active:         true,
 		LocalAddress:   fmt.Sprintf("127.0.0.1:%d", opts.LocalProxyPort),
-		RemoteEndpoint: opts.RemoteEndpoint,
+		RemoteEndpoint: remoteDisplay,
 		HandshakeTime:  time.Now().Format(time.RFC3339),
 	}
 	e.gateway = gw
