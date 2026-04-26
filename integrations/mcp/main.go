@@ -1111,6 +1111,10 @@ func tunnelStartHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		P2PAddr:        p2pAddr,
 	}
 
+	if p2pMode {
+		opts.RemoteEndpoint = "p2p-virtual" // Bypass engine validation if direct is required
+	}
+
 	status, err := engine.TunnelStart(&crypto.EngineContext{Context: ctx}, opts)
 	if err != nil {
 		return formatError(err, "tunnel_start")

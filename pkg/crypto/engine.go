@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -114,44 +113,28 @@ type Utils interface {
 }
 
 // StateProvider provides a standardized interface for accessing and managing
-// the engine's internal configuration state and security policy. It ensures
-// that state modifications are governed by the active capability policy.
+// the engine's internal configuration state and security policy.
 type StateProvider interface {
-	// GetPolicy returns the current security policy enforced by the engine.
 	GetPolicy() SecurityPolicy
-	// GetConfig returns the active configuration parameters.
 	GetConfig() *Config
-	// UpdateConfig replaces the current configuration with newConf, subject to policy validation.
 	UpdateConfig(ectx *EngineContext, newConf *Config) error
-	// RegisterProfile adds a new cryptographic profile to the engine's registry.
 	RegisterProfile(ectx *EngineContext, name string, dp *DynamicProfile) error
-	// RemoveProfile deletes a custom profile from the engine's registry.
 	RemoveProfile(ectx *EngineContext, name string) error
 }
 
 // Inspector provides non-destructive analysis of encrypted Maknoon data.
 type Inspector interface {
-	// Inspect reads the header of an encrypted stream and returns its metadata
-	// and cryptographic parameters without attempting full decryption.
 	Inspect(ectx *EngineContext, in io.Reader) (*HeaderInfo, error)
 }
 
 // TunnelService provides managed access to post-quantum L4 tunnels.
 type TunnelService interface {
-	// TunnelStart initializes the user-space netstack and establishes a PQC tunnel.
 	TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tunnel.TunnelStatus, error)
-	// TunnelStop gracefully tears down the active tunnel and clears associated memory.
 	TunnelStop(ectx *EngineContext) error
-	// TunnelStatus returns the operational state of the tunnel.
 	TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error)
 }
 
 // MaknoonEngine is the primary high-level facade for all Maknoon services.
-// It orchestrates low-level cryptographic primitives into high-level missions
-// while strictly enforcing the configured SecurityPolicy at every entry point.
-//
-// In v3.0, MaknoonEngine is the single source of truth for both CLI and MCP server
-// logic, ensuring zero logic drift across different integration layers.
 type MaknoonEngine interface {
 	Protector
 	IdentityService
@@ -219,7 +202,6 @@ func (e *Engine) RemoveProfile(ectx *EngineContext, name string) error {
 }
 
 func (e *Engine) Inspect(_ *EngineContext, in io.Reader) (*HeaderInfo, error) {
-	// Non-destructive read of the header
 	magic, profile, flags, recipients, err := ReadHeader(in, false)
 	if err != nil {
 		return nil, err
@@ -250,58 +232,12 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 		return *e.activeTunnel, fmt.Errorf("a tunnel is already active")
 	}
 
-	var session tunnel.MuxSession
-	var remoteDisplay string
-
-	if opts.P2PMode {
-		// libp2p Path (The "Smart Path")
-		h, err := tunnel.NewLibp2pHost()
-		if err != nil {
-			return tunnel.TunnelStatus{}, fmt.Errorf("failed to start libp2p host: %w", err)
-		}
-
-		session, err = tunnel.DialLibp2p(ectx.Context, h, opts.P2PAddr)
-		if err != nil {
-			h.Close()
-			return tunnel.TunnelStatus{}, fmt.Errorf("failed to dial p2p peer: %w", err)
-		}
-		remoteDisplay = "p2p:" + session.(*tunnel.Libp2pSession).PeerID.String()
-	} else if opts.UseYamux {
-		// TCP + Yamux Path with PQC TLS (Bleeding-Edge Hybrid)
-		if opts.RemoteEndpoint == "" {
-			return tunnel.TunnelStatus{}, fmt.Errorf("remote endpoint is required for TCP tunnel")
-		}
-		tlsConf := tunnel.GetPQCConfig()
-		tlsConf.InsecureSkipVerify = true
-
-		conn, err := tls.Dial("tcp", opts.RemoteEndpoint, tlsConf)
-		if err != nil {
-			return tunnel.TunnelStatus{}, fmt.Errorf("failed to connect to remote via PQC-TCP: %w", err)
-		}
-		yamuxSess, err := tunnel.WrapYamux(conn, false)
-		if err != nil {
-			conn.Close()
-			return tunnel.TunnelStatus{}, err
-		}
-		session = yamuxSess
-		remoteDisplay = "pqc-tcp:" + opts.RemoteEndpoint
-	} else {
-		// Standard PQC QUIC Connection
-		if !opts.P2PMode && opts.RemoteEndpoint == "" {
-			return tunnel.TunnelStatus{}, fmt.Errorf("remote endpoint is required for direct tunnel")
-		}
-		tlsConf := tunnel.GetPQCConfig()
-		tlsConf.InsecureSkipVerify = true // Prototype mode
-
-		client, err := tunnel.Dial(ectx.Context, opts.RemoteEndpoint, tlsConf, e.Config.Tunnel)
-		if err != nil {
-			return tunnel.TunnelStatus{}, fmt.Errorf("failed to establish PQC tunnel: %w", err)
-		}
-		session = client
-		remoteDisplay = opts.RemoteEndpoint
+	factory := &tunnel.TransportFactory{Config: e.Config.Tunnel}
+	session, err := factory.CreateClientSession(ectx.Context, opts)
+	if err != nil {
+		return tunnel.TunnelStatus{}, err
 	}
 
-	// Start SOCKS5 Gateway
 	gw := &tunnel.TunnelGateway{
 		Port:    opts.LocalProxyPort,
 		Session: session,
@@ -311,11 +247,10 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 		return tunnel.TunnelStatus{}, fmt.Errorf("failed to start SOCKS5 gateway: %w", err)
 	}
 
-	// Update State
 	e.activeTunnel = &tunnel.TunnelStatus{
 		Active:         true,
 		LocalAddress:   fmt.Sprintf("127.0.0.1:%d", opts.LocalProxyPort),
-		RemoteEndpoint: remoteDisplay,
+		RemoteEndpoint: opts.RemoteEndpoint,
 		HandshakeTime:  time.Now().Format(time.RFC3339),
 	}
 	e.gateway = gw
@@ -349,7 +284,6 @@ func (e *Engine) TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error) 
 	return *e.activeTunnel, nil
 }
 
-// context ensures a valid context and policy are always available.
 func (e *Engine) context(ectx *EngineContext) *EngineContext {
 	if ectx == nil {
 		return &EngineContext{
@@ -373,7 +307,6 @@ func (e *Engine) enforce(ectx *EngineContext, cap Capability) error {
 	return nil
 }
 
-// NewEngine creates a new Engine with the specified policy and loaded config.
 func NewEngine(policy SecurityPolicy) (*Engine, error) {
 	conf, err := LoadConfig()
 	if err != nil {
@@ -403,7 +336,6 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// SafeClear securely wipes sensitive bytes.
 func SafeClear(b []byte) {
 	if b == nil {
 		return
