@@ -2,48 +2,31 @@ package tunnel
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
-	"github.com/quic-go/quic-go"
 )
 
-// TunnelServer handles incoming PQC QUIC connections and forwards them to internal targets.
+// TunnelServer handles incoming PQC QUIC or Yamux connections and forwards them to internal targets.
 type TunnelServer struct {
-	Listener *quic.Listener
+	Mux TunnelMux
 }
 
-// Start begins accepting connections and streams.
+// Start begins accepting streams through the multiplexer.
 func (s *TunnelServer) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	for {
-		conn, err := s.Listener.Accept(ctx)
+		stream, err := s.Mux.AcceptStream(ctx)
 		if err != nil {
 			return err
-		}
-		go s.handleConnection(conn)
-	}
-}
-
-func (s *TunnelServer) handleConnection(conn *quic.Conn) {
-	state := conn.ConnectionState()
-	slog.Info("tunnel server: new connection established", 
-		"remote", conn.RemoteAddr(),
-		"curve_id", fmt.Sprintf("0x%04x", state.TLS.CurveID),
-	)
-	for {
-		stream, err := conn.AcceptStream(context.Background())
-		if err != nil {
-			return
 		}
 		go s.handleStream(stream)
 	}
 }
 
-func (s *TunnelServer) handleStream(stream *quic.Stream) {
+func (s *TunnelServer) handleStream(stream io.ReadWriteCloser) {
 	defer stream.Close()
 
 	// 1. Read Destination Header [1 byte len][address string]
@@ -70,7 +53,7 @@ func (s *TunnelServer) handleStream(stream *quic.Stream) {
 	}
 	defer target.Close()
 
-	// 3. Bi-directional PQC-to-Plaintext Bridge
+	// 3. Bi-directional PQC-to-Plaintext Bridge with Memory Hygiene
 	done := make(chan struct{}, 2)
 	
 	go func() {
