@@ -431,3 +431,16 @@ func (e *AuditEngine) TunnelStop(ectx *EngineContext) error {
 func (e *AuditEngine) TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error) {
 	return e.Engine.TunnelStatus(ectx)
 }
+
+func (e *AuditEngine) ChatStart(ectx *EngineContext, target string) (*P2PChatSession, error) {
+	start := time.Now()
+	sess, err := e.Engine.ChatStart(ectx, target)
+	duration := time.Since(start)
+
+	e.Logger.LogEvent("chat_start", map[string]any{
+		"target":      target,
+		"duration_ms": duration.Milliseconds(),
+	}, err)
+
+	return sess, err
+}

@@ -12,7 +12,7 @@ import (
 func ConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage Maknoon configuration (relays, security, performance)",
+		Short: "Manage Maknoon configuration (security, performance, agent limits)",
 	}
 
 	cmd.AddCommand(configListCmd())
@@ -46,9 +46,6 @@ func configListCmd() *cobra.Command {
 				fmt.Printf("    Concurrency:      %d (0=auto)\n", conf.Performance.Concurrency)
 				fmt.Printf("    Zstd Level:       %d\n", conf.Performance.CompressionLevel)
 				fmt.Printf("    Default Stealth:  %v\n", conf.Performance.DefaultStealth)
-				fmt.Println("  Wormhole (P2P):")
-				fmt.Printf("    Rendezvous URL:   %s\n", conf.Wormhole.RendezvousURL)
-				fmt.Printf("    Transit Relay:    %s\n", conf.Wormhole.TransitRelay)
 				fmt.Println("  Agent Limits:")
 				fmt.Printf("    Max Memory:       %d KB\n", conf.AgentLimits.MaxMemoryKB)
 				fmt.Printf("    Max Time:         %d\n", conf.AgentLimits.MaxTime)
@@ -78,8 +75,6 @@ Keys:
   security.threads   - Argon2id threads
   perf.concurrency   - Default parallel workers
   perf.stealth       - Default stealth mode (true/false)
-  wormhole.rendezvous- Default Rendezvous URL
-  wormhole.transit   - Default Transit Relay
   agent.max_memory   - Agent RAM limit (KB)
   agent.max_workers  - Agent CPU worker limit
   agent.allowed_urls - Comma-separated list of permitted servers
@@ -112,10 +107,6 @@ Keys:
 				conf.Performance.Concurrency = v
 			case "perf.stealth":
 				conf.Performance.DefaultStealth = (val == "true")
-			case "wormhole.rendezvous":
-				conf.Wormhole.RendezvousURL = val
-			case "wormhole.transit":
-				conf.Wormhole.TransitRelay = val
 			case "agent.max_memory":
 				v, _ := strconv.ParseUint(val, 10, 32)
 				conf.AgentLimits.MaxMemoryKB = uint32(v)

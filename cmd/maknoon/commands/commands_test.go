@@ -523,8 +523,8 @@ func TestP2PAdvancedCmds(t *testing.T) {
 		if recv.Flags().Lookup("private-key") == nil {
 			t.Error("Missing --private-key flag in receive command")
 		}
-		if recv.Flags().Lookup("rendezvous-url") == nil {
-			t.Error("Missing --rendezvous-url flag in receive command")
+		if recv.Flags().Lookup("p2p") == nil {
+			t.Error("Missing --p2p flag in receive command")
 		}
 	})
 }

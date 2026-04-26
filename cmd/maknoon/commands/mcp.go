@@ -294,23 +294,30 @@ func createMCPServer() *server.MCPServer {
 			opts := crypto.P2PSendOptions{
 				Passphrase: []byte(viper.GetString("passphrase")),
 				Stealth:    getBool(args, "stealth", false),
+				P2PMode:    true,
+				To:         getString(args, "to", ""),
 			}
-			code, _, err := engine.P2PSend(nil, name, r, opts)
+			code, _, err := engine.P2PSend(&crypto.EngineContext{Context: ctx}, name, r, opts)
 			if err != nil {
 				return formatMCPError(err, "p2p_send")
 			}
-			return mcp.NewToolResultText(fmt.Sprintf(`{"code":"%s","status":"established"}`, code)), nil
+			return mcp.NewToolResultText(fmt.Sprintf(`{"peer_id":"%s","status":"established"}`, code)), nil
 		})
 
-	s.AddTool(mcp.NewTool("start_chat", mcp.WithDescription("Initiate a Ghost Chat session")),
+	s.AddTool(mcp.NewTool("chat_start", mcp.WithDescription("Initiate an identity-bound P2P Chat session")),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			session := crypto.NewChatSession("maknoon-mcp")
-			code, err := session.StartHost(ctx)
+			args := getArgs(request)
+			target := getString(args, "target", "")
+			sess, err := engine.ChatStart(&crypto.EngineContext{Context: ctx}, target)
 			if err != nil {
-				return formatMCPError(err, "start_chat")
+				return formatMCPError(err, "chat_start")
 			}
-			session.Close()
-			return mcp.NewToolResultText(fmt.Sprintf(`{"status":"established","code":"%s"}`, code)), nil
+			res := map[string]string{
+				"status":  "established",
+				"peer_id": sess.Host.ID().String(),
+			}
+			raw, _ := json.Marshal(res)
+			return mcp.NewToolResultText(string(raw)), nil
 		})
 
 	// 4. Utility Tools

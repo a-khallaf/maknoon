@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,6 +136,11 @@ type TunnelService interface {
 	TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error)
 }
 
+// ChatService handles persistent identity-bound chat missions.
+type ChatService interface {
+	ChatStart(ectx *EngineContext, target string) (*P2PChatSession, error)
+}
+
 // MaknoonEngine is the primary high-level facade for all Maknoon services.
 type MaknoonEngine interface {
 	Protector
@@ -145,6 +151,7 @@ type MaknoonEngine interface {
 	StateProvider
 	Inspector
 	TunnelService
+	ChatService
 }
 
 // Engine is the central stateful service for Maknoon operations.
@@ -283,6 +290,67 @@ func (e *Engine) TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error) 
 		return tunnel.TunnelStatus{Active: false}, nil
 	}
 	return *e.activeTunnel, nil
+}
+
+func (e *Engine) ChatStart(ectx *EngineContext, target string) (*P2PChatSession, error) {
+	ectx = e.context(ectx)
+	if err := e.enforce(ectx, CapP2P); err != nil {
+		return nil, err
+	}
+
+	// 1. Load active identity
+	conf := e.GetConfig()
+	idName := conf.DefaultIdentity
+	if idName == "" {
+		idName = "default"
+	}
+	id, err := e.Identities.LoadIdentity(idName, nil, "", false)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Derive libp2p key
+	priv, err := id.AsLibp2pKey()
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Start libp2p host
+	h, err := tunnel.NewLibp2pHost(libp2p.Identity(priv))
+	if err != nil {
+		return nil, err
+	}
+
+	sess := NewP2PChatSession(h)
+
+	if target == "" {
+		_, err = sess.StartHost(ectx.Context)
+	} else {
+		// If target starts with @, resolve it
+		if strings.HasPrefix(target, "@") {
+			cm, err := NewContactManager()
+			if err != nil {
+				return nil, err
+			}
+			defer cm.Close()
+			c, err := cm.Get(target)
+			if err != nil {
+				return nil, err
+			}
+			if c.PeerID == "" {
+				return nil, fmt.Errorf("contact %s has no PeerID", target)
+			}
+			target = c.PeerID
+		}
+		err = sess.StartJoin(ectx.Context, target)
+	}
+
+	if err != nil {
+		h.Close()
+		return nil, err
+	}
+
+	return sess, nil
 }
 
 // P2PKeepAlive starts a background DHT advertising loop for the current identity.

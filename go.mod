@@ -12,7 +12,6 @@ require (
 	github.com/mohammadv184/go-fido2 v0.1.1
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/nbd-wtf/go-nostr v0.52.3
-	github.com/psanford/wormhole-william v1.0.8
 	github.com/quic-go/quic-go v0.59.0
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/secure-io/siv-go v0.0.0-20180922214919-5ff40651e2c4
@@ -179,6 +178,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
-	nhooyr.io/websocket v1.8.17 // indirect
-	salsa.debian.org/vasudev/gospake2 v0.0.0-20210510093858-d91629950ad1 // indirect
 )

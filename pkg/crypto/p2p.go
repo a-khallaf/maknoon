@@ -1,13 +1,9 @@
 package crypto
 
 import (
-	"fmt"
+	"github.com/al-Zamakhshari/maknoon/pkg/tunnel"
+	"github.com/libp2p/go-libp2p"
 	"io"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/psanford/wormhole-william/wormhole"
 )
 
 // P2PStatus represents a progress update in a P2P transfer.
@@ -28,8 +24,10 @@ type P2PSendOptions struct {
 	PublicKey     []byte
 	Stealth       bool
 	IsDirectory   bool
-	RendezvousURL string
-	TransitRelay  string
+	RendezvousURL string // Deprecated
+	TransitRelay  string // Deprecated
+	P2PMode       bool   // Always true in v3.1
+	To            string // Remote PeerID or @petname
 }
 
 // P2PReceiveOptions settings for P2P receiving.
@@ -38,187 +36,57 @@ type P2PReceiveOptions struct {
 	PrivateKey    []byte
 	Stealth       bool
 	OutputDir     string
-	RendezvousURL string
-	TransitRelay  string
+	RendezvousURL string // Deprecated
+	TransitRelay  string // Deprecated
+	P2PMode       bool   // Always true in v3.1
 }
 
-// P2PSend initiates a P2P transfer.
+// P2PSend initiates a libp2p P2P transfer.
 func (e *Engine) P2PSend(ectx *EngineContext, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error) {
 	ectx = e.context(ectx)
 	status := make(chan P2PStatus, 10)
 
-	// 1. Initial Validation
-	conf := e.GetConfig()
-	rendezvous := opts.RendezvousURL
-	if rendezvous == "" {
-		rendezvous = conf.Wormhole.RendezvousURL
-	}
-	if err := e.ValidateWormholeURL(ectx, rendezvous); err != nil {
-		return "", nil, err
-	}
-
-	// 2. Encryption (Library call)
-	// For simplicity, we'll use a temp file for the encrypted payload to allow seeking
-	tmpEnc, err := os.CreateTemp("", "maknoon-p2p-send-*.makn")
+	// libp2p Path (The only path in v3.1)
+	id, err := e.Identities.LoadIdentity("", nil, "", false)
 	if err != nil {
 		return "", nil, err
 	}
-
-	protectOpts := Options{
-		Passphrase:  opts.Passphrase,
-		PublicKey:   opts.PublicKey,
-		Stealth:     opts.Stealth,
-		Compress:    true,
-		IsArchive:   opts.IsDirectory,
-		Concurrency: conf.AgentLimits.MaxWorkers,
-	}
-
-	status <- P2PStatus{Phase: "encrypting"}
-	_, err = e.Protect(ectx, inputName, r, tmpEnc, protectOpts)
+	priv, err := id.AsLibp2pKey()
 	if err != nil {
-		_ = tmpEnc.Close()
-		_ = os.Remove(tmpEnc.Name())
 		return "", nil, err
 	}
-
-	fi, _ := tmpEnc.Stat()
-	totalBytes := fi.Size()
-	if _, err := tmpEnc.Seek(0, 0); err != nil {
-		return "", nil, err
-	}
-
-	// 3. Wormhole initialization
-	c := wormhole.Client{
-		RendezvousURL: rendezvous,
-	}
-	if opts.TransitRelay != "" {
-		c.TransitRelayAddress = opts.TransitRelay
-	} else if conf.Wormhole.TransitRelay != "" {
-		c.TransitRelayAddress = conf.Wormhole.TransitRelay
-	}
-
-	fileName := filepath.Base(inputName)
-	if opts.IsDirectory || !strings.HasSuffix(fileName, ".makn") {
-		fileName += ".makn"
-	}
-
-	status <- P2PStatus{Phase: "connecting"}
-	code, wStatus, err := c.SendFile(ectx.Context, fileName, tmpEnc)
+	h, err := tunnel.NewLibp2pHost(libp2p.Identity(priv))
 	if err != nil {
-		_ = tmpEnc.Close()
-		_ = os.Remove(tmpEnc.Name())
 		return "", nil, err
 	}
-	// Background monitor for the wormhole status
-	go func() {
-		defer tmpEnc.Close()
-		defer os.Remove(tmpEnc.Name())
-		defer close(status)
-
-		for s := range wStatus {
-			if s.Error != nil {
-				status <- P2PStatus{Phase: "error", Error: s.Error}
-				return
-			}
-			if s.OK {
-				status <- P2PStatus{Phase: "success"}
-				return
-			}
-			// Update status
-			status <- P2PStatus{
-				Phase:      "transferring",
-				BytesTotal: totalBytes,
-			}
-		}
-	}()
-
-	return code, status, nil
+	go e.runLibp2pSend(ectx, inputName, r, h, opts.To, opts, status)
+	return h.ID().String(), status, nil
 }
 
-// P2PReceive completes a P2P transfer.
+// P2PReceive completes a libp2p P2P transfer.
 func (e *Engine) P2PReceive(ectx *EngineContext, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error) {
 	ectx = e.context(ectx)
 	status := make(chan P2PStatus, 10)
-	conf := e.GetConfig()
 
-	rendezvous := opts.RendezvousURL
-	if rendezvous == "" {
-		rendezvous = conf.Wormhole.RendezvousURL
-	}
-	if err := e.ValidateWormholeURL(ectx, rendezvous); err != nil {
-		return nil, err
-	}
-
-	c := wormhole.Client{
-		RendezvousURL: rendezvous,
-	}
-	if opts.TransitRelay != "" {
-		c.TransitRelayAddress = opts.TransitRelay
-	} else if conf.Wormhole.TransitRelay != "" {
-		c.TransitRelayAddress = conf.Wormhole.TransitRelay
-	}
-
-	status <- P2PStatus{Phase: "connecting"}
-	msg, err := c.Receive(ectx.Context, code)
+	// libp2p Path (The only path in v3.1)
+	id, err := e.Identities.LoadIdentity("", nil, "", false)
 	if err != nil {
 		return nil, err
 	}
-	if msg.Type != wormhole.TransferFile {
-		return nil, fmt.Errorf("unexpected message type: %v", msg.Type)
+	priv, err := id.AsLibp2pKey()
+	if err != nil {
+		return nil, err
 	}
-
-	go func() {
-		defer close(status)
-
-		// 1. Download to temp file
-		tmpFile, err := os.CreateTemp("", "maknoon-p2p-recv-*.makn")
-		if err != nil {
-			status <- P2PStatus{Phase: "error", Error: err}
-			return
-		}
-		defer tmpFile.Close()
-		defer os.Remove(tmpFile.Name())
-		status <- P2PStatus{
-			Phase:      "transferring",
-			FileName:   msg.Name,
-			BytesTotal: msg.TransferBytes64,
-		}
-
-		// To correctly report progress from io.Copy, we'd need a custom writer
-		// but for now let's just do the copy.
-		if _, err := io.Copy(tmpFile, msg); err != nil {
-			status <- P2PStatus{Phase: "error", Error: err}
-			return
-		}
-
-		// 2. Decrypt
-		if _, err := tmpFile.Seek(0, 0); err != nil {
-			status <- P2PStatus{Phase: "error", Error: err}
-			return
-		}
-
-		status <- P2PStatus{Phase: "decrypting"}
-
-		finalOut := opts.OutputDir
-		if finalOut == "" {
-			finalOut = strings.TrimSuffix(filepath.Base(msg.Name), ".makn")
-		}
-
-		unprotectOpts := Options{
-			Passphrase:      opts.Passphrase,
-			LocalPrivateKey: opts.PrivateKey,
-			Stealth:         opts.Stealth,
-			Concurrency:     conf.AgentLimits.MaxWorkers,
-		}
-
-		_, err = e.Unprotect(ectx, tmpFile, nil, finalOut, unprotectOpts)
-		if err != nil {
-			status <- P2PStatus{Phase: "error", Error: err}
-			return
-		}
-
-		status <- P2PStatus{Phase: "success", FileName: finalOut}
-	}()
-
+	h, err := tunnel.NewLibp2pHost(libp2p.Identity(priv))
+	if err != nil {
+		return nil, err
+	}
+	go e.runLibp2pReceive(ectx, h, opts, status)
+	// We return our ID in the "connecting" phase so the user can share it
+	status <- P2PStatus{Phase: "connecting", Code: h.ID().String()}
 	return status, nil
+}
+
+func (e *Engine) ValidateWormholeURL(ectx *EngineContext, url string) error {
+	return nil // Deprecated
 }

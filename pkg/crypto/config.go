@@ -26,7 +26,6 @@ type Config struct {
 	Security           SecurityConfig             `json:"security" mapstructure:"security"`
 	Performance        PerformanceConfig          `json:"performance" mapstructure:"performance"`
 	AgentLimits        AgentLimitsConfig          `json:"agent_limits" mapstructure:"agent_limits"`
-	Wormhole           WormholeConfig             `json:"wormhole" mapstructure:"wormhole"`
 	Nostr              NostrConfig                `json:"nostr" mapstructure:"nostr"`
 	Tunnel             tunnel.TunnelConfig        `json:"tunnel" mapstructure:"tunnel"`
 	Paths              PathConfig                 `json:"paths" mapstructure:"paths"`
@@ -44,11 +43,6 @@ type AgentLimitsConfig struct {
 	MaxThreads  uint8    `json:"max_threads" mapstructure:"max_threads"`
 	MaxWorkers  int      `json:"max_workers" mapstructure:"max_workers"`
 	AllowedURLs []string `json:"allowed_urls" mapstructure:"allowed_urls"`
-}
-
-type WormholeConfig struct {
-	RendezvousURL string `json:"rendezvous_url" mapstructure:"rendezvous_url"`
-	TransitRelay  string `json:"transit_relay" mapstructure:"transit_relay"`
 }
 
 type SecurityConfig struct {
@@ -119,14 +113,7 @@ func DefaultConfig() *Config {
 			MaxTime:     5,
 			MaxThreads:  4,
 			MaxWorkers:  2,
-			AllowedURLs: []string{
-				"ws://relay.magic-wormhole.io:4000/v1",
-				"transit.magic-wormhole.io:4001",
-			},
-		},
-		Wormhole: WormholeConfig{
-			RendezvousURL: "ws://relay.magic-wormhole.io:4000/v1",
-			TransitRelay:  "transit.magic-wormhole.io:4001",
+			AllowedURLs: []string{},
 		},
 		Nostr: NostrConfig{
 			Relays: []string{
