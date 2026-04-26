@@ -306,7 +306,6 @@ func (e *Engine) TunnelStatus(ectx *EngineContext) (tunnel.TunnelStatus, error) 
 	return *e.activeTunnel, nil
 }
 
-
 // context ensures a valid context and policy are always available.
 func (e *Engine) context(ectx *EngineContext) *EngineContext {
 	if ectx == nil {

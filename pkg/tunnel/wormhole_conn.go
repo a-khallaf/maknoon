@@ -89,7 +89,7 @@ func (c *WormholePacketConn) Close() error {
 	return err
 }
 
-func (c *WormholePacketConn) LocalAddr() net.Addr  { return c.Local }
+func (c *WormholePacketConn) LocalAddr() net.Addr { return c.Local }
 func (c *WormholePacketConn) SetDeadline(t time.Time) error {
 	// Not strictly applicable to the virtual adapter; handled by underlying stream if supported
 	return nil

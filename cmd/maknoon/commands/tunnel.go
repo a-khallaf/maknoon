@@ -35,7 +35,7 @@ func tunnelListenCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 1. Setup PQC TLS
 			tlsConf := tunnel.GetPQCConfig()
-			
+
 			if certFile != "" && keyFile != "" {
 				// In v3.0, loading custom certs would happen here
 				return fmt.Errorf("loading custom certificates not yet implemented in CLI")
@@ -57,7 +57,7 @@ func tunnelListenCmd() *cobra.Command {
 
 			server := &tunnel.TunnelServer{Listener: srv.Listener}
 			fmt.Printf("🚀 PQC Tunnel Server listening on %s (UDP)\n", addr)
-			
+
 			return server.Start(nil)
 		},
 	}

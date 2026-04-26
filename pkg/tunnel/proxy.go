@@ -1,10 +1,10 @@
 package tunnel
 
 import (
+	"context"
 	"io"
 	"net"
 	"strconv"
-	"context"
 )
 
 // TunnelGateway implements a SOCKS5 proxy that routes traffic through a QUIC tunnel.
@@ -21,7 +21,7 @@ func (g *TunnelGateway) Start() error {
 		return err
 	}
 	g.ln = l
-	
+
 	// Update port if 0 was used
 	if g.Port == 0 {
 		_, portStr, _ := net.SplitHostPort(l.Addr().String())

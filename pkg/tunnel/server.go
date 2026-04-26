@@ -3,10 +3,10 @@ package tunnel
 import (
 	"context"
 	"fmt"
+	"github.com/quic-go/quic-go"
 	"io"
 	"log/slog"
 	"net"
-	"github.com/quic-go/quic-go"
 )
 
 // TunnelServer handles incoming PQC QUIC connections and forwards them to internal targets.
@@ -30,7 +30,7 @@ func (s *TunnelServer) Start(ctx context.Context) error {
 
 func (s *TunnelServer) handleConnection(conn *quic.Conn) {
 	state := conn.ConnectionState()
-	slog.Info("tunnel server: new connection established", 
+	slog.Info("tunnel server: new connection established",
 		"remote", conn.RemoteAddr(),
 		"curve_id", fmt.Sprintf("0x%04x", state.TLS.CurveID),
 	)
@@ -54,7 +54,7 @@ func (s *TunnelServer) handleStream(stream *quic.Stream) {
 		return
 	}
 	addrLen := int(lb.Bytes()[0])
-	
+
 	if _, err := io.ReadFull(stream, lb.Bytes()[:addrLen]); err != nil {
 		return
 	}
@@ -72,7 +72,7 @@ func (s *TunnelServer) handleStream(stream *quic.Stream) {
 
 	// 3. Bi-directional PQC-to-Plaintext Bridge
 	done := make(chan struct{}, 2)
-	
+
 	go func() {
 		lbIn := GlobalPool.Get()
 		defer GlobalPool.Put(lbIn)

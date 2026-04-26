@@ -38,11 +38,11 @@ func ListenWithConn(pconn net.PacketConn, address string, tlsConf *tls.Config, c
 	}
 
 	quicConf := &quic.Config{
-		MaxIdleTimeout:         time.Duration(conf.IdleTimeout) * time.Second,
-		KeepAlivePeriod:        10 * time.Second,
-		MaxIncomingStreams:     int64(conf.MaxStreams),
-		MaxIncomingUniStreams:  int64(conf.MaxStreams),
-		HandshakeIdleTimeout:   time.Duration(conf.HandshakeTimeout) * time.Second,
+		MaxIdleTimeout:        time.Duration(conf.IdleTimeout) * time.Second,
+		KeepAlivePeriod:       10 * time.Second,
+		MaxIncomingStreams:    int64(conf.MaxStreams),
+		MaxIncomingUniStreams: int64(conf.MaxStreams),
+		HandshakeIdleTimeout:  time.Duration(conf.HandshakeTimeout) * time.Second,
 	}
 
 	var ln *quic.Listener
@@ -119,11 +119,11 @@ func DialWithConn(ctx context.Context, pconn net.PacketConn, address string, tls
 	}
 
 	quicConf := &quic.Config{
-		MaxIdleTimeout:         time.Duration(conf.IdleTimeout) * time.Second,
-		KeepAlivePeriod:        10 * time.Second,
-		MaxIncomingStreams:     int64(conf.MaxStreams),
-		MaxIncomingUniStreams:  int64(conf.MaxStreams),
-		HandshakeIdleTimeout:   time.Duration(conf.HandshakeTimeout) * time.Second,
+		MaxIdleTimeout:        time.Duration(conf.IdleTimeout) * time.Second,
+		KeepAlivePeriod:       10 * time.Second,
+		MaxIncomingStreams:    int64(conf.MaxStreams),
+		MaxIncomingUniStreams: int64(conf.MaxStreams),
+		HandshakeIdleTimeout:  time.Duration(conf.HandshakeTimeout) * time.Second,
 	}
 
 	var conn *quic.Conn

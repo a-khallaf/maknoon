@@ -62,7 +62,7 @@ func TestQUICLoopbackTunnel(t *testing.T) {
 					if _, err := io.ReadFull(stream, destBuf); err != nil {
 						return
 					}
-					
+
 					// Echo back the acknowledgment
 					stream.Write([]byte("PQC-ACK: " + string(destBuf)))
 					stream.Close()
