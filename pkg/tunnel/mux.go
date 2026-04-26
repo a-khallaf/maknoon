@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 
 	"github.com/hashicorp/yamux"
 )
@@ -27,16 +26,6 @@ func (s *YamuxSession) Close() error {
 	}
 	return nil
 }
-
-type connAdapter struct {
-	io.ReadWriteCloser
-}
-
-func (c *connAdapter) LocalAddr() net.Addr                { return &net.IPAddr{IP: net.IPv4zero} }
-func (c *connAdapter) RemoteAddr() net.Addr               { return &net.IPAddr{IP: net.IPv4zero} }
-func (c *connAdapter) SetDeadline(t time.Time) error      { return nil }
-func (c *connAdapter) SetReadDeadline(t time.Time) error  { return nil }
-func (c *connAdapter) SetWriteDeadline(t time.Time) error { return nil }
 
 // WrapYamux initializes a Yamux session over an existing reliable stream.
 func WrapYamux(stream io.ReadWriteCloser, isServer bool) (*YamuxSession, error) {

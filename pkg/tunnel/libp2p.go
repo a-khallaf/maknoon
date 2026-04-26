@@ -7,7 +7,6 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/multiformats/go-multiaddr"
@@ -35,25 +34,6 @@ func (s *Libp2pSession) OpenStream(ctx context.Context) (net.Conn, error) {
 func (s *Libp2pSession) Close() error {
 	return s.Host.Close()
 }
-
-// libp2pConn wraps network.Stream to satisfy net.Conn.
-type libp2pConn struct {
-	network.Stream
-}
-
-func (c *libp2pConn) LocalAddr() net.Addr {
-	return &multiaddrAddr{ma: c.Stream.Conn().LocalMultiaddr()}
-}
-func (c *libp2pConn) RemoteAddr() net.Addr {
-	return &multiaddrAddr{ma: c.Stream.Conn().RemoteMultiaddr()}
-}
-
-type multiaddrAddr struct {
-	ma multiaddr.Multiaddr
-}
-
-func (a *multiaddrAddr) Network() string { return "libp2p" }
-func (a *multiaddrAddr) String() string  { return a.ma.String() }
 
 // NewLibp2pHost initializes a minimal libp2p host for Maknoon.
 func NewLibp2pHost(extraOpts ...libp2p.Option) (host.Host, error) {
