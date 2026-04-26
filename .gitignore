@@ -51,3 +51,11 @@ mcp_pipe
 mcp_in
 mcp_out
 sse_stream.pipe
+
+# Forensic & Test Artifacts
+default
+local_forensic.bin
+local_hash.txt
+local_integrity.bin
+source_hash.txt
+target_hash.txt
