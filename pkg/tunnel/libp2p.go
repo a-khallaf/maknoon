@@ -9,7 +9,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
+	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -86,7 +90,8 @@ func StartLibp2pListener(h host.Host) *Libp2pListener {
 	return l
 }
 
-// NewLibp2pHost initializes a minimal libp2p host for Maknoon.
+// NewLibp2pHost initializes a minimal libp2p host.
+// By avoiding libp2p.Defaults, we significantly reduce binary size.
 func NewLibp2pHost(extraOpts ...libp2p.Option) (host.Host, error) {
 	cmgr, err := connmgr.NewConnManager(10, 20)
 	if err != nil {
@@ -99,9 +104,12 @@ func NewLibp2pHost(extraOpts ...libp2p.Option) (host.Host, error) {
 			"/ip4/0.0.0.0/udp/0/quic-v1",
 		),
 		libp2p.ConnectionManager(cmgr),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(libp2pquic.NewTransport),
+		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
 		libp2p.EnableRelay(),
 		libp2p.EnableHolePunching(),
-		libp2p.FallbackDefaults,
 	}
 	opts = append(opts, extraOpts...)
 
