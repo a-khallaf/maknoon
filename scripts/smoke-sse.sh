@@ -10,16 +10,16 @@ set -e
 cleanup() {
     echo "🧹 Cleaning up..."
     rm -f sse_stream.pipe
-    docker compose -f docker-compose.mcp.yml down
+    docker compose -p maknoon -f deploy/docker/mcp.yml down
 }
 
 trap cleanup EXIT
 
 echo "🏗️  Starting Maknoon Unified MCP P2P Environment..."
-docker compose -f docker-compose.mcp.yml up -d --build
+docker compose -p maknoon -f deploy/docker/mcp.yml up -d --build
 
 echo "⏳ Waiting for P2P Gateway Peer ID..."
-PEER_ID=$(docker compose -f docker-compose.mcp.yml logs p2p-gateway | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
+PEER_ID=$(docker compose -p maknoon -f deploy/docker/mcp.yml logs p2p-gateway | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
 P2P_ADDR="/ip4/172.25.0.12/tcp/4435/p2p/$PEER_ID"
 
 echo "⏳ Waiting for MCP Server..."

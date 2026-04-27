@@ -8,18 +8,18 @@ export MAKNOON_PASSPHRASE=smoke-test-secret
 
 cleanup() {
     echo "🧹 Cleaning up..."
-    docker compose -f docker-compose.test.yml down
+    docker compose -p maknoon -f deploy/docker/test.yml down
     rm -f call.json resp.json stdio_tunnel.log mcp_pipe
 }
 
 trap cleanup EXIT
 
 echo "🏗️  Starting PQC DMZ Environment..."
-docker compose -f docker-compose.test.yml up -d --build
+docker compose -p maknoon -f deploy/docker/test.yml up -d --build
 sleep 8
 
 echo "🌐 Resolving P2P Multiaddr..."
-PEER_ID=$(docker compose -f docker-compose.test.yml logs gateway-p2p | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
+PEER_ID=$(docker compose -p maknoon -f deploy/docker/test.yml logs gateway-p2p | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
 P2P_ADDR="/ip4/127.0.0.1/tcp/4435/p2p/$PEER_ID"
 
 echo "🔐 Seeding Vault..."

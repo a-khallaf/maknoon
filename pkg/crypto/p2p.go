@@ -20,25 +20,21 @@ type P2PStatus struct {
 
 // P2PSendOptions settings for P2P sending.
 type P2PSendOptions struct {
-	Passphrase    []byte
-	PublicKey     []byte
-	Stealth       bool
-	IsDirectory   bool
-	RendezvousURL string // Deprecated
-	TransitRelay  string // Deprecated
-	P2PMode       bool   // Always true in v3.1
-	To            string // Remote PeerID or @petname
+	Passphrase  []byte
+	PublicKey   []byte
+	Stealth     bool
+	IsDirectory bool
+	P2PMode     bool   // Always true in v3.1
+	To          string // Remote PeerID or @petname
 }
 
 // P2PReceiveOptions settings for P2P receiving.
 type P2PReceiveOptions struct {
-	Passphrase    []byte
-	PrivateKey    []byte
-	Stealth       bool
-	OutputDir     string
-	RendezvousURL string // Deprecated
-	TransitRelay  string // Deprecated
-	P2PMode       bool   // Always true in v3.1
+	Passphrase []byte
+	PrivateKey []byte
+	Stealth    bool
+	OutputDir  string
+	P2PMode    bool // Always true in v3.1
 }
 
 // P2PSend initiates a libp2p P2P transfer.

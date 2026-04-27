@@ -17,14 +17,14 @@ export P2P_GW_IP="172.20.0.12"
 
 setup_env() {
     echo "🏗️  Starting DMZ Environment..."
-    docker compose -f docker-compose.test.yml up -d --build
+    docker compose -p maknoon -f deploy/docker/test.yml up -d --build
     sleep 8
 }
 
 cleanup() {
     echo "🧹 Cleaning up..."
     killall maknoon 2>/dev/null || true
-    docker compose -f docker-compose.test.yml down
+    docker compose -p maknoon -f deploy/docker/test.yml down
     rm -f *.tmp *.hash *.sha256 *.makn
 }
 
@@ -32,7 +32,7 @@ trap cleanup EXIT
 
 create_asset() {
     echo "🟢 Creating 100KB forensic asset..."
-    docker compose -f docker-compose.test.yml exec -T target sh -c "dd if=/dev/urandom of=/usr/share/nginx/html/smoke.bin bs=1k count=100 && sha256sum /usr/share/nginx/html/smoke.bin" | awk '{print $1}' | tr -d '\r\n' > target.hash
+    docker compose -p maknoon -f deploy/docker/test.yml exec -T target sh -c "dd if=/dev/urandom of=/usr/share/nginx/html/smoke.bin bs=1k count=100 && sha256sum /usr/share/nginx/html/smoke.bin" | awk '{print $1}' | tr -d '\r\n' > target.hash
 }
 
 test_direct_audit() {
@@ -42,7 +42,7 @@ test_direct_audit() {
     curl -s --proxy socks5h://127.0.0.1:1080 http://$TARGET_IP/smoke.bin -o local_direct.tmp
     sha256sum local_direct.tmp | awk '{print $1}' | tr -d '\r\n' > local.hash
     diff -q target.hash local.hash > /dev/null && echo "✅ INTEGRITY verified."
-    docker compose -f docker-compose.test.yml logs gateway-quic | grep -q "0x5832353531394d4c4b454d373638" && echo "✅ PQC Handshake verified."
+    docker compose -p maknoon -f deploy/docker/test.yml logs gateway-quic | grep -q "0x5832353531394d4c4b454d373638" && echo "✅ PQC Handshake verified."
     killall maknoon 2>/dev/null || true
 }
 
@@ -60,7 +60,7 @@ test_yamux_concurrency() {
 
 test_p2p_l4() {
     echo -e "\n🌐 Scenario 3: libp2p L4 NAT Traversal"
-    PEER_ID=$(docker compose -f docker-compose.test.yml logs gateway-p2p | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
+    PEER_ID=$(docker compose -p maknoon -f deploy/docker/test.yml logs gateway-p2p | grep "Peer ID:" | head -n 1 | awk '{print $NF}' | tr -d '\r\n')
     P2P_ADDR="/ip4/127.0.0.1/tcp/4435/p2p/$PEER_ID"
     ./maknoon tunnel start --p2p --p2p-addr "$P2P_ADDR" --port 1082 > tunnel_p2p.log 2>&1 &
     for i in {1..30}; do nc -z 127.0.0.1 1082 && break; sleep 1; done

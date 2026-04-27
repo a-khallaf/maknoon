@@ -6,7 +6,7 @@ services:
         ipv4_address: 172.20.0.5
 
   gateway-quic:
-    build: .
+    build: ../..
     command: tunnel listen --address :4433
     ports:
       - "4433:4433/udp"
@@ -17,7 +17,7 @@ services:
       - MAKNOON_PASSPHRASE=test-secret-tunnel
 
   gateway-yamux:
-    build: .
+    build: ../..
     command: tunnel listen --address :4434 --yamux
     ports:
       - "4434:4434"
@@ -28,7 +28,7 @@ services:
       - MAKNOON_PASSPHRASE=test-secret-tunnel
 
   gateway-p2p:
-    build: .
+    build: ../..
     command: tunnel listen --p2p --address :4435
     ports:
       - "4435:4435"
