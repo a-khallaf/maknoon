@@ -33,14 +33,12 @@ func DecryptCmd() *cobra.Command {
 		Short: "Decrypt a .makn file or directory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			p := GlobalContext.UI.GetPresenter()
 			inputFile := args[0]
 			in, _, totalSize, err := resolveDecryptInput(inputFile)
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 			if f, ok := in.(*os.File); ok {
 				defer func() { _ = f.Close() }()
@@ -48,11 +46,8 @@ func DecryptCmd() *cobra.Command {
 
 			if profileFile != "" {
 				if _, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile); err != nil {
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(err)
+					return nil
 				}
 			}
 
@@ -64,12 +59,8 @@ func DecryptCmd() *cobra.Command {
 			if stealth {
 				header := make([]byte, 2)
 				if _, err := io.ReadFull(in, header); err != nil {
-					err := fmt.Errorf("failed to read stealth header: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(fmt.Errorf("failed to read stealth header: %w", err))
+					return nil
 				}
 				fullIn = io.MultiReader(bytes.NewReader(header), in)
 				flags = header[1]
@@ -80,36 +71,23 @@ func DecryptCmd() *cobra.Command {
 				} else {
 					magic = crypto.MagicHeader
 				}
-				if verbose {
-					fmt.Printf("DEBUG: Stealth mode active. Inferred Magic=%s Flags=0x%02x\n", magic, flags)
-				}
 			} else {
 				header := make([]byte, 6)
 				if _, err := io.ReadFull(in, header); err != nil {
-					err := fmt.Errorf("failed to read file header: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(fmt.Errorf("failed to read file header: %w", err))
+					return nil
 				}
 				fullIn = io.MultiReader(bytes.NewReader(header), in)
 
 				magic = string(header[:4])
 				flags = header[5]
-				if verbose {
-					fmt.Printf("DEBUG: Magic=%s Flags=0x%02x\n", magic, flags)
-				}
 			}
 
 			// 2. Handle Passphrase/Identity logic
 			password, finalKey, finalPriv, err := resolveDecryptionKey(magic, passphrase, keyPath, useFido2, inputFile == "-")
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			// 3. Resolve optional sender public key for integrated verification
@@ -117,21 +95,13 @@ func DecryptCmd() *cobra.Command {
 			if flags&crypto.FlagSigned != 0 {
 				resolvedSenderPath := crypto.ResolveKeyPath(senderKeyPath, "MAKNOON_PUBLIC_KEY")
 				if resolvedSenderPath == "" {
-					err := fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)")
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)"))
+					return nil
 				}
 				sk, err := os.ReadFile(resolvedSenderPath)
 				if err != nil {
-					err := fmt.Errorf("failed to read sender public key: %w", err)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(fmt.Errorf("failed to read sender public key: %w", err))
+					return nil
 				}
 				senderKey = sk
 			}
@@ -150,21 +120,14 @@ func DecryptCmd() *cobra.Command {
 			// 4. Prepare output path and check existence
 			outPath, err := resolveDecryptionOutputPath(output, inputFile, flags)
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			if outPath != "-" && !overwrite {
 				if _, err := os.Stat(outPath); err == nil {
-					err := fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath)
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath))
+					return nil
 				}
 			}
 
@@ -195,20 +158,16 @@ func DecryptCmd() *cobra.Command {
 				defer func() { GlobalContext.JSONWriter = oldWriter }()
 			}
 
-			_, err = GlobalContext.Engine.Unprotect(nil, fullIn, nil, outPath, opts)
+			res, err := GlobalContext.Engine.Unprotect(nil, fullIn, nil, outPath, opts)
 			close(events)
 			<-done
 
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			// 6. Handle Trust Evidence and TOFU
-			var trustInfo map[string]interface{}
 			if senderKey != nil {
 				gid := fmt.Sprintf("mk1_%x", crypto.Sha256Sum(senderKey)[:16])
 				isTrusted := false
@@ -216,7 +175,6 @@ func DecryptCmd() *cobra.Command {
 
 				cm, err := crypto.NewContactManager()
 				if err == nil {
-					// We search by GID or we could search by fingerprint.
 					contacts, _ := cm.List()
 					for _, c := range contacts {
 						if bytes.Equal(c.KEMPubKey, senderKey) || bytes.Equal(c.SIGPubKey, senderKey) {
@@ -227,7 +185,6 @@ func DecryptCmd() *cobra.Command {
 					}
 
 					if !isTrusted && tofu {
-						// Auto-learn contact
 						newContact := &crypto.Contact{
 							Petname:   "@" + gid[:12],
 							SIGPubKey: senderKey,
@@ -241,32 +198,24 @@ func DecryptCmd() *cobra.Command {
 					cm.Close()
 				}
 
-				trustInfo = map[string]interface{}{
-					"gid":        gid,
-					"is_trusted": isTrusted,
-				}
-				if existingContact != nil {
-					trustInfo["petname"] = existingContact.Petname
+				if !GlobalContext.UI.JSON {
+					status := "UNKNOWN (Untrusted)"
+					if isTrusted {
+						status = fmt.Sprintf("TRUSTED (%s)", existingContact.Petname)
+					}
+					p.RenderMessage(fmt.Sprintf("✔ Successfully verified signature from: %s [%s]", gid, status))
+				} else {
+					res.SignedBy = &crypto.TrustInfo{
+						GID:       gid,
+						IsTrusted: isTrusted,
+					}
+					if existingContact != nil {
+						res.SignedBy.Petname = existingContact.Petname
+					}
 				}
 			}
 
-			if JSONOutput {
-				res := map[string]interface{}{
-					"status": "success",
-					"output": outPath,
-				}
-				if trustInfo != nil {
-					res["signed_by"] = trustInfo
-				}
-				printJSON(res)
-			} else if trustInfo != nil {
-				status := "UNKNOWN (Untrusted)"
-				if trustInfo["is_trusted"].(bool) {
-					status = fmt.Sprintf("TRUSTED (%s)", trustInfo["petname"])
-				}
-				fmt.Printf("✔ Successfully verified signature from: %s [%s]\n", trustInfo["gid"], status)
-			}
-
+			p.RenderSuccess(res)
 			return nil
 		},
 	}

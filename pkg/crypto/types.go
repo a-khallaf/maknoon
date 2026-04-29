@@ -5,6 +5,7 @@ type EncryptResult struct {
 	Status       string            `json:"status"`
 	Path         string            `json:"path"`
 	Output       string            `json:"output,omitempty"`
+	Flags        byte              `json:"flags"`
 	Type         string            `json:"type"` // "symmetric" or "asymmetric"
 	ProfileID    byte              `json:"profile_id"`
 	Compressed   bool              `json:"compressed"`
@@ -15,6 +16,21 @@ type EncryptResult struct {
 	SIGAlgorithm string            `json:"sig_algorithm,omitempty"`
 	KDFDetails   string            `json:"kdf_details,omitempty"`
 	SignedBy     *SignedByEvidence `json:"signed_by,omitempty"`
+}
+
+// DecryptResult is the standard JSON output for the decrypt command.
+type DecryptResult struct {
+	Status   string     `json:"status"`
+	Output   string     `json:"output"`
+	Flags    byte       `json:"flags"`
+	SignedBy *TrustInfo `json:"signed_by,omitempty"`
+}
+
+// TrustInfo carries details about a verified signature.
+type TrustInfo struct {
+	GID       string `json:"gid"`
+	IsTrusted bool   `json:"is_trusted"`
+	Petname   string `json:"petname,omitempty"`
 }
 
 // SignedByEvidence provides information about the signer of a file.
@@ -42,6 +58,7 @@ type IdentityResult struct {
 type VaultResult struct {
 	Status           string           `json:"status"`
 	Vault            string           `json:"vault,omitempty"`
+	Service          string           `json:"service,omitempty"`
 	Deleted          string           `json:"deleted,omitempty"`
 	Threshold        int              `json:"threshold,omitempty"`
 	Shares           []string         `json:"shares,omitempty"`

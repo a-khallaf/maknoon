@@ -41,33 +41,18 @@ func (o *Options) Emit(ev EngineEvent) {
 }
 
 // Protect handles the full encryption pipeline under the active policy.
-func (e *Engine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
+func (e *Engine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (EncryptResult, error) {
 	ectx = e.context(ectx)
-	// If EventStream is provided in opts but not in ectx, update ectx
 	if opts.EventStream != nil && ectx.Events == nil {
 		ectx.Events = opts.EventStream
 	}
 
-	// 1. Enforce Path Policy
 	if inputName != "-" && inputName != "" {
 		if err := ectx.Policy.ValidatePath(inputName); err != nil {
-			return 0, err
+			return EncryptResult{}, err
 		}
 	}
-
-	// 2. Clamp Resources
 	opts.Concurrency = ectx.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
-
-	return protectInternal(ectx, inputName, r, w, opts)
-}
-
-func protectInternal(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
-	var logger *slog.Logger
-	if opts.Verbose {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	} else {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
 
 	var flags byte
 	if opts.IsArchive {
@@ -77,14 +62,7 @@ func protectInternal(ectx *EngineContext, inputName string, r io.Reader, w io.Wr
 		flags |= FlagCompress
 	}
 	if opts.Stealth {
-		logger.Info("enabling stealth mode (headerless)")
 		flags |= FlagStealth
-	}
-
-	if len(opts.Passphrase) > 0 {
-		logger.Info("starting symmetric encryption")
-	} else if len(opts.Recipients) > 0 || len(opts.PublicKey) > 0 {
-		logger.Info("starting asymmetric encryption")
 	}
 
 	var totalBytes int64
@@ -95,36 +73,26 @@ func protectInternal(ectx *EngineContext, inputName string, r io.Reader, w io.Wr
 	}
 	ectx.Emit(EventEncryptionStarted{TotalBytes: totalBytes})
 
-	// 1. Setup Source
 	sourceReader := r
 	if sourceReader == nil {
 		if opts.IsArchive {
-			sourceReader = wrapWithArchiver(inputName, logger)
+			sourceReader = wrapWithArchiver(inputName, nil)
 		} else if inputName == "-" {
 			sourceReader = os.Stdin
 		} else {
 			f, err := os.Open(inputName)
 			if err != nil {
-				return 0, &ErrIO{Path: inputName, Reason: err.Error()}
+				return EncryptResult{}, &ErrIO{Path: inputName, Reason: err.Error()}
 			}
-			defer func() { _ = f.Close() }()
+			defer f.Close()
 			sourceReader = f
 		}
 	}
 
-	// 2. Progress Tracking (legacy support)
-	if opts.ProgressReader != nil {
-		if wr, ok := opts.ProgressReader.(io.Writer); ok {
-			sourceReader = io.TeeReader(sourceReader, wr)
-		}
-	}
-
-	// 3. Compression
 	if opts.Compress {
-		sourceReader = wrapWithCompressor(sourceReader, logger)
+		sourceReader = wrapWithCompressor(sourceReader, nil)
 	}
 
-	// 4. Core Encryption
 	allPublicKeys := opts.Recipients
 	if len(opts.PublicKey) > 0 {
 		allPublicKeys = append(allPublicKeys, opts.PublicKey)
@@ -137,28 +105,46 @@ func protectInternal(ectx *EngineContext, inputName string, r io.Reader, w io.Wr
 		err = EncryptStreamWithEvents(sourceReader, w, opts.Passphrase, flags, opts.Concurrency, opts.ProfileID, ectx)
 	}
 
-	return flags, err
+	if err != nil {
+		return EncryptResult{}, err
+	}
+
+	return EncryptResult{
+		Status:     "success",
+		Output:     inputName,
+		Flags:      flags,
+		ProfileID:  opts.ProfileID,
+		Compressed: opts.Compress,
+		IsArchive:  opts.IsArchive,
+		IsSigned:   len(opts.SigningKey) > 0,
+		IsStealth:  opts.Stealth,
+	}, nil
 }
 
 // Unprotect handles the full decryption pipeline: Handshake -> Decrypt -> Decompress -> Extract.
-func (e *Engine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
+func (e *Engine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (DecryptResult, error) {
 	ectx = e.context(ectx)
-	// If EventStream is provided in opts but not in ectx, update ectx
 	if opts.EventStream != nil && ectx.Events == nil {
 		ectx.Events = opts.EventStream
 	}
 
-	// 1. Enforce Path Policy
 	if outPath != "-" && outPath != "" {
 		if err := ectx.Policy.ValidatePath(outPath); err != nil {
-			return 0, err
+			return DecryptResult{}, err
 		}
 	}
-
-	// 2. Clamp Resources
 	opts.Concurrency = ectx.Policy.ClampConcurrency(opts.Concurrency, e.Config.AgentLimits.MaxWorkers)
 
-	return unprotectInternal(ectx, r, w, outPath, opts)
+	flags, err := unprotectInternal(ectx, r, w, outPath, opts)
+	if err != nil {
+		return DecryptResult{}, err
+	}
+
+	return DecryptResult{
+		Status: "success",
+		Output: outPath,
+		Flags:  flags,
+	}, nil
 }
 
 func unprotectInternal(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
@@ -230,7 +216,19 @@ func Protect(inputName string, r io.Reader, w io.Writer, opts Options) (byte, er
 		Events:  opts.EventStream,
 		Policy:  &HumanPolicy{},
 	}
-	return protectInternal(ectx, inputName, r, w, opts)
+
+	// Temporarily bypass pipeline for legacy shim to avoid circular return type issues
+	// or use a dummy Engine if needed. Better: reuse protectInternal-like logic
+	if opts.ProfileID != 0 {
+		if _, err := GetProfile(opts.ProfileID, nil); err != nil {
+			return 0, err
+		}
+	}
+
+	// Create a minimal engine to call the method
+	e := &Engine{Config: GetGlobalConfig()}
+	res, err := e.Protect(ectx, inputName, r, w, opts)
+	return res.Flags, err
 }
 
 // Unprotect handles the full decryption pipeline: Handshake -> Decrypt -> Decompress -> Extract.
@@ -241,7 +239,10 @@ func Unprotect(r io.Reader, w io.Writer, outPath string, opts Options) (byte, er
 		Events:  opts.EventStream,
 		Policy:  &HumanPolicy{},
 	}
-	return unprotectInternal(ectx, r, w, outPath, opts)
+
+	e := &Engine{Config: GetGlobalConfig()}
+	res, err := e.Unprotect(ectx, r, w, outPath, opts)
+	return res.Flags, err
 }
 
 // FinalizeRestoration handles the post-decryption steps: decompression and archive extraction.
@@ -292,6 +293,28 @@ func FinalizeRestoration(pr io.Reader, w io.Writer, flags byte, outPath string, 
 		}
 	}
 	return nil
+}
+
+// CompressStream wraps a reader with a Zstd compressor.
+func CompressStream(r io.Reader, w io.Writer) error {
+	zw, err := zstd.NewWriter(w)
+	if err != nil {
+		return err
+	}
+	defer zw.Close()
+	_, err = io.Copy(zw, r)
+	return err
+}
+
+// DecompressStream wraps a reader with a Zstd decompressor.
+func DecompressStream(r io.Reader, w io.Writer) error {
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+	_, err = io.Copy(w, zr)
+	return err
 }
 
 func wrapWithArchiver(inputName string, logger *slog.Logger) io.Reader {

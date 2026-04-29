@@ -78,6 +78,25 @@ func EncryptStreamWithEvents(r io.Reader, w io.Writer, password []byte, flags by
 	return streamEncrypt(r, w, aead, baseNonce, concurrency, ectx)
 }
 
+// EncryptStreamNoHeader performs symmetric encryption without writing a magic header (Stealth mode core).
+func EncryptStreamNoHeader(r io.Reader, w io.Writer, password []byte, flags byte, concurrency int, profileID byte, ectx *EngineContext) error {
+	profile, _ := GetProfile(profileID, nil)
+	salt := make([]byte, profile.SaltSize())
+	_, _ = io.ReadFull(rand.Reader, salt)
+	key := profile.DeriveKey(password, salt)
+	defer SafeClear(key)
+
+	aead, _ := profile.NewAEAD(key)
+	baseNonce := make([]byte, aead.NonceSize())
+	_, _ = io.ReadFull(rand.Reader, baseNonce)
+
+	_, _ = w.Write([]byte{profile.ID(), flags})
+	_, _ = w.Write(salt)
+	_, _ = w.Write(baseNonce)
+
+	return streamEncrypt(r, w, aead, baseNonce, concurrency, ectx)
+}
+
 // EncryptStreamWithPublicKeys encrypts data from r to w for one or more recipients.
 func EncryptStreamWithPublicKeys(r io.Reader, w io.Writer, pubKeys [][]byte, flags byte, concurrency int, profileID byte) error {
 	ectx := &EngineContext{

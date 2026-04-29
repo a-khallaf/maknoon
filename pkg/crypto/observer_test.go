@@ -16,7 +16,7 @@ func TestObserverPattern(t *testing.T) {
 		EventStream: events,
 	}
 
-	engine, _ := NewEngine(&HumanPolicy{})
+	engine, _ := NewEngine(&HumanPolicy{}, nil, nil, nil)
 
 	done := make(chan struct{})
 	var chunkCount int

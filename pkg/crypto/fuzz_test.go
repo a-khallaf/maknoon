@@ -136,7 +136,7 @@ func FuzzKeyManager(f *testing.F) {
 		}
 
 		tmpDir := t.TempDir()
-		im := &IdentityManager{KeysDir: tmpDir}
+		im := &IdentityManager{Store: &FileSystemKeyStore{BaseDir: tmpDir}}
 
 		// Write garbage key files
 		_ = os.WriteFile(filepath.Join(tmpDir, name+".kem.key"), keyData, 0600)

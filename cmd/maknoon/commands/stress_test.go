@@ -92,13 +92,22 @@ func TestIntegrationSecurityScenarios(t *testing.T) {
 
 		getCmd := VaultCmd()
 		getCmd.SetArgs([]string{"--vault", vaultPath, "--passphrase", pass, "get", "service1", "--json"})
-		output := CaptureOutput(func() {
-			if err := getCmd.Execute(); err != nil {
-				t.Error(err)
-			}
-		})
+
+		oldStdout := GlobalContext.UI.Stdout
+		r, w, _ := os.Pipe()
+		GlobalContext.UI.Stdout = w
+		SetJSONOutput(true)
+
+		_ = getCmd.Execute()
+
+		w.Close()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		GlobalContext.UI.Stdout = oldStdout
+		output := buf.String()
+
 		if !strings.Contains(output, "secret2") {
-			t.Error("Case-insensitive vault collision failed to overwrite")
+			t.Errorf("Case-insensitive vault collision failed to overwrite. Output: %s", output)
 		}
 	})
 

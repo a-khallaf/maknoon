@@ -79,6 +79,22 @@ func (l *JSONFileLogger) Close() error {
 	return nil
 }
 
+// ConsoleAuditLogger prints audit events to a writer (e.g., Stderr).
+type ConsoleAuditLogger struct {
+	Writer io.Writer
+}
+
+func (l *ConsoleAuditLogger) LogEvent(action string, metadata map[string]any, err error) {
+	status := "SUCCESS"
+	if err != nil {
+		status = fmt.Sprintf("FAILURE (%v)", err)
+	}
+	fmt.Fprintf(l.Writer, "AUDIT: %s | Action: %s | Status: %s | Meta: %v\n",
+		time.Now().Format("15:04:05"), action, status, metadata)
+}
+
+func (l *ConsoleAuditLogger) Close() error { return nil }
+
 // AuditEngine wraps the core Engine to provide transparent auditing.
 type AuditEngine struct {
 	Engine *Engine
@@ -96,9 +112,9 @@ func (e *AuditEngine) sanitizePath(path string) string {
 	return filepath.Base(path)
 }
 
-func (e *AuditEngine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error) {
+func (e *AuditEngine) Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (EncryptResult, error) {
 	start := time.Now()
-	flags, err := e.Engine.Protect(ectx, inputName, r, w, opts)
+	res, err := e.Engine.Protect(ectx, inputName, r, w, opts)
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("protect", map[string]any{
@@ -106,24 +122,24 @@ func (e *AuditEngine) Protect(ectx *EngineContext, inputName string, r io.Reader
 		"profile_id":  opts.ProfileID,
 		"concurrency": opts.Concurrency,
 		"duration_ms": duration.Milliseconds(),
-		"flags":       flags,
+		"flags":       res.Flags,
 	}, err)
 
-	return flags, err
+	return res, err
 }
 
-func (e *AuditEngine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error) {
+func (e *AuditEngine) Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (DecryptResult, error) {
 	start := time.Now()
-	flags, err := e.Engine.Unprotect(ectx, r, w, outPath, opts)
+	res, err := e.Engine.Unprotect(ectx, r, w, outPath, opts)
 	duration := time.Since(start)
 
 	e.Logger.LogEvent("unprotect", map[string]any{
 		"output":      e.sanitizePath(outPath),
 		"duration_ms": duration.Milliseconds(),
-		"flags":       flags,
+		"flags":       res.Flags,
 	}, err)
 
-	return flags, err
+	return res, err
 }
 
 func (e *AuditEngine) FinalizeRestoration(ectx *EngineContext, pr io.Reader, w io.Writer, flags byte, outPath string, logger *slog.Logger) error {

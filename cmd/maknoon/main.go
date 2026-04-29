@@ -12,6 +12,12 @@ import (
 var version = "dev"
 
 func main() {
+	if err := NewRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "maknoon",
 		Version: version,
@@ -92,7 +98,5 @@ Post-Quantum Cryptography (PQC).`,
 	mcpCmd.Hidden = true
 	rootCmd.AddCommand(mcpCmd)
 
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	return rootCmd
 }

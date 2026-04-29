@@ -12,6 +12,7 @@ import (
 	"github.com/al-Zamakhshari/maknoon/cmd/maknoon/commands"
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func TestMain(m *testing.M) {
@@ -839,7 +840,7 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 	runRootCmd("--json", "vault", "delete", newName)
 
 	home, _ := os.UserHomeDir()
-	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".db")
+	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".vault")
 	if _, err := os.Stat(dbPath); err == nil {
 		t.Errorf("Vault deletion failed, file still exists")
 	}
@@ -888,11 +889,14 @@ func TestIntegrationVerbose(t *testing.T) {
 
 	encryptedFile := inputFile + ".makn"
 
-	// Run with --verbose and check for slog output (contains keywords like "level=INFO" or "msg=")
+	// Run with --verbose and check for audit output
+	viper.Set("verbose", true)
+	defer viper.Set("verbose", false)
+
 	output := runRootCmd("encrypt", inputFile, "-o", encryptedFile, "-s", "pass", "--verbose")
 
-	if !strings.Contains(output, "level=INFO") || !strings.Contains(output, "starting symmetric encryption") {
-		t.Errorf("Verbose output missing slog traces. Got: %s", output)
+	if !strings.Contains(output, "AUDIT:") || !strings.Contains(output, "Action: protect") {
+		t.Errorf("Verbose output missing audit traces. Got: %q", output)
 	}
 }
 

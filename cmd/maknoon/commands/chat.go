@@ -36,6 +36,7 @@ func ChatCmd() *cobra.Command {
 func runAgentChat(args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	p := GlobalContext.UI.GetPresenter()
 
 	var target string
 	if len(args) > 0 {
@@ -44,11 +45,11 @@ func runAgentChat(args []string) error {
 
 	sess, err := GlobalContext.Engine.ChatStart(&crypto.EngineContext{Context: ctx}, chatSignKey, target)
 	if err != nil {
-		printErrorJSON(err)
-		return err
+		p.RenderError(err)
+		return nil
 	}
 
-	printJSON(map[string]interface{}{
+	p.RenderSuccess(map[string]interface{}{
 		"event":   "status",
 		"state":   "established",
 		"peer_id": sess.Host.ID().String(),
@@ -75,7 +76,7 @@ func runAgentChat(args []string) error {
 
 	// Event loop
 	for ev := range sess.Events {
-		printJSON(ev)
+		p.RenderSuccess(ev)
 	}
 
 	return nil

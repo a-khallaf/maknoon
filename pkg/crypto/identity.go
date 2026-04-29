@@ -44,15 +44,22 @@ type Identity struct {
 
 // IdentityManager handles local key storage and resolution.
 type IdentityManager struct {
-	KeysDir string
+	Store KeyStore
 }
 
 // NewIdentityManager creates an IdentityManager with default paths.
 func NewIdentityManager() *IdentityManager {
 	home := GetUserHomeDir()
 	return &IdentityManager{
-		KeysDir: filepath.Join(home, MaknoonDir, KeysDir),
+		Store: &FileSystemKeyStore{
+			BaseDir: filepath.Join(home, MaknoonDir, KeysDir),
+		},
 	}
+}
+
+// NewCustomIdentityManager allows injecting a specific storage backend.
+func NewCustomIdentityManager(store KeyStore) *IdentityManager {
+	return &IdentityManager{Store: store}
 }
 
 // ResolveKeyPath checks if a key exists locally, in ~/.maknoon/keys/, or in environment variables.
@@ -83,12 +90,12 @@ func ResolveKeyPath(path string, envVar string) string {
 // ResolveKeyPath is a convenience method on IdentityManager.
 func (m *IdentityManager) ResolveKeyPath(path, envVar string) string {
 	if path != "" {
-		if _, err := os.Stat(path); err == nil {
+		if m.Store.Exists(path) {
 			return path
 		}
-		// Check manager's KeysDir
-		managedPath := filepath.Join(m.KeysDir, path)
-		if _, err := os.Stat(managedPath); err == nil {
+		// Check manager's KeysDir via ResolvePath
+		managedPath, err := m.Store.ResolvePath(path)
+		if err == nil && m.Store.Exists(managedPath) {
 			return managedPath
 		}
 	}
@@ -116,11 +123,11 @@ func (m *IdentityManager) SaveIdentity(basePath, baseName string, kemPub, kemPri
 			}
 			finalData = b.Bytes()
 		}
-		mode := os.FileMode(0644)
+		mode := uint32(0644)
 		if isPrivate {
 			mode = 0600
 		}
-		return os.WriteFile(path, finalData, mode)
+		return m.Store.WriteKey(path, finalData, mode)
 	}
 
 	if err := writeKey(basePath+".kem.key", kemPriv, true); err != nil {
@@ -189,16 +196,18 @@ func (m *IdentityManager) ResolveBaseKeyPath(name string) (string, string, error
 		return "", "", &ErrState{Reason: "identity name required"}
 	}
 
-	// 1. If it's an absolute path or contains path separators, use it directly
-	if filepath.IsAbs(name) || strings.Contains(name, string(os.PathSeparator)) {
-		base := strings.TrimSuffix(name, ".kem.key")
-		base = strings.TrimSuffix(base, ".sig.key")
-		base = strings.TrimSuffix(base, ".key")
-		return base, filepath.Base(base), nil
+	// 1. Resolve via Store
+	base, err := m.Store.ResolvePath(name)
+	if err != nil {
+		return "", "", err
 	}
 
-	// 2. Resolve via name in the managed KeysDir
-	return filepath.Join(m.KeysDir, name), name, nil
+	// Clean suffixes if provided in name
+	base = strings.TrimSuffix(base, ".kem.key")
+	base = strings.TrimSuffix(base, ".sig.key")
+	base = strings.TrimSuffix(base, ".key")
+
+	return base, filepath.Base(base), nil
 }
 
 // LoadIdentity handles the full flow of resolving and unlocking an identity.
@@ -218,9 +227,9 @@ func (m *IdentityManager) LoadIdentity(name string, passphrase []byte, pin strin
 	id := &Identity{Name: name}
 
 	// Load Public Keys
-	id.KEMPub, _ = os.ReadFile(basePath + ".kem.pub")
-	id.SIGPub, _ = os.ReadFile(basePath + ".sig.pub")
-	id.NostrPub, _ = os.ReadFile(basePath + ".nostr.pub")
+	id.KEMPub, _ = m.Store.ReadKey(basePath + ".kem.pub")
+	id.SIGPub, _ = m.Store.ReadKey(basePath + ".sig.pub")
+	id.NostrPub, _ = m.Store.ReadKey(basePath + ".nostr.pub")
 
 	// Load and Unlock KEM Private Key
 	id.KEMPriv, err = m.LoadPrivateKey(basePath+".kem.key", passphrase, pin, isStdin)
@@ -235,7 +244,7 @@ func (m *IdentityManager) LoadIdentity(name string, passphrase []byte, pin strin
 	}
 
 	// Load and Unlock Nostr Private Key if exists
-	if _, err := os.Stat(basePath + ".nostr.key"); err == nil {
+	if m.Store.Exists(basePath + ".nostr.key") {
 		id.NostrPriv, _ = m.LoadPrivateKey(basePath+".nostr.key", passphrase, pin, isStdin)
 	}
 
@@ -244,26 +253,20 @@ func (m *IdentityManager) LoadIdentity(name string, passphrase []byte, pin strin
 
 // LoadPrivateKey handles the decryption of a protected key file.
 func (m *IdentityManager) LoadPrivateKey(path string, passphrase []byte, pin string, isStdin bool) ([]byte, error) {
-	if _, err := os.Stat(path); err != nil {
+	if !m.Store.Exists(path) {
 		return nil, &ErrIO{Path: path, Reason: "key file not found"}
 	}
 
-	// Resolve the real path
-	resolvedPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		resolvedPath = path
-	}
-
 	// Case 1: Decrypt using FIDO2 if .fido2 file exists
-	fidoPath := resolvedPath + ".fido2"
-	if _, err := os.Stat(fidoPath); err == nil {
-		return m.UnlockPrivateKeyWithFIDOOrPass(passphrase, pin, resolvedPath, isStdin)
+	fidoPath := path + ".fido2"
+	if m.Store.Exists(fidoPath) {
+		return m.UnlockPrivateKeyWithFIDOOrPass(passphrase, pin, path, isStdin)
 	}
 
 	// Case 2: Standard decryption with passphrase
-	data, err := os.ReadFile(resolvedPath)
+	data, err := m.Store.ReadKey(path)
 	if err != nil {
-		return nil, &ErrIO{Path: resolvedPath, Reason: err.Error()}
+		return nil, &ErrIO{Path: path, Reason: err.Error()}
 	}
 
 	var decrypted bytes.Buffer
@@ -276,7 +279,7 @@ func (m *IdentityManager) LoadPrivateKey(path string, passphrase []byte, pin str
 }
 
 func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, pin string, resolvedPath string, isStdin bool) ([]byte, error) {
-	data, err := os.ReadFile(resolvedPath)
+	data, err := m.Store.ReadKey(resolvedPath)
 	if err != nil {
 		return nil, &ErrIO{Path: resolvedPath, Reason: err.Error()}
 	}
@@ -351,18 +354,14 @@ func (m *IdentityManager) ResolvePublicKey(input string, tofu bool) ([]byte, err
 }
 
 func (m *IdentityManager) ListActiveIdentities() ([]string, error) {
-	files, err := os.ReadDir(m.KeysDir)
+	files, err := m.Store.ListKeys(m.Store.GetBaseDir())
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, &ErrIO{Path: m.KeysDir, Reason: err.Error()}
+		return nil, &ErrIO{Path: m.Store.GetBaseDir(), Reason: err.Error()}
 	}
 
 	var identities []string
 	seen := make(map[string]bool)
-	for _, f := range files {
-		name := f.Name()
+	for _, name := range files {
 		if strings.HasSuffix(name, ".kem.pub") {
 			base := strings.TrimSuffix(name, ".kem.pub")
 			if !seen[base] {

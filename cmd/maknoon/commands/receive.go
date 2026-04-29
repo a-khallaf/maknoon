@@ -30,13 +30,14 @@ func ReceiveCmd() *cobra.Command {
 			if err := InitEngine(); err != nil {
 				return err
 			}
+			p := GlobalContext.UI.GetPresenter()
 
 			var code string
 			if len(args) > 0 {
 				code = args[0]
 			}
 
-			if JSONOutput {
+			if GlobalContext.UI.JSON {
 				quietRecv = true
 			}
 
@@ -51,28 +52,32 @@ func ReceiveCmd() *cobra.Command {
 				m := crypto.NewIdentityManager()
 				resolvedPriv := m.ResolveKeyPath(recvPrivateKey, "MAKNOON_PRIVATE_KEY")
 				if resolvedPriv == "" {
-					return fmt.Errorf("private key required for identity-based P2P")
+					p.RenderError(fmt.Errorf("private key required for identity-based P2P"))
+					return nil
 				}
 				privBytes, err := m.LoadPrivateKey(resolvedPriv, []byte(recvPassphrase), "", false)
 				if err != nil {
-					return err
+					p.RenderError(err)
+					return nil
 				}
 				opts.PrivateKey = privBytes
 			}
 
 			status, err := GlobalContext.Engine.P2PReceive(&crypto.EngineContext{Context: context.Background()}, recvIdentity, code, opts)
 			if err != nil {
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			var bar *progressbar.ProgressBar
 			for s := range status {
 				if s.Error != nil {
-					return s.Error
+					p.RenderError(s.Error)
+					return nil
 				}
 				if !quietRecv {
 					if s.Phase == "connecting" && s.Code != "" {
-						fmt.Printf("🕳️  Waiting for peer. Share your PeerID: %s\n", s.Code)
+						p.RenderMessage(fmt.Sprintf("🕳️  Waiting for peer. Share your PeerID: %s", s.Code))
 					}
 					if bar == nil && s.BytesTotal > 0 {
 						bar = progressbar.DefaultBytes(s.BytesTotal, "receiving")
@@ -83,10 +88,10 @@ func ReceiveCmd() *cobra.Command {
 				}
 				if s.Phase == "success" {
 					if !quietRecv {
-						fmt.Printf("\n✨ Success! Data saved to: %s\n", s.FileName)
+						p.RenderMessage(fmt.Sprintf("\n✨ Success! Data saved to: %s", s.FileName))
 					}
-					if JSONOutput {
-						printJSON(map[string]string{"status": "success", "file": s.FileName})
+					if GlobalContext.UI.JSON {
+						p.RenderSuccess(map[string]string{"status": "success", "file": s.FileName})
 					}
 					break
 				}

@@ -36,6 +36,7 @@ func SendCmd() *cobra.Command {
 			if err := InitEngine(); err != nil {
 				return err
 			}
+			p := GlobalContext.UI.GetPresenter()
 
 			var path string
 			var isDir bool
@@ -52,20 +53,23 @@ func SendCmd() *cobra.Command {
 					inputName = "stdin"
 				} else {
 					if err := validatePath(path); err != nil {
-						return err
+						p.RenderError(err)
+						return nil
 					}
 					info, err := os.Stat(path)
 					if err != nil {
-						return err
+						p.RenderError(err)
+						return nil
 					}
 					isDir = info.IsDir()
 					inputName = filepath.Base(path)
 				}
 			} else {
-				return fmt.Errorf("either a file path or --text must be provided")
+				p.RenderError(fmt.Errorf("either a file path or --text must be provided"))
+				return nil
 			}
 
-			if JSONOutput {
+			if GlobalContext.UI.JSON {
 				quietSend = true
 			}
 
@@ -81,37 +85,40 @@ func SendCmd() *cobra.Command {
 				im := crypto.NewIdentityManager()
 				pkBytes, err := im.ResolvePublicKey(sendPublicKey, sendTofu)
 				if err != nil {
-					return err
+					p.RenderError(err)
+					return nil
 				}
 				opts.PublicKey = pkBytes
 				opts.Passphrase = nil
 			} else if len(opts.Passphrase) == 0 {
-				p, _ := crypto.GeneratePassphrase(4, "-")
-				opts.Passphrase = []byte(p)
+				pass, _ := crypto.GeneratePassphrase(4, "-")
+				opts.Passphrase = []byte(pass)
 			}
 
 			code, status, err := GlobalContext.Engine.P2PSend(&crypto.EngineContext{Context: context.Background()}, sendIdentity, inputName, inputReader, opts)
 			if err != nil {
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			if !quietSend {
-				fmt.Printf("🚀 P2P Transfer initiated to %s\n", sendTo)
-				fmt.Printf("🆔 Your PeerID: %s\n", code)
+				p.RenderMessage(fmt.Sprintf("🚀 P2P Transfer initiated to %s", sendTo))
+				p.RenderMessage(fmt.Sprintf("🆔 Your PeerID: %s", code))
 				if len(opts.Passphrase) > 0 {
-					SecurePrintf("👉 Session Passphrase: %s\n", string(opts.Passphrase))
+					p.RenderMessage(fmt.Sprintf("👉 Session Passphrase: %s", string(opts.Passphrase)))
 				}
 			}
 
-			if JSONOutput {
-				printJSON(map[string]string{"status": "established", "code": code})
+			if GlobalContext.UI.JSON {
+				p.RenderSuccess(map[string]string{"status": "established", "code": code})
 			}
 
 			// Progress loop
 			var bar *progressbar.ProgressBar
 			for s := range status {
 				if s.Error != nil {
-					return s.Error
+					p.RenderError(s.Error)
+					return nil
 				}
 				if !quietSend && bar == nil && s.BytesTotal > 0 {
 					bar = progressbar.DefaultBytes(s.BytesTotal, "sending")
@@ -121,10 +128,10 @@ func SendCmd() *cobra.Command {
 				}
 				if s.Phase == "success" {
 					if !quietSend {
-						fmt.Println("\n✨ Transfer complete!")
+						p.RenderMessage("\n✨ Transfer complete!")
 					}
-					if JSONOutput {
-						printJSON(map[string]string{"status": "success"})
+					if GlobalContext.UI.JSON {
+						p.RenderSuccess(map[string]string{"status": "success"})
 					}
 					break
 				}

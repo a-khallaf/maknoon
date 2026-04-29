@@ -38,14 +38,12 @@ func EncryptCmd() *cobra.Command {
 		Short: "Encrypt a file or directory symmetrically or asymmetrically",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			p := GlobalContext.UI.GetPresenter()
 			inputPath := args[0]
 			input, _, _, isDir, err := resolveEncryptInput(inputPath)
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 			if input != nil {
 				if f, ok := input.(*os.File); ok && f != os.Stdin {
@@ -53,13 +51,10 @@ func EncryptCmd() *cobra.Command {
 				}
 			}
 
-			out, outPath, err := resolveEncryptOutput(output, inputPath)
+			out, _, err := resolveEncryptOutput(output, inputPath)
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 			if f, ok := out.(*os.File); ok {
 				defer func() { _ = f.Close() }()
@@ -68,11 +63,8 @@ func EncryptCmd() *cobra.Command {
 			if profileFile != "" {
 				dp, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile)
 				if err != nil {
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(err)
+					return nil
 				}
 				profileStr = fmt.Sprintf("%d", dp.ID())
 			}
@@ -82,11 +74,8 @@ func EncryptCmd() *cobra.Command {
 				var err error
 				profileID, err = resolveProfile(profileStr)
 				if err != nil {
-					if JSONOutput {
-						printErrorJSON(err)
-						return nil
-					}
-					return err
+					p.RenderError(err)
+					return nil
 				}
 			}
 
@@ -100,11 +89,8 @@ func EncryptCmd() *cobra.Command {
 			}
 
 			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath, tofu); err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			if signKeyPath != "" || viper.GetString("private_key") != "" {
@@ -135,7 +121,7 @@ func EncryptCmd() *cobra.Command {
 				}
 			}()
 
-			if JSONOutput {
+			if GlobalContext.UI.JSON {
 				quiet = true
 			}
 
@@ -147,33 +133,24 @@ func EncryptCmd() *cobra.Command {
 				close(done)
 			}()
 
-			_, err = GlobalContext.Engine.Protect(nil, inputPath, nil, out, opts)
+			res, err := GlobalContext.Engine.Protect(nil, inputPath, nil, out, opts)
 			close(events)
 			<-done
 
 			if err != nil {
-				if JSONOutput {
-					printErrorJSON(err)
-					return err
-				}
-				return err
+				p.RenderError(err)
+				return nil
 			}
 
 			if shred && inputPath != "-" {
 				if err := crypto.SecureDelete(inputPath); err != nil {
 					if !quiet {
-						fmt.Fprintf(os.Stderr, "Warning: failed to shred original file: %v\n", err)
+						p.RenderMessage(fmt.Sprintf("Warning: failed to shred original file: %v", err))
 					}
 				}
 			}
 
-			if JSONOutput {
-				printJSON(crypto.EncryptResult{
-					Status: "success",
-					Output: outPath,
-				})
-			}
-
+			p.RenderSuccess(res)
 			return nil
 		},
 	}

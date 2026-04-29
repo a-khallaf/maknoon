@@ -32,7 +32,66 @@ type UIHandler struct {
 	JSON        bool
 }
 
-// NewUIHandler creates a default UI handler based on the current environment.
+// Presenter defines the interface for rendering engine results.
+type Presenter interface {
+	RenderSuccess(result any)
+	RenderError(err error)
+	RenderMessage(msg string)
+}
+
+// JSONPresenter renders results as pretty-printed JSON.
+type JSONPresenter struct {
+	Writer io.Writer
+}
+
+func (p *JSONPresenter) RenderSuccess(result any) {
+	enc := json.NewEncoder(p.Writer)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(result)
+}
+
+func (p *JSONPresenter) RenderError(err error) {
+	resp := map[string]any{"status": "error", "error": err.Error()}
+	var policyErr *crypto.ErrPolicyViolation
+	if crypto.As(err, &policyErr) {
+		resp["type"] = "security_policy_violation"
+	}
+	p.RenderSuccess(resp)
+}
+
+func (p *JSONPresenter) RenderMessage(msg string) {
+	// Messages are usually suppressed in JSON mode or wrapped
+}
+
+// CLIPresenter renders results for human consumption.
+type CLIPresenter struct {
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+func (p *CLIPresenter) RenderSuccess(result any) {
+	// Basic implementation, can be specialized per result type
+	if res, ok := result.(string); ok {
+		fmt.Fprintln(p.Stdout, res)
+	}
+}
+
+func (p *CLIPresenter) RenderError(err error) {
+	fmt.Fprintf(p.Stderr, "Error: %v\n", err)
+}
+
+func (p *CLIPresenter) RenderMessage(msg string) {
+	fmt.Fprintln(p.Stdout, msg)
+}
+
+// GetPresenter returns the appropriate presenter based on current mode.
+func (h *UIHandler) GetPresenter() Presenter {
+	if h.JSON {
+		return &JSONPresenter{Writer: h.Stdout}
+	}
+	return &CLIPresenter{Stdout: h.Stdout, Stderr: h.Stderr}
+}
+
 func NewUIHandler() *UIHandler {
 	return &UIHandler{
 		Stdout:      os.Stdout,
@@ -346,7 +405,7 @@ func InitEngine() error {
 	// Only enable AgentPolicy if explicitly requested via environment variable.
 	isAgent := viper.GetString("agent_mode") == "1"
 
-	if isAgent || viper.GetBool("json") {
+	if isAgent || viper.GetBool("json") || GlobalContext.UI.JSON {
 		SetJSONOutput(true)
 	}
 
@@ -356,14 +415,19 @@ func InitEngine() error {
 		policy = &crypto.HumanPolicy{}
 	}
 
-	core, err := crypto.NewEngine(policy)
+	// 2. Initialize Engine with DI
+	conf := crypto.GetGlobalConfig()
+	idMgr := crypto.NewIdentityManager()
+	core, err := crypto.NewEngine(policy, idMgr, conf, nil)
 	if err != nil {
 		return err
 	}
 
 	// Setup Audit Logging
 	var logger crypto.AuditLogger = &crypto.NoopLogger{}
-	if core.Config.Audit.Enabled && !isAgent {
+	if viper.GetBool("verbose") {
+		logger = &crypto.ConsoleAuditLogger{Writer: GlobalContext.UI.Stderr}
+	} else if core.Config.Audit.Enabled && !isAgent {
 		// Only enable rich auditing in non-agent/human modes
 		l, err := crypto.NewJSONFileLogger(core.Config.Audit.LogFile)
 		if err == nil {

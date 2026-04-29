@@ -65,8 +65,8 @@ func (c *EngineContext) Emit(ev EngineEvent) {
 
 // Protector handles encryption and decryption pipelines.
 type Protector interface {
-	Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (byte, error)
-	Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (byte, error)
+	Protect(ectx *EngineContext, inputName string, r io.Reader, w io.Writer, opts Options) (EncryptResult, error)
+	Unprotect(ectx *EngineContext, r io.Reader, w io.Writer, outPath string, opts Options) (DecryptResult, error)
 	FinalizeRestoration(ectx *EngineContext, pr io.Reader, w io.Writer, flags byte, outPath string, logger *slog.Logger) error
 	LoadCustomProfile(ectx *EngineContext, path string) (*DynamicProfile, error)
 	GenerateRandomProfile(ectx *EngineContext, id byte) *DynamicProfile

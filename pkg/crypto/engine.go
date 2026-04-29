@@ -18,6 +18,7 @@ type Engine struct {
 	Policy     SecurityPolicy
 	Config     *Config
 	Identities *IdentityManager
+	Vaults     VaultStore
 
 	// Tunnel State
 	activeTunnel *tunnel.TunnelStatus
@@ -272,16 +273,30 @@ func (e *Engine) enforce(ectx *EngineContext, cap Capability) error {
 	return nil
 }
 
-func NewEngine(policy SecurityPolicy) (*Engine, error) {
-	conf, err := LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize engine config: %w", err)
+func NewEngine(policy SecurityPolicy, idMgr *IdentityManager, conf *Config, vaultStore VaultStore) (*Engine, error) {
+	if conf == nil {
+		var err error
+		conf, err = LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize engine config: %w", err)
+		}
+	}
+
+	if idMgr == nil {
+		idMgr = NewIdentityManager()
+	}
+
+	if vaultStore == nil {
+		vaultStore = &FileSystemVaultStore{
+			BaseDir: conf.Paths.VaultsDir,
+		}
 	}
 
 	return &Engine{
 		Policy:     policy,
 		Config:     conf,
-		Identities: NewIdentityManager(),
+		Identities: idMgr,
+		Vaults:     vaultStore,
 	}, nil
 }
 

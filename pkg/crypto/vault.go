@@ -67,7 +67,8 @@ func (e *Engine) VaultDelete(ectx *EngineContext, name string) error {
 	if err := ectx.Policy.ValidatePath(path); err != nil {
 		return err
 	}
-	return SecureDelete(path)
+
+	return e.Vaults.DeleteVault(path)
 }
 
 func (e *Engine) VaultRename(ectx *EngineContext, oldName, newName string) error {
