@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 const P2PChatProtocol = "/maknoon/chat/1.0.0"
@@ -69,14 +70,30 @@ func (s *P2PChatSession) StartHost(ctx context.Context) (string, error) {
 
 // StartJoin dials a remote peer to start a chat.
 func (s *P2PChatSession) StartJoin(ctx context.Context, target string) error {
-	pID, err := peer.Decode(target)
-	if err != nil {
-		return fmt.Errorf("invalid PeerID: %w", err)
+	var info *peer.AddrInfo
+
+	// 1. Try parsing as Multiaddr
+	if ma, err := multiaddr.NewMultiaddr(target); err == nil {
+		info, err = peer.AddrInfoFromP2pAddr(ma)
+		if err != nil {
+			return fmt.Errorf("invalid Multiaddr: %w", err)
+		}
+	} else {
+		// 2. Fallback to standard PeerID
+		pID, err := peer.Decode(target)
+		if err != nil {
+			return fmt.Errorf("invalid PeerID: %w", err)
+		}
+		info = &peer.AddrInfo{ID: pID}
 	}
 
-	stream, err := s.Host.NewStream(ctx, pID, P2PChatProtocol)
-	if err != nil {
+	if err := s.Host.Connect(ctx, *info); err != nil {
 		return fmt.Errorf("failed to connect to peer: %w", err)
+	}
+
+	stream, err := s.Host.NewStream(ctx, info.ID, P2PChatProtocol)
+	if err != nil {
+		return fmt.Errorf("failed to open chat stream: %w", err)
 	}
 
 	s.stream = stream
