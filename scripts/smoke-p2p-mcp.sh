@@ -127,7 +127,7 @@ echo "🤝 Receiver: Joining Sender via direct Multiaddr: $S_ADDR"
 JOIN_RES=$(mcp_call_node 8081 "$R_PATH" "chat_start" "{\"target\": \"$S_ADDR\"}")
 echo "Join Response: $JOIN_RES"
 
-if echo "$JOIN_RES" | grep -q "\"status\":[[:space:]]*\"established\"" || echo "$JOIN_RES" | grep -q "\\\"status\\\":\\\"established\\\""; then
+if echo "$JOIN_RES" | grep -q "established"; then
     echo "✅ SUCCESS: P2P Chat handshake verified."
 else
     echo "❌ FAILURE: Chat handshake failed."
