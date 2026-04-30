@@ -29,6 +29,7 @@ var useFido2 bool
 
 // VaultCmd returns the cobra command for managing secure vaults.
 func VaultCmd() *cobra.Command {
+	vaultName = "default" // Reset to default
 	cmd := &cobra.Command{
 		Use:   "vault",
 		Short: "Manage secure password vaults",
@@ -59,18 +60,25 @@ func vaultSplitCmd() *cobra.Command {
 		Short: "Shard the vault's master access key",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p := GlobalContext.UI.GetPresenter()
-			// We need to get the raw passphrase used for the vault
-			db, key, err := openVault()
-			if err != nil {
-				p.RenderError(err)
-				return nil
-			}
-			db.Close()
-			defer crypto.SafeClear(key)
 
-			// Wait, openVault returns the derived masterKey.
-			// We should shard the masterKey itself so it can unlock the vault directly.
-			shards, err := crypto.SplitSecret(key, threshold, shares)
+			// Get the raw passphrase used for the vault
+			var pass []byte
+			var err error
+			if vaultPassphrase != "" {
+				pass = []byte(vaultPassphrase)
+			} else {
+				pass, _, err = getPassphrase("Enter Vault Master Passphrase to shard: ")
+				if err != nil {
+					p.RenderError(err)
+					return nil
+				}
+			}
+			defer crypto.SafeClear(pass)
+
+			h := sha256.Sum256(pass)
+			fmt.Fprintf(os.Stderr, "DEBUG: Original Passphrase Hash: %x\n", h)
+
+			shards, err := crypto.SplitSecret(pass, threshold, shares)
 			if err != nil {
 				p.RenderError(err)
 				return nil
@@ -123,12 +131,15 @@ func vaultRecoverCmd() *cobra.Command {
 				shards = append(shards, *s)
 			}
 
-			masterKey, err := crypto.CombineShares(shards)
+			passphrase, err := crypto.CombineShares(shards)
 			if err != nil {
 				p.RenderError(err)
 				return nil
 			}
-			defer crypto.SafeClear(masterKey)
+			defer crypto.SafeClear(passphrase)
+
+			h := sha256.Sum256(passphrase)
+			fmt.Fprintf(os.Stderr, "DEBUG: Reconstructed Passphrase Hash: %x\n", h)
 
 			dbPath, err := resolveVaultPath(vaultName)
 			if err != nil {
@@ -142,8 +153,19 @@ func vaultRecoverCmd() *cobra.Command {
 			}
 			defer db.Close()
 
+			var masterKey []byte
 			var entries []*crypto.VaultEntry
 			err = db.View(func(tx *bbolt.Tx) error {
+				meta := tx.Bucket([]byte(metaBucket))
+				if meta == nil {
+					return fmt.Errorf("vault metadata not found")
+				}
+				salt := meta.Get([]byte(saltKey))
+				if salt == nil {
+					return fmt.Errorf("vault salt not found")
+				}
+				masterKey = crypto.DeriveVaultKey(passphrase, salt)
+
 				b := tx.Bucket([]byte(vaultBucket))
 				if b == nil {
 					return nil
@@ -156,6 +178,9 @@ func vaultRecoverCmd() *cobra.Command {
 					return nil
 				})
 			})
+			if masterKey != nil {
+				defer crypto.SafeClear(masterKey)
+			}
 
 			if err != nil {
 				p.RenderError(err)
@@ -248,10 +273,7 @@ func vaultRecoverCmd() *cobra.Command {
 }
 
 func resolveVaultPath(name string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
+	home := crypto.GetUserHomeDir()
 	defaultDir := filepath.Join(home, crypto.MaknoonDir, crypto.VaultsDir)
 
 	if strings.Contains(name, string(os.PathSeparator)) {
@@ -260,7 +282,7 @@ func resolveVaultPath(name string) (string, error) {
 		}
 		return name, nil
 	}
-	return filepath.Join(defaultDir, name+".db"), nil
+	return filepath.Join(defaultDir, name+".vault"), nil
 }
 
 func openVault() (*bbolt.DB, []byte, error) {

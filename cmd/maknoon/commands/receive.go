@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
 	"github.com/schollz/progressbar/v3"
@@ -27,6 +28,7 @@ func ReceiveCmd() *cobra.Command {
 		Long:  `Downloads and decrypts data directly from a peer via libp2p.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintf(os.Stderr, "DEBUG: receive command starting\n")
 			if err := InitEngine(); err != nil {
 				return err
 			}
@@ -69,16 +71,26 @@ func ReceiveCmd() *cobra.Command {
 				return nil
 			}
 
+			// We need to peek into the first status message to get Multiaddrs for logging
+			// But the loop below handles it. The issue might be that s.Addrs is empty.
+
 			var bar *progressbar.ProgressBar
 			for s := range status {
+				fmt.Fprintf(os.Stderr, "DEBUG: receive phase: %s\n", s.Phase)
 				if s.Error != nil {
 					p.RenderError(s.Error)
 					return nil
 				}
-				if !quietRecv {
-					if s.Phase == "connecting" && s.Code != "" {
+				if s.Phase == "connecting" && s.Code != "" {
+					// Always print multiaddrs to stderr for mission visibility
+					for _, addr := range s.Addrs {
+						fmt.Fprintf(os.Stderr, "📍 Multiaddr: %s\n", addr)
+					}
+					if !quietRecv {
 						p.RenderMessage(fmt.Sprintf("🕳️  Waiting for peer. Share your PeerID: %s", s.Code))
 					}
+				}
+				if !quietRecv {
 					if bar == nil && s.BytesTotal > 0 {
 						bar = progressbar.DefaultBytes(s.BytesTotal, "receiving")
 					}

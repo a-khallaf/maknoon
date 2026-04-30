@@ -10,6 +10,7 @@ import (
 type P2PStatus struct {
 	Phase        string // "encrypting", "connecting", "transferring", "decrypting", "success", "error"
 	Code         string
+	Addrs        []string
 	FileName     string
 	BytesTotal   int64
 	BytesDone    int64
@@ -94,8 +95,14 @@ func (e *Engine) P2PReceive(ectx *EngineContext, identityName string, code strin
 		return nil, err
 	}
 	go e.runLibp2pReceive(ectx, h, opts, status)
+
+	var addrs []string
+	for _, a := range h.Addrs() {
+		addrs = append(addrs, a.String()+"/p2p/"+h.ID().String())
+	}
+
 	// We return our ID in the "connecting" phase so the user can share it
-	status <- P2PStatus{Phase: "connecting", Code: h.ID().String()}
+	status <- P2PStatus{Phase: "connecting", Code: h.ID().String(), Addrs: addrs}
 	return status, nil
 }
 

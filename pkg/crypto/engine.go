@@ -100,8 +100,21 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 		return *e.activeTunnel, fmt.Errorf("a tunnel is already active")
 	}
 
+	var libp2pOpts []libp2p.Option
+	if opts.P2PMode && opts.Identity != "" {
+		id, err := e.Identities.LoadIdentity(opts.Identity, nil, "", false)
+		if err != nil {
+			return tunnel.TunnelStatus{}, err
+		}
+		priv, err := id.AsLibp2pKey()
+		if err != nil {
+			return tunnel.TunnelStatus{}, err
+		}
+		libp2pOpts = append(libp2pOpts, libp2p.Identity(priv))
+	}
+
 	factory := &tunnel.TransportFactory{Config: e.Config.Tunnel}
-	session, err := factory.CreateClientSession(ectx.Context, opts)
+	session, err := factory.CreateClientSession(ectx.Context, opts, libp2pOpts...)
 	if err != nil {
 		return tunnel.TunnelStatus{}, err
 	}
@@ -115,10 +128,18 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 		return tunnel.TunnelStatus{}, fmt.Errorf("failed to start SOCKS5 gateway: %w", err)
 	}
 
+	remote := opts.RemoteEndpoint
+	if remote == "" {
+		remote = opts.P2PAddr
+	}
+	if remote == "" {
+		remote = "unknown"
+	}
+
 	e.activeTunnel = &tunnel.TunnelStatus{
 		Active:         true,
 		LocalAddress:   fmt.Sprintf("127.0.0.1:%d", opts.LocalProxyPort),
-		RemoteEndpoint: opts.RemoteEndpoint,
+		RemoteEndpoint: remote,
 		HandshakeTime:  time.Now().Format(time.RFC3339),
 	}
 	e.gateway = gw

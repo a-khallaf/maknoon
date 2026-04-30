@@ -1,0 +1,22 @@
+# Mission-Ready Dockerfile (with Shell for orchestration)
+FROM golang:1.26-alpine AS builder
+RUN apk add --no-cache git ca-certificates tzdata
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o maknoon ./cmd/maknoon
+
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata curl su-exec
+
+# Setup non-root user
+RUN addgroup -S maknoon -g 1000 && adduser -S maknoon -u 1000 -G maknoon
+RUN mkdir -p /tmp/maknoon && chmod 1777 /tmp && chown 1000:1000 /tmp/maknoon
+RUN mkdir -p /home/maknoon && chown 1000:1000 /home/maknoon
+
+COPY --from=builder /app/maknoon /usr/local/bin/maknoon
+
+WORKDIR /home/maknoon
+ENV HOME=/home/maknoon
+USER 1000:1000

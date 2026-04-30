@@ -1,0 +1,65 @@
+services:
+  # The Recovery Node (Initiates recovery)
+  recovery-node:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=quorum-pass
+    command: sleep 3600
+    networks:
+      - quorum-net
+
+  # 4 Guardian nodes holding shards
+  guardian-1:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=quorum-pass
+    user: "root"
+    command: sh -c "maknoon keygen --no-password -o g1 && maknoon tunnel listen --p2p --address 0.0.0.0:4000 --identity g1"
+    networks:
+      - quorum-net
+
+  guardian-2:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=quorum-pass
+    user: "root"
+    command: sh -c "maknoon keygen --no-password -o g2 && maknoon tunnel listen --p2p --address 0.0.0.0:4000 --identity g2"
+    networks:
+      - quorum-net
+
+  guardian-3:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=quorum-pass
+    user: "root"
+    command: sh -c "maknoon keygen --no-password -o g3 && maknoon tunnel listen --p2p --address 0.0.0.0:4000 --identity g3"
+    networks:
+      - quorum-net
+
+  guardian-4:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=quorum-pass
+    user: "root"
+    command: sh -c "maknoon keygen --no-password -o g4 && maknoon tunnel listen --p2p --address 0.0.0.0:4000 --identity g4"
+    networks:
+      - quorum-net
+
+networks:
+  quorum-net:
+    internal: false

@@ -8,6 +8,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 const P2PSendProtocol = "/maknoon/send/1.0.0"
@@ -16,7 +17,25 @@ const P2PSendProtocol = "/maknoon/send/1.0.0"
 func (e *Engine) runLibp2pSend(ectx *EngineContext, inputName string, r io.Reader, h host.Host, target string, opts P2PSendOptions, status chan P2PStatus) {
 	defer close(status)
 
-	pID, err := peer.Decode(target)
+	var pID peer.ID
+	var err error
+
+	// Try parsing as Multiaddr first
+	if ma, maErr := multiaddr.NewMultiaddr(target); maErr == nil {
+		info, infoErr := peer.AddrInfoFromP2pAddr(ma)
+		if infoErr == nil {
+			pID = info.ID
+			if err := h.Connect(ectx.Context, *info); err != nil {
+				status <- P2PStatus{Phase: "error", Error: fmt.Errorf("failed to connect to multiaddr: %w", err)}
+				return
+			}
+		} else {
+			pID, err = peer.Decode(target)
+		}
+	} else {
+		pID, err = peer.Decode(target)
+	}
+
 	if err != nil {
 		status <- P2PStatus{Phase: "error", Error: fmt.Errorf("invalid PeerID: %w", err)}
 		return

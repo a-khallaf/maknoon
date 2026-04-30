@@ -1,0 +1,67 @@
+services:
+  # The Ingestor Node (Source of raw data)
+  ingestor:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=pipe-pass
+    user: "root"
+    command: sh -c "mkdir -p /home/maknoon/data && chown -R maknoon:maknoon /home/maknoon/data && su-exec maknoon sh -c 'dd if=/dev/urandom of=/home/maknoon/data/large_data.bin bs=1M count=10 && sleep 3600'"
+    volumes:
+      - pipeline-data:/home/maknoon/data
+    networks:
+      - pipeline-net
+
+  # The Compressor Node (Zstd Transformer)
+  compressor:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=pipe-pass
+    user: "root"
+    command: sh -c "mkdir -p /home/maknoon/data && chown -R maknoon:maknoon /home/maknoon/data && su-exec maknoon sh -c 'maknoon keygen --no-password -o compressor-id && cd /home/maknoon/data && maknoon receive --p2p --identity compressor-id'"
+    volumes:
+      - pipeline-data:/home/maknoon/data
+    networks:
+      - pipeline-net
+
+  # The Encryptor Node (ML-KEM Transformer)
+  encryptor:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=pipe-pass
+    user: "root"
+    command: sh -c "mkdir -p /home/maknoon/data && chown -R maknoon:maknoon /home/maknoon/data && su-exec maknoon sh -c 'maknoon keygen --no-password -o encryptor-id && cd /home/maknoon/data && maknoon receive --p2p --identity encryptor-id'"
+    volumes:
+      - pipeline-data:/home/maknoon/data
+    networks:
+      - pipeline-net
+
+  # The Sink Node (Final Storage)
+  sink:
+    build:
+      context: ../../
+      dockerfile: Dockerfile.mission
+    environment:
+      - MAKNOON_AGENT_MODE=1
+      - MAKNOON_PASSPHRASE=pipe-pass
+    user: "root"
+    command: sh -c "mkdir -p /home/maknoon/data && chown -R maknoon:maknoon /home/maknoon/data && su-exec maknoon sh -c 'maknoon keygen --no-password -o sink-id && cd /home/maknoon/data && maknoon receive --p2p --identity sink-id'"
+    volumes:
+      - pipeline-data:/home/maknoon/data
+    networks:
+      - pipeline-net
+
+volumes:
+  pipeline-data:
+
+networks:
+  pipeline-net:
+    internal: true

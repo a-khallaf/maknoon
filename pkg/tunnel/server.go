@@ -2,9 +2,11 @@ package tunnel
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"os"
 )
 
 // TunnelServer handles incoming multiplexed connections and forwards them to internal targets.
@@ -18,21 +20,24 @@ func (s *TunnelServer) Serve(ctx context.Context, ln MuxListener) error {
 	defer ln.Close()
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			sess, err := ln.Accept()
-			if err != nil {
-				return err
-			}
-			go s.handleSession(ctx, sess)
+		sess, err := ln.Accept()
+		if err != nil {
+			return err
 		}
+		go s.handleSession(ctx, sess)
 	}
 }
 
 func (s *TunnelServer) handleSession(ctx context.Context, sess MuxSession) {
 	defer sess.Close()
+
+	// If the session is already a single stream (like server-side libp2p),
+	// we just handle it directly once.
+	if ls, ok := sess.(*Libp2pSession); ok && ls.singleStream != nil {
+		conn, _ := ls.OpenStream(ctx)
+		s.handleStream(conn)
+		return
+	}
 
 	for {
 		stream, err := sess.OpenStream(ctx)
@@ -51,21 +56,23 @@ func (s *TunnelServer) handleStream(stream net.Conn) {
 	defer GlobalPool.Put(lb)
 
 	if _, err := io.ReadFull(stream, lb.Bytes()[:1]); err != nil {
+		slog.Error("tunnel server: failed to read header length", "err", err)
 		return
 	}
 	addrLen := int(lb.Bytes()[0])
 
 	if _, err := io.ReadFull(stream, lb.Bytes()[:addrLen]); err != nil {
+		fmt.Fprintf(os.Stderr, "tunnel server: failed to read target address: %v\n", err)
 		return
 	}
 	targetAddr := string(lb.Bytes()[:addrLen])
 
-	slog.Info("tunnel server: forwarding stream", "target", targetAddr)
+	fmt.Fprintf(os.Stderr, "tunnel server: forwarding stream to %s\n", targetAddr)
 
 	// 2. Dial the internal target
 	target, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		slog.Error("tunnel server: failed to dial target", "target", targetAddr, "err", err)
+		fmt.Fprintf(os.Stderr, "tunnel server: failed to dial target %s: %v\n", targetAddr, err)
 		return
 	}
 	defer target.Close()

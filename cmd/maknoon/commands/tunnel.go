@@ -35,11 +35,16 @@ func tunnelListenCmd() *cobra.Command {
 	var certFile, keyFile string
 	var useYamux bool
 	var useP2P bool
+	var identityName string
 
 	cmd := &cobra.Command{
 		Use:   "listen",
 		Short: "Start a Post-Quantum Tunnel Server (Gateway Receiver)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := InitEngine(); err != nil {
+				return err
+			}
+
 			var ln tunnel.MuxListener
 
 			if useP2P {
@@ -49,6 +54,22 @@ func tunnelListenCmd() *cobra.Command {
 					if err == nil {
 						opts = append(opts, libp2p.ListenAddrs(ma))
 					}
+				}
+
+				if identityName != "" {
+					auditEng, ok := GlobalContext.Engine.(*crypto.AuditEngine)
+					if !ok {
+						return fmt.Errorf("unexpected engine type")
+					}
+					id, err := auditEng.Engine.Identities.LoadIdentity(identityName, nil, "", false)
+					if err != nil {
+						return err
+					}
+					priv, err := id.AsLibp2pKey()
+					if err != nil {
+						return err
+					}
+					opts = append(opts, libp2p.Identity(priv))
 				}
 
 				h, err := tunnel.NewLibp2pHost(opts...)
@@ -102,6 +123,7 @@ func tunnelListenCmd() *cobra.Command {
 	cmd.Flags().StringVar(&keyFile, "tls-key", "", "Path to TLS private key")
 	cmd.Flags().BoolVar(&useYamux, "yamux", false, "Use TCP+Yamux mode")
 	cmd.Flags().BoolVar(&useP2P, "p2p", false, "Use libp2p for P2P/NAT traversal")
+	cmd.Flags().StringVar(&identityName, "identity", "", "Identity to use for P2P")
 
 	return cmd
 }
@@ -112,6 +134,7 @@ func tunnelStartCmd() *cobra.Command {
 	var useYamux bool
 	var useP2P bool
 	var p2pAddr string
+	var identityName string
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -127,6 +150,7 @@ func tunnelStartCmd() *cobra.Command {
 				UseYamux:       useYamux,
 				P2PMode:        useP2P,
 				P2PAddr:        p2pAddr,
+				Identity:       identityName,
 			}
 
 			status, err := GlobalContext.Engine.TunnelStart(&crypto.EngineContext{Context: context.Background()}, opts)
@@ -152,6 +176,7 @@ func tunnelStartCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&useYamux, "yamux", false, "Use TCP+Yamux mode")
 	cmd.Flags().BoolVar(&useP2P, "p2p", false, "Use libp2p for P2P mode")
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", "", "Remote P2P Multiaddr")
+	cmd.Flags().StringVar(&identityName, "identity", "", "Identity to use for P2P")
 
 	return cmd
 }

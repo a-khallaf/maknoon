@@ -16,9 +16,9 @@ type TransportFactory struct {
 }
 
 // CreateClientSession instantiates a MuxSession based on the provided options.
-func (f *TransportFactory) CreateClientSession(ctx context.Context, opts TunnelOptions) (MuxSession, error) {
+func (f *TransportFactory) CreateClientSession(ctx context.Context, opts TunnelOptions, extraOpts ...libp2p.Option) (MuxSession, error) {
 	if opts.P2PMode {
-		h, err := NewLibp2pHost()
+		h, err := NewLibp2pHost(extraOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to start libp2p host: %w", err)
 		}

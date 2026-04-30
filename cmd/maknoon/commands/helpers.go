@@ -405,7 +405,7 @@ func InitEngine() error {
 	// Only enable AgentPolicy if explicitly requested via environment variable.
 	isAgent := viper.GetString("agent_mode") == "1"
 
-	if isAgent || viper.GetBool("json") || GlobalContext.UI.JSON {
+	if isAgent || viper.GetBool("json") {
 		SetJSONOutput(true)
 	}
 
@@ -424,11 +424,9 @@ func InitEngine() error {
 	}
 
 	// Setup Audit Logging
-	var logger crypto.AuditLogger = &crypto.NoopLogger{}
-	if viper.GetBool("verbose") {
-		logger = &crypto.ConsoleAuditLogger{Writer: GlobalContext.UI.Stderr}
-	} else if core.Config.Audit.Enabled && !isAgent {
-		// Only enable rich auditing in non-agent/human modes
+	var logger crypto.AuditLogger = &crypto.ConsoleAuditLogger{Writer: GlobalContext.UI.Stderr}
+	if !viper.GetBool("verbose") && core.Config.Audit.Enabled && !isAgent {
+		// Fallback to file only if not verbose and enabled
 		l, err := crypto.NewJSONFileLogger(core.Config.Audit.LogFile)
 		if err == nil {
 			logger = l

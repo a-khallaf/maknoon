@@ -67,15 +67,16 @@ func shredFile(path string) error {
 
 	// Rename to a random string to obscure original filename in metadata
 	randomName := make([]byte, 16)
+	finalPath := path
 	if _, err := io.ReadFull(rand.Reader, randomName); err == nil {
 		newName := filepath.Join(filepath.Dir(path), hex.EncodeToString(randomName))
 		if err := os.Rename(path, newName); err == nil {
-			path = newName
+			finalPath = newName
 		}
 	}
 
 	// Finally, remove the file
-	return os.Remove(path)
+	return os.Remove(finalPath)
 }
 
 func shredDirectory(path string) error {

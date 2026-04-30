@@ -2,13 +2,13 @@
 
 Maknoon is an industrial-grade, post-quantum CLI encryption engine and Model Context Protocol (MCP) server. It focuses on functional density, cryptographic integrity, and secure AI agent orchestration.
 
-## 🏗 Project Architecture (v3.0 - Industrial-Grade)
+## 🏗 Project Architecture (v4.0 Alpha - Autonomous Orchestration)
 
 - **`Unified Binary`**: A single statically linked binary hosts both the CLI and the native MCP server. Mode of operation is determined by the `mcp` command.
-- **`pkg/crypto/engine.go`**: The central stateful service. Enforcement of the **Capability-Based Sandbox** (AgentPolicy) occurs at the engine entry points.
-- **`Dual-Transport MCP`**: Supports local `stdio` and remote `sse` (Server-Sent Events). Remote sessions are secured via **Post-Quantum TLS 1.3** (prioritizing ML-KEM).
-- **`UI Service Pattern`**: Output management is decoupled from logic via the `UIHandler` struct, eliminating global environment hacks (like `GO_TEST`).
-- **`Configuration`**: Standardized on **Viper**. Precedence: CLI Flags > Environment Variables > `config.json` > Defaults.
+- **`Pure Engine (DI)`**: The central Engine is fully decoupled from the environment via **Dependency Injection**. All storage logic is abstracted into `KeyStore`, `ConfigStore`, and `VaultStore` interfaces.
+- **`Presenter Pattern`**: All user-facing output is managed via the `Presenter` interface. Logic layer returns structured `Result` objects; UI layer renders them as pretty tables (CLI) or JSON (MCP/Agent).
+- **`Transformer Pipeline`**: Data streaming is organized into a modular pipeline defined in `pkg/crypto/transformer.go`. Pluggable stages (Compressor, Encryptor, Archiver) can be chained dynamically.
+- **`Dual-Transport MCP`**: Supports local `stdio` and remote `sse`. Remote sessions are secured via **Post-Quantum TLS 1.3** (prioritizing ML-KEM).
 - **`Container Sandbox`**: Multi-stage `scratch` build (~13MB) with zero OS attack surface. Runs as a non-privileged user (`1000:1000`).
 
 ## 🛡 Cryptographic Stack
@@ -19,40 +19,45 @@ Maknoon is an industrial-grade, post-quantum CLI encryption engine and Model Con
 - **Key Derivation (KDF)**: Argon2id (Standard: 3 iterations, 64MB memory).
 - **Transport Security**: TLS 1.3 with native X25519MLKEM768 hybrid key exchange.
 
+## 🚀 P2P & Identity Lessons
+
+- **Identity Collision**: Never use `libp2p.FallbackDefaults` when providing a custom identity. This triggers a "cannot specify multiple identities" error.
+- **Explicit Identity**: All P2P operations (`send`, `receive`, `chat`) support explicit identity selection via the `--identity` flag.
+- **Transport Agnosticism**: The Maknoon P2P Wire Protocol (defined in `p2p_message.go`) is isolated from the `libp2p` transport.
+- **MCP-over-SSE**: Tool responses are pushed through the long-lived SSE stream (`/sse`), not the POST body.
+
+## 🏗 Mission & Docker Infrastructure Lessons
+
+- **ENTRYPOINT vs. COMMAND Conflict**: When using `ENTRYPOINT ["maknoon"]` in a Dockerfile, Docker Compose `command: ["sh", "-c", "..."]` passes `sh` as an argument to `maknoon`, leading to errors. For mission-ready images, use a bare image and define the full execution logic in the Compose file or use a shell-based `ENTRYPOINT`.
+- **Volume Permission Shadowing**: Mounted volumes often default to root ownership. Use the `su-exec` pattern: start as `root`, `chown` the mount point, and then drop privileges using `su-exec maknoon ...`.
+- **Shell Quoting in YAML**: Avoid double-quoting shell command blocks in YAML (e.g., `command: "sh -c '...'"`). Use the literal block scalar `>` or a simple string to prevent argument misparsing.
+-   **Verification Robustness**: Integration scripts MUST implement explicit timeouts and log capturing for failing services to prevent infinite "wait" loops in CI.
+-   **Test Environmental Isolation**: Unit tests that interact with the filesystem (Vaults, Config) MUST override the `HOME` environment variable and call `commands.ResetGlobalConfig()` to ensure a clean state and prevent contamination from the developer's real environment.
+
+
 ## 🤖 Agent Sandbox & Governance
 
-1.  **Logical Isolation**: `AgentPolicy` restricts the engine to the user's workspace and temp directories, and blocks configuration persistence.
-2.  **Physical Isolation**: Containerized deployment removes shells and utilities, trapping the process in an immutable sandbox.
-3.  **Governance**: All state changes and cryptographic operations are logged with masked metadata via the `AuditEngine` decorator.
-
-## 🚀 P2P & Identity Lessons (Post-Quantum Handshakes)
-
-- **Identity Collision**: Never use `libp2p.FallbackDefaults` when providing a custom identity. This triggers a "cannot specify multiple identities" error in the libp2p host constructor.
-- **Explicit Identity**: All P2P operations (`send`, `receive`, `chat`) must support explicit identity selection via the `--identity` flag (CLI) or `identity` argument (MCP). Never hardcode "default" for agent-orchestrated missions.
-- **MCP-over-SSE Protocol**: Remember that in MCP SSE transport, tool responses are pushed through the long-lived SSE stream (`/sse`), not the POST body. Orchestration scripts must maintain an active SSE connection and filter the stream for matching JSON-RPC IDs.
-- **Sandbox Provisioning**: In isolated environments (e.g., Docker `scratch`), identities must be proactively generated via `keygen --no-password` before P2P tools can bind to a transport.
+1.  **Logical Isolation**: `AgentPolicy` restricts the engine to the user's workspace and temp directories.
+2.  **Physical Isolation**: Containerized deployment removes shells and utilities.
+3.  **Governance**: All operations are logged with masked metadata via the `AuditEngine` decorator using the `ConsoleAuditLogger` (verbose) or `JSONFileLogger` (audit).
 
 ## 📋 Engineering & Documentation Standards
 
-### 0. The Skeptical Engineering Persona
+### 1. The Skeptical Engineering Persona
 - **Empirical Rigor**: Never assume a feature works just because it compiles or passed a shallow test. Demand high-fidelity E2E verification for all critical paths.
-- **Dependency Suspicion**: Treat all third-party libraries (even core ones like libp2p) as potential sources of bloat, complexity, and failure. Always verify their impact on binary size and runtime behavior.
-- **Proof of Failure**: Before applying a fix, you MUST empirically reproduce the failure. If a test is failing, do not "work around" it; diagnose the root cause until the failure state is understood and documented.
-- **No Magic**: Distrust "magic" behavior. If a connection "just works" via NAT traversal, verify which relays were used and why.
+- **Dependency Suspicion**: Treat all third-party libraries (even core ones like libp2p) as potential sources of bloat, complexity, and failure.
+- **Proof of Failure**: Before applying a fix, you MUST empirically reproduce the failure.
 
-### 1. The Engine Pattern
-All business logic must be invoked via the `Engine` struct. UI layers (CLI/MCP) must remain strictly as controllers.
+### 2. The Engine Pattern
+All business logic must be invoked via the `Engine` struct. UI layers (CLI/MCP) must remain strictly as controllers. **Mandatory DI**: New services must accept their dependencies in the constructor.
 
-### 2. UI-Agnostic Design
-Do not use `fmt.Print` or `os.Getenv` directly for business logic. Use the `UIHandler` and `Viper` accessors to maintain testability and consistency.
+### 3. UI-Agnostic Design (Presenter)
+NEVER use `fmt.Print` or `json.Marshal` directly in business logic. Use the `Presenter` interface to maintain consistency across CLI and Agent modes.
 
-### 3. Testing Mandates
+### 4. Testing Mandates
 - **Universal Missions**: All integration tools must be verified by a transport-agnostic mission suite.
-- **Isolation**: Use `testing.Short()` to skip network-dependent tests by default. 
+- **Isolation**: Use `testing.Short()` to skip network-dependent tests. 
 - **Integrity**: Every new feature requires a functional smoke test and a policy-violation test.
-
-### 4. Documentation Standards
-All public-facing documentation must use objective, factual language and scannable formatting (tables/Mermaid diagrams).
 
 ## 🛠 Building and Running
 
@@ -62,6 +67,6 @@ All public-facing documentation must use objective, factual language and scannab
 - **Docker**: `make docker-build` (Generates OCI-compliant secure sandbox)
 
 ## 🧪 Current Status
-- **Architecture**: V3 (Unified Binary & Dual-Transport) complete.
-- **Testing**: 45+ cases (Unit, Integration, Fuzz, Remote Mission) verified.
-- **Security**: OCI metadata and volume governance finalized.
+- **Architecture**: V4.0 Alpha (DI & Presenter complete).
+- **Testing**: Passed all 45+ cases and high-fidelity P2P smoke test.
+- **Security**: Post-Quantum TLS 1.3 verified.

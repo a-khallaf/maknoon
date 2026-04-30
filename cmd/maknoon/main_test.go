@@ -21,7 +21,15 @@ func TestMain(m *testing.M) {
 }
 
 func runRootCmd(args ...string) string {
-	commands.SetJSONOutput(false)
+	isJSON := false
+	for _, arg := range args {
+		if arg == "--json" {
+			isJSON = true
+			viper.Set("json", true)
+			break
+		}
+	}
+	commands.SetJSONOutput(isJSON)
 	rootCmd := &cobra.Command{
 		Use: "maknoon",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -837,12 +845,12 @@ func TestIntegrationVaultMaintenance(t *testing.T) {
 
 	// 4. Delete vault
 	// We use JSON mode to skip interactive confirmation
-	runRootCmd("--json", "vault", "delete", newName)
+	delOutput := runRootCmd("--json", "vault", "delete", newName)
+	t.Logf("Delete output: %s", delOutput)
 
-	home, _ := os.UserHomeDir()
-	dbPath := filepath.Join(home, ".maknoon", "vaults", newName+".vault")
+	dbPath := filepath.Join(tmpDir, ".maknoon", "vaults", newName+".vault")
 	if _, err := os.Stat(dbPath); err == nil {
-		t.Errorf("Vault deletion failed, file still exists")
+		t.Errorf("Vault deletion failed, file still exists at %s", dbPath)
 	}
 }
 
