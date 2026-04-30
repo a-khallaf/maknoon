@@ -55,6 +55,7 @@ type PerformanceConfig struct {
 	Concurrency      int  `json:"concurrency" mapstructure:"concurrency"`
 	CompressionLevel int  `json:"compression_level" mapstructure:"compression_level"`
 	DefaultStealth   bool `json:"default_stealth" mapstructure:"default_stealth"`
+	DefaultProfile   byte `json:"default_profile" mapstructure:"default_profile"`
 }
 
 type NostrConfig struct {
@@ -107,6 +108,7 @@ func DefaultConfig() *Config {
 			Concurrency:      0,
 			CompressionLevel: 3,
 			DefaultStealth:   false,
+			DefaultProfile:   1,
 		},
 		AgentLimits: AgentLimitsConfig{
 			MaxMemoryKB: 512 * 1024, // 512MB
@@ -183,7 +185,8 @@ func LoadConfig() (*Config, error) {
 	_ = v.BindEnv("desec_token", "DESEC_TOKEN")
 
 	home := GetUserHomeDir()
-	v.SetConfigFile(filepath.Join(home, MaknoonDir, ConfigFileName))
+	configPath := filepath.Join(home, MaknoonDir, ConfigFileName)
+	v.SetConfigFile(configPath)
 
 	// Read from file if it exists
 	if err := v.ReadInConfig(); err != nil {

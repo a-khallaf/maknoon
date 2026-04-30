@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -72,7 +73,10 @@ func (e *Engine) runLibp2pSend(ectx *EngineContext, inputName string, r io.Reade
 	}
 
 	// 2. Send Header
-	traceID := GenerateTraceID()
+	traceID := opts.TraceID
+	if traceID == "" {
+		traceID = GenerateTraceID()
+	}
 	e.Logger.Debug("P2P transfer starting", "trace_id", traceID, "file", inputName, "target", target)
 
 	if err := P2PWriteProtocolHeader(stream, filepath.Base(inputName)+".makn", totalBytes, traceID); err != nil {
@@ -86,6 +90,10 @@ func (e *Engine) runLibp2pSend(ectx *EngineContext, inputName string, r io.Reade
 		status <- P2PStatus{Phase: "error", Error: fmt.Errorf("transfer failed: %w", err)}
 		return
 	}
+
+	// Close writing side and wait a bit for libp2p to flush
+	_ = stream.Close()
+	time.Sleep(500 * time.Millisecond)
 
 	status <- P2PStatus{Phase: "success"}
 }

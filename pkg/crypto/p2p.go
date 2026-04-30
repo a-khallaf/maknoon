@@ -34,26 +34,33 @@ func GenerateTraceID() string {
 
 // P2PSendOptions settings for P2P sending.
 type P2PSendOptions struct {
-	Passphrase  []byte
+	Passphrase  SecretBytes
 	PublicKey   []byte
 	Stealth     bool
 	IsDirectory bool
 	P2PMode     bool   // Always true in v3.1
 	To          string // Remote PeerID or @petname
+	TraceID     string
 }
 
 // P2PReceiveOptions settings for P2P receiving.
 type P2PReceiveOptions struct {
-	Passphrase []byte
-	PrivateKey []byte
+	Passphrase SecretBytes
+	PrivateKey SecretBytes
 	Stealth    bool
 	OutputDir  string
 	P2PMode    bool // Always true in v3.1
+	TraceID    string
 }
 
 // P2PSend initiates a libp2p P2P transfer.
 func (e *Engine) P2PSend(ectx *EngineContext, identityName string, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error) {
 	ectx = e.context(ectx)
+	if opts.TraceID == "" {
+		opts.TraceID = GenerateTraceID()
+	}
+	e.Logger.Debug("P2PSend initiating", "trace_id", opts.TraceID, "input", inputName, "target", opts.To)
+
 	status := make(chan P2PStatus, 10)
 
 	// 1. Load active identity
@@ -84,6 +91,11 @@ func (e *Engine) P2PSend(ectx *EngineContext, identityName string, inputName str
 // P2PReceive completes a libp2p P2P transfer.
 func (e *Engine) P2PReceive(ectx *EngineContext, identityName string, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error) {
 	ectx = e.context(ectx)
+	if opts.TraceID == "" {
+		opts.TraceID = GenerateTraceID()
+	}
+	e.Logger.Debug("P2PReceive initiating", "trace_id", opts.TraceID, "identity", identityName)
+
 	status := make(chan P2PStatus, 10)
 
 	// 1. Load active identity
@@ -99,6 +111,12 @@ func (e *Engine) P2PReceive(ectx *EngineContext, identityName string, code strin
 	if err != nil {
 		return nil, err
 	}
+
+	// Use identity's KEM private key for decryption if not explicitly provided
+	if len(opts.PrivateKey) == 0 {
+		opts.PrivateKey = id.KEMPriv
+	}
+
 	priv, err := id.AsLibp2pKey()
 	if err != nil {
 		return nil, err

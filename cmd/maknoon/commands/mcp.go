@@ -102,6 +102,7 @@ func createMCPServer() *server.MCPServer {
 	registerVaultTools(s, engine)
 	registerCryptoTools(s, engine)
 	registerNetworkTools(s, engine)
+	registerConfigTools(s, engine)
 
 	return s
 }

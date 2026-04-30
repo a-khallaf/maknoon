@@ -38,7 +38,7 @@ func DecryptCmd() *cobra.Command {
 			in, _, totalSize, err := resolveDecryptInput(inputFile)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			if f, ok := in.(*os.File); ok {
 				defer func() { _ = f.Close() }()
@@ -47,7 +47,7 @@ func DecryptCmd() *cobra.Command {
 			if profileFile != "" {
 				if _, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile); err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 			}
 
@@ -59,8 +59,9 @@ func DecryptCmd() *cobra.Command {
 			if stealth {
 				header := make([]byte, 2)
 				if _, err := io.ReadFull(in, header); err != nil {
-					p.RenderError(fmt.Errorf("failed to read stealth header: %w", err))
-					return nil
+					err = fmt.Errorf("failed to read stealth header: %w", err)
+					p.RenderError(err)
+					return err
 				}
 				fullIn = io.MultiReader(bytes.NewReader(header), in)
 				flags = header[1]
@@ -74,8 +75,9 @@ func DecryptCmd() *cobra.Command {
 			} else {
 				header := make([]byte, 6)
 				if _, err := io.ReadFull(in, header); err != nil {
-					p.RenderError(fmt.Errorf("failed to read file header: %w", err))
-					return nil
+					err = fmt.Errorf("failed to read file header: %w", err)
+					p.RenderError(err)
+					return err
 				}
 				fullIn = io.MultiReader(bytes.NewReader(header), in)
 
@@ -87,7 +89,7 @@ func DecryptCmd() *cobra.Command {
 			password, finalKey, finalPriv, err := resolveDecryptionKey(magic, passphrase, keyPath, useFido2, inputFile == "-")
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			// 3. Resolve optional sender public key for integrated verification
@@ -95,13 +97,15 @@ func DecryptCmd() *cobra.Command {
 			if flags&crypto.FlagSigned != 0 {
 				resolvedSenderPath := crypto.ResolveKeyPath(senderKeyPath, "MAKNOON_PUBLIC_KEY")
 				if resolvedSenderPath == "" {
-					p.RenderError(fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)"))
-					return nil
+					err := fmt.Errorf("file has integrated signature but sender public key not provided (use --sender-key)")
+					p.RenderError(err)
+					return err
 				}
 				sk, err := os.ReadFile(resolvedSenderPath)
 				if err != nil {
-					p.RenderError(fmt.Errorf("failed to read sender public key: %w", err))
-					return nil
+					err = fmt.Errorf("failed to read sender public key: %w", err)
+					p.RenderError(err)
+					return err
 				}
 				senderKey = sk
 			}
@@ -121,13 +125,14 @@ func DecryptCmd() *cobra.Command {
 			outPath, err := resolveDecryptionOutputPath(output, inputFile, flags)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if outPath != "-" && !overwrite {
 				if _, err := os.Stat(outPath); err == nil {
-					p.RenderError(fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath))
-					return nil
+					err := fmt.Errorf("output path already exists: %s (use --overwrite to bypass)", outPath)
+					p.RenderError(err)
+					return err
 				}
 			}
 
@@ -164,7 +169,7 @@ func DecryptCmd() *cobra.Command {
 
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			// 6. Handle Trust Evidence and TOFU

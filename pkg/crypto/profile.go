@@ -124,9 +124,13 @@ func GetProfile(id byte, r io.Reader) (Profile, error) {
 	return nil, fmt.Errorf("unsupported or unregistered cryptographic profile ID: %d", id)
 }
 
-// DefaultProfile returns the standard NIST PQC profile (v1).
+// DefaultProfile returns the cryptographic profile specified in the configuration.
 func DefaultProfile() Profile {
-	p, _ := GetProfile(1, nil)
+	id := GetGlobalConfig().Performance.DefaultProfile
+	if id == 0 {
+		id = 1
+	}
+	p, _ := GetProfile(id, nil)
 	return p
 }
 

@@ -29,7 +29,6 @@ var useFido2 bool
 
 // VaultCmd returns the cobra command for managing secure vaults.
 func VaultCmd() *cobra.Command {
-	vaultName = "default" // Reset to default
 	cmd := &cobra.Command{
 		Use:   "vault",
 		Short: "Manage secure password vaults",
@@ -70,7 +69,7 @@ func vaultSplitCmd() *cobra.Command {
 				pass, _, err = getPassphrase("Enter Vault Master Passphrase to shard: ")
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 			}
 			defer crypto.SafeClear(pass)
@@ -81,7 +80,7 @@ func vaultSplitCmd() *cobra.Command {
 			shards, err := crypto.SplitSecret(pass, threshold, shares)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if GlobalContext.UI.JSON {
@@ -117,16 +116,18 @@ func vaultRecoverCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := GlobalContext.UI.GetPresenter()
 			if len(args) == 0 {
-				p.RenderError(fmt.Errorf("at least one shard mnemonic is required"))
-				return nil
+				err := fmt.Errorf("at least one shard mnemonic is required")
+				p.RenderError(err)
+				return err
 			}
 
 			var shards []crypto.Share
 			for _, m := range args {
 				s, err := crypto.FromMnemonic(m)
 				if err != nil {
-					p.RenderError(fmt.Errorf("invalid mnemonic: %w", err))
-					return nil
+					err = fmt.Errorf("invalid mnemonic: %w", err)
+					p.RenderError(err)
+					return err
 				}
 				shards = append(shards, *s)
 			}
@@ -134,7 +135,7 @@ func vaultRecoverCmd() *cobra.Command {
 			passphrase, err := crypto.CombineShares(shards)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			defer crypto.SafeClear(passphrase)
 
@@ -144,12 +145,12 @@ func vaultRecoverCmd() *cobra.Command {
 			dbPath, err := resolveVaultPath(vaultName)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			db, err := bbolt.Open(dbPath, 0600, nil)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			defer db.Close()
 
@@ -184,12 +185,13 @@ func vaultRecoverCmd() *cobra.Command {
 
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if len(entries) == 0 {
-				p.RenderError(fmt.Errorf("no entries recovered. Check your shards and master key"))
-				return nil
+				err := fmt.Errorf("no entries recovered. Check your shards and master key")
+				p.RenderError(err)
+				return err
 			}
 
 			if targetPath != "" {
@@ -197,19 +199,19 @@ func vaultRecoverCmd() *cobra.Command {
 				pass, _, err := getPassphrase("Enter new master passphrase for recovery vault: ")
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				defer crypto.SafeClear(pass)
 
 				newVaultPath, err := resolveVaultPath(targetPath)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				newDb, err := bbolt.Open(newVaultPath, 0600, nil)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				defer newDb.Close()
 
@@ -231,20 +233,26 @@ func vaultRecoverCmd() *cobra.Command {
 				})
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 
 				p.RenderSuccess(crypto.VaultResult{
 					Status:           "success",
+					Secret:           string(passphrase),
 					RecoveredEntries: len(entries),
 					Output:           newVaultPath,
 				})
 			} else {
+				type recoveredEntry struct {
+					Service  string `json:"service"`
+					Username string `json:"username"`
+					Password string `json:"password"`
+				}
+
 				if GlobalContext.UI.JSON {
-					type recoveredEntry struct {
-						Service  string `json:"service"`
-						Username string `json:"username"`
-						Password string `json:"password"`
+					type recoveredResult struct {
+						Secret  string           `json:"secret"`
+						Entries []recoveredEntry `json:"entries"`
 					}
 					var recs []recoveredEntry
 					for _, e := range entries {
@@ -255,7 +263,10 @@ func vaultRecoverCmd() *cobra.Command {
 						})
 						crypto.SafeClear(e.Password)
 					}
-					p.RenderSuccess(recs)
+					p.RenderSuccess(recoveredResult{
+						Secret:  string(passphrase),
+						Entries: recs,
+					})
 				} else {
 					p.RenderMessage(fmt.Sprintf("🛡️  Recovered %d entries from vault '%s':", len(entries), vaultName))
 					for _, e := range entries {
@@ -412,7 +423,7 @@ func vaultSetCmd() *cobra.Command {
 				password, _, err = getPassphrase(fmt.Sprintf("Enter password for %s: ", service))
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 			}
 			defer crypto.SafeClear(password)
@@ -420,7 +431,7 @@ func vaultSetCmd() *cobra.Command {
 			db, key, err := openVault()
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			defer func() { _ = db.Close() }()
 			defer crypto.SafeClear(key)
@@ -429,7 +440,7 @@ func vaultSetCmd() *cobra.Command {
 			ciphertext, err := crypto.SealEntry(entry, key)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			h := sha256.Sum256([]byte(strings.ToLower(service)))
@@ -438,7 +449,7 @@ func vaultSetCmd() *cobra.Command {
 			})
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			p.RenderSuccess(crypto.VaultResult{
@@ -465,7 +476,7 @@ func vaultGetCmd() *cobra.Command {
 			db, key, err := openVault()
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			defer func() { _ = db.Close() }()
 			defer crypto.SafeClear(key)
@@ -482,17 +493,18 @@ func vaultGetCmd() *cobra.Command {
 			})
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if ciphertext == nil {
-				p.RenderError(fmt.Errorf("service not found"))
-				return nil
+				err := fmt.Errorf("service not found")
+				p.RenderError(err)
+				return err
 			}
 			entry, err := crypto.OpenEntry(ciphertext, key)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if GlobalContext.UI.JSON {
@@ -527,7 +539,7 @@ func vaultListCmd() *cobra.Command {
 			db, key, err := openVault()
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			defer func() { _ = db.Close() }()
 			defer crypto.SafeClear(key)
@@ -552,7 +564,7 @@ func vaultListCmd() *cobra.Command {
 
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if GlobalContext.UI.JSON {
@@ -578,26 +590,28 @@ func vaultRenameCmd() *cobra.Command {
 			oldPath, err := resolveVaultPath(args[0])
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			newPath, err := resolveVaultPath(args[1])
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if _, err := os.Stat(oldPath); err != nil {
-				p.RenderError(fmt.Errorf("vault '%s' not found", args[0]))
-				return nil
+				err = fmt.Errorf("vault '%s' not found", args[0])
+				p.RenderError(err)
+				return err
 			}
 			if _, err := os.Stat(newPath); err == nil {
-				p.RenderError(fmt.Errorf("target vault '%s' already exists", args[1]))
-				return nil
+				err = fmt.Errorf("target vault '%s' already exists", args[1])
+				p.RenderError(err)
+				return err
 			}
 
 			if err := os.Rename(oldPath, newPath); err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			p.RenderSuccess(crypto.VaultResult{
@@ -620,12 +634,13 @@ func vaultDeleteCmd() *cobra.Command {
 			path, err := resolveVaultPath(args[0])
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if _, err := os.Stat(path); err != nil {
-				p.RenderError(fmt.Errorf("vault '%s' not found", args[0]))
-				return nil
+				err = fmt.Errorf("vault '%s' not found", args[0])
+				p.RenderError(err)
+				return err
 			}
 
 			if !GlobalContext.UI.JSON {
@@ -633,14 +648,15 @@ func vaultDeleteCmd() *cobra.Command {
 				var confirm string
 				fmt.Scanln(&confirm)
 				if strings.ToLower(confirm) != "y" {
-					p.RenderError(fmt.Errorf("deletion cancelled"))
-					return nil
+					err = fmt.Errorf("deletion cancelled")
+					p.RenderError(err)
+					return err
 				}
 			}
 
 			if err := GlobalContext.Engine.SecureDelete(path); err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			p.RenderSuccess(crypto.VaultResult{

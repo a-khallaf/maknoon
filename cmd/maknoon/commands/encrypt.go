@@ -43,7 +43,7 @@ func EncryptCmd() *cobra.Command {
 			input, _, _, isDir, err := resolveEncryptInput(inputPath)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			if input != nil {
 				if f, ok := input.(*os.File); ok && f != os.Stdin {
@@ -54,7 +54,7 @@ func EncryptCmd() *cobra.Command {
 			out, _, err := resolveEncryptOutput(output, inputPath)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 			if f, ok := out.(*os.File); ok {
 				defer func() { _ = f.Close() }()
@@ -64,7 +64,7 @@ func EncryptCmd() *cobra.Command {
 				dp, err := GlobalContext.Engine.LoadCustomProfile(nil, profileFile)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				profileStr = fmt.Sprintf("%d", dp.ID())
 			}
@@ -75,7 +75,7 @@ func EncryptCmd() *cobra.Command {
 				profileID, err = resolveProfile(profileStr)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 			}
 
@@ -90,7 +90,7 @@ func EncryptCmd() *cobra.Command {
 
 			if err := resolveEncryptionKeysMulti(&opts, pubKeyPaths, passphrase, inputPath, tofu); err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if signKeyPath != "" || viper.GetString("private_key") != "" {
@@ -139,7 +139,7 @@ func EncryptCmd() *cobra.Command {
 
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if shred && inputPath != "-" {
@@ -166,7 +166,7 @@ func EncryptCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&stealth, "stealth", false, "Enable fingerprint resistance (headerless)")
 	cmd.Flags().BoolVar(&tofu, "trust-on-first-use", false, "Automatically add unknown signers to contacts")
 	cmd.Flags().BoolVar(&shred, "shred", false, "Securely delete original file after successful encryption")
-	cmd.Flags().StringVar(&profileStr, "profile", "nist", "Cryptographic profile (nist, aes, conservative)")
+	cmd.Flags().StringVar(&profileStr, "profile", "", "Cryptographic profile (nist, aes, conservative)")
 	cmd.Flags().StringVar(&profileFile, "profile-file", "", "Path to a custom profile JSON file")
 
 	_ = cmd.RegisterFlagCompletionFunc("public-key", completeIdentities)

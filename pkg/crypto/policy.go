@@ -85,7 +85,7 @@ func (p *AgentPolicy) Name() string { return "agent" }
 
 func (p *AgentPolicy) HasCapability(cap Capability) bool {
 	switch cap {
-	case CapVaultDelete, CapConfig:
+	case CapVaultDelete:
 		return false
 	default:
 		return true
@@ -140,7 +140,7 @@ func (p *AgentPolicy) ValidateProfileResource(memKB, time uint32, threads uint8,
 	return nil
 }
 
-func (p *AgentPolicy) AllowConfigModification() bool { return false }
+func (p *AgentPolicy) AllowConfigModification() bool { return true }
 func (p *AgentPolicy) IsAgent() bool                 { return true }
 
 // ValidatePath is the internal implementation of path restricted mode.

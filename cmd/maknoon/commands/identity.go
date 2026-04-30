@@ -23,9 +23,92 @@ func IdentityCmd() *cobra.Command {
 	cmd.AddCommand(identityPublishCmd())
 	cmd.AddCommand(identitySplitCmd())
 	cmd.AddCommand(identityCombineCmd())
+	cmd.AddCommand(identityShardCmd())
+	cmd.AddCommand(identityReconstructCmd())
 	cmd.AddCommand(identityInfoCmd())
 	cmd.AddCommand(identityRenameCmd())
 
+	return cmd
+}
+
+// Shard a raw string/secret
+func identityShardCmd() *cobra.Command {
+	var threshold, shares int
+	cmd := &cobra.Command{
+		Use:   "shard [secret]",
+		Short: "Split a generic secret into Shamir shards (SSS)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := GlobalContext.UI.GetPresenter()
+			secret := []byte(args[0])
+
+			shards, err := crypto.SplitSecret(secret, threshold, shares)
+			if err != nil {
+				p.RenderError(err)
+				return err
+			}
+
+			if GlobalContext.UI.JSON {
+				var jsonShards []string
+				for _, s := range shards {
+					jsonShards = append(jsonShards, s.ToMnemonic())
+				}
+				p.RenderSuccess(crypto.IdentityResult{
+					Status:    "success",
+					Threshold: threshold,
+					Shares:    jsonShards,
+				})
+			} else {
+				p.RenderMessage(fmt.Sprintf("🛡️  Secret split into %d shards (Threshold: %d)", shares, threshold))
+				for i, s := range shards {
+					p.RenderMessage(fmt.Sprintf("\nShard %d:\n%s", i+1, s.ToMnemonic()))
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVarP(&threshold, "threshold", "m", 2, "Threshold for recovery")
+	cmd.Flags().IntVarP(&shares, "shares", "n", 3, "Total shares")
+	return cmd
+}
+
+// Reconstruct a raw string/secret
+func identityReconstructCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reconstruct [shards...]",
+		Short: "Reconstruct a generic secret from Shamir shards",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+
+			p := GlobalContext.UI.GetPresenter()
+			var shards []crypto.Share
+			for _, m := range args {
+				s, err := crypto.FromMnemonic(m)
+				if err != nil {
+					err = fmt.Errorf("invalid shard: %w", err)
+					p.RenderError(err)
+					return err
+				}
+				shards = append(shards, *s)
+			}
+
+			secret, err := crypto.CombineShares(shards)
+			if err != nil {
+				p.RenderError(err)
+				return err
+			}
+
+			if GlobalContext.UI.JSON {
+				p.RenderSuccess(crypto.IdentityResult{
+					Status: "success",
+					Secret: string(secret),
+				})
+			} else {
+				p.RenderMessage(fmt.Sprintf("✅ Secret Reconstructed: %s", string(secret)))
+			}
+			return nil
+		},
+	}
 	return cmd
 }
 

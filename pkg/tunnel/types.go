@@ -23,6 +23,7 @@ type MuxListener interface {
 // TunnelOptions defines the parameters for establishing a post-quantum L4 tunnel.
 type TunnelOptions struct {
 	RemoteEndpoint string `json:"remote_endpoint"`
+	BindAddr       string `json:"bind_address,omitempty"`
 	LocalProxyPort int    `json:"local_proxy_port"`
 	PublicKey      []byte `json:"public_key"`
 	PQPublicKey    []byte `json:"pq_public_key"`

@@ -11,14 +11,19 @@ import (
 
 // TunnelGateway implements a SOCKS5 proxy that routes traffic through a multiplexed tunnel.
 type TunnelGateway struct {
-	Port    int
-	Session MuxSession
-	ln      net.Listener
+	BindAddr string // e.g. "0.0.0.0" or "127.0.0.1"
+	Port     int
+	Session  MuxSession
+	ln       net.Listener
 }
 
 // Start launches the SOCKS5 gateway on the local address.
 func (g *TunnelGateway) Start() error {
-	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(g.Port))
+	addr := g.BindAddr
+	if addr == "" {
+		addr = "127.0.0.1"
+	}
+	l, err := net.Listen("tcp", addr+":"+strconv.Itoa(g.Port))
 	if err != nil {
 		return err
 	}

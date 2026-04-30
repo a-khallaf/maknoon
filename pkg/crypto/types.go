@@ -74,6 +74,7 @@ type SignedByEvidence struct {
 type IdentityResult struct {
 	Status    string   `json:"status"`
 	Identity  string   `json:"identity,omitempty"`
+	Secret    string   `json:"secret,omitempty"`
 	BaseName  string   `json:"base_name,omitempty"`
 	BasePath  string   `json:"base_path,omitempty"`
 	From      string   `json:"from,omitempty"`
@@ -88,6 +89,7 @@ type IdentityResult struct {
 type VaultResult struct {
 	Status           string           `json:"status"`
 	Vault            string           `json:"vault,omitempty"`
+	Secret           string           `json:"secret,omitempty"`
 	Service          string           `json:"service,omitempty"`
 	Deleted          string           `json:"deleted,omitempty"`
 	Threshold        int              `json:"threshold,omitempty"`

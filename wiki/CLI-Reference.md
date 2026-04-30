@@ -61,7 +61,9 @@ Maknoon utilizes a decentralized identity model based on NIST-standardized PQC a
 | `keygen` | Provisions a new hybrid PQC identity pair. | `--profile`, `--output` |
 | `identity list` | Enumerates locally managed cryptographic identities. | `--json` |
 | `identity publish` | Announces public keys to decentralized registries. | `--nostr`, `--dns`, `--desec` |
-| `identity split` | Shards a private identity via Shamir's Secret Sharing. | `--threshold`, `--shares` |
+| `identity shard` | Splits a generic secret into Shamir shards (SSS). | `--threshold`, `--shares` |
+| `identity reconstruct` | Rebuilds a secret from threshold shards. | `--json` |
+| `identity split` | Shards a private identity file via Shamir's Secret Sharing. | `--threshold`, `--shares` |
 | `identity combine` | Reconstructs a private identity from M-of-N mnemonics. | `--output` |
 
 ---

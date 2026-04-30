@@ -8,7 +8,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o maknoon ./cmd/maknoon
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata curl su-exec
+RUN apk add --no-cache ca-certificates tzdata curl su-exec jq
 
 # Setup non-root user
 RUN addgroup -S maknoon -g 1000 && adduser -S maknoon -u 1000 -G maknoon

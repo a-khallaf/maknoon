@@ -86,12 +86,10 @@ func TestEngineUpdateConfigPolicy(t *testing.T) {
 		t.Errorf("Human policy should allow config update, got: %v", err)
 	}
 
-	// 2. Agent Policy (Denied)
+	// 2. Agent Policy (Allowed for Industrial Agility)
 	agentEngine, _ := NewEngine(&AgentPolicy{}, nil, nil, nil, nil)
-	if err := agentEngine.UpdateConfig(nil, newConf); err == nil {
-		t.Error("Agent policy should deny config update, got nil")
-	} else if _, ok := err.(*ErrPolicyViolation); !ok {
-		t.Errorf("Expected ErrPolicyViolation, got %T", err)
+	if err := agentEngine.UpdateConfig(nil, newConf); err != nil {
+		t.Errorf("Agent policy should allow config update for agility missions, got: %v", err)
 	}
 }
 

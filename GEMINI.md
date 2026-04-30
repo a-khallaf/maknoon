@@ -34,6 +34,15 @@ Maknoon is an industrial-grade, post-quantum CLI encryption engine and Model Con
 -   **Verification Robustness**: Integration scripts MUST implement explicit timeouts and log capturing for failing services to prevent infinite "wait" loops in CI.
 -   **Test Environmental Isolation**: Unit tests that interact with the filesystem (Vaults, Config) MUST override the `HOME` environment variable and call `commands.ResetGlobalConfig()` to ensure a clean state and prevent contamination from the developer's real environment.
 
+## 🏆 Industrial Mission Lessons (Red-Team Verification)
+
+- **Nested Verification (Blind Proxy)**: The engine supports verifying outer PQC signatures while remaining "blind" to inner payloads. This allows secure relay orchestration without exposing end-to-end private keys at the transport layer.
+- **P2P Network Bridging**: DHT-based discovery is resilient across disconnected network segments when a bootstrap node is reachable via a secure P2P relay. SOCKS5 gateways over PQC L4 tunnels provide industrial-grade cross-network security.
+- **Master Secret Sharding (Dead Man's Switch)**: Secret sharding (SSS) for the master passphrase is the definitive protection against single-point-of-failure in automated vaults. 3-of-4 thresholds provide the ideal balance of availability and security.
+- **Dynamic Configuration Agility**:
+    - **Policy Precedence**: In `AgentMode`, the `SecurityPolicy` must explicitly allow `CapConfig` for runtime management. 
+    - **CLI Flag Shadowing**: Hardcoded CLI flag defaults (e.g., `encrypt --profile nist`) can shadow dynamic engine configuration updates. For live-migration to work, CLI flags should default to empty/zero to allow the `Engine`'s internal `DefaultProfile` to take priority.
+    - **Runtime Propagation**: MCP-initiated configuration changes (`config_update`) are persistent across process boundaries because the engine explicitly calls `Save()` on the config object, but active long-running loops require a re-initialization or configuration polling mechanism to pick up changes without a restart.
 
 ## 🤖 Agent Sandbox & Governance
 

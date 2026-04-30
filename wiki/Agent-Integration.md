@@ -162,8 +162,10 @@ maknoon schema --format markdown > wiki/Tool-Reference.md
 | `vault_get` | Identity | Secure retrieval of agent credentials from the PQC vault. |
 | `encrypt_file` | Protection | Multi-recipient Post-Quantum encryption of local assets. |
 | `inspect_file` | Analysis | Forensic header analysis without private key access. |
+| `config_update` | Governance | Dynamic live-migration of cryptographic profiles (Agility). |
 | `p2p_send` | Transport | Direct peer-to-peer authenticated file transfer. |
 | `gen_passphrase` | Logic | Provisioning of secure, high-entropy master mnemonics. |
+
 
 ---
 

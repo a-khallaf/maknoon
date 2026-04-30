@@ -121,8 +121,9 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 	}
 
 	gw := &tunnel.TunnelGateway{
-		Port:    opts.LocalProxyPort,
-		Session: session,
+		BindAddr: opts.BindAddr,
+		Port:     opts.LocalProxyPort,
+		Session:  session,
 	}
 	if err := gw.Start(); err != nil {
 		session.Close()

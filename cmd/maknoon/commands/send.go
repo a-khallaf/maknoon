@@ -54,19 +54,20 @@ func SendCmd() *cobra.Command {
 				} else {
 					if err := validatePath(path); err != nil {
 						p.RenderError(err)
-						return nil
+						return err
 					}
 					info, err := os.Stat(path)
 					if err != nil {
 						p.RenderError(err)
-						return nil
+						return err
 					}
 					isDir = info.IsDir()
 					inputName = filepath.Base(path)
 				}
 			} else {
-				p.RenderError(fmt.Errorf("either a file path or --text must be provided"))
-				return nil
+				err := fmt.Errorf("either a file path or --text must be provided")
+				p.RenderError(err)
+				return err
 			}
 
 			if GlobalContext.UI.JSON {
@@ -74,7 +75,7 @@ func SendCmd() *cobra.Command {
 			}
 
 			opts := crypto.P2PSendOptions{
-				Passphrase:  []byte(sendPassphrase),
+				Passphrase:  crypto.SecretBytes(sendPassphrase),
 				Stealth:     useStealth,
 				IsDirectory: isDir,
 				P2PMode:     true,
@@ -86,19 +87,19 @@ func SendCmd() *cobra.Command {
 				pkBytes, err := im.ResolvePublicKey(sendPublicKey, sendTofu)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				opts.PublicKey = pkBytes
 				opts.Passphrase = nil
 			} else if len(opts.Passphrase) == 0 {
 				pass, _ := crypto.GeneratePassphrase(4, "-")
-				opts.Passphrase = []byte(pass)
+				opts.Passphrase = crypto.SecretBytes(pass)
 			}
 
 			code, status, err := GlobalContext.Engine.P2PSend(&crypto.EngineContext{Context: context.Background()}, sendIdentity, inputName, inputReader, opts)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			if !quietSend {
@@ -118,7 +119,7 @@ func SendCmd() *cobra.Command {
 			for s := range status {
 				if s.Error != nil {
 					p.RenderError(s.Error)
-					return nil
+					return s.Error
 				}
 				if !quietSend && bar == nil && s.BytesTotal > 0 {
 					bar = progressbar.DefaultBytes(s.BytesTotal, "sending")

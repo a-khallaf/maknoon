@@ -79,6 +79,12 @@ Shard an identity private key using Shamir's Secret Sharing (SSS).
 .TP
 .B combine [shards...]
 Recover an identity from mnemonic shards.
+.TP
+.B shard [secret]
+Split a generic secret into Shamir shards (SSS).
+.TP
+.B reconstruct [shards...]
+Rebuild a secret from threshold shards.
 .RE
 .TP
 .B contact [subcommand]

@@ -63,6 +63,7 @@ As cryptographic standards evolve, Maknoon's architecture must remain adaptable 
 | Milestone | Status | Target Date |
 | :--- | :--- | :--- |
 | **Initial Security Audit** | Completed | April 2026 |
+| **Industrial Capability Missions** | Completed | May 2026 |
 | **Algorithm Diversity (FrodoKEM)** | Completed | June 2026 |
 | **MCP Governance Gates** | In Progress | Q3 2026 |
 | **Hardware Binding (PKCS#11)** | Planned | Q4 2026 |

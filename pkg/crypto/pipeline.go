@@ -75,6 +75,11 @@ func (e *Engine) Protect(ectx *EngineContext, inputName string, r io.Reader, w i
 
 	log.Debug("pipeline initializing", "flags", flags, "concurrency", opts.Concurrency, "profile_id", opts.ProfileID)
 
+	if opts.ProfileID == 0 {
+		opts.ProfileID = e.Config.Performance.DefaultProfile
+		log.Debug("using default profile from config", "profile_id", opts.ProfileID)
+	}
+
 	var totalBytes int64
 	if inputName != "-" && inputName != "" {
 		if fi, err := os.Stat(inputName); err == nil && !fi.IsDir() {

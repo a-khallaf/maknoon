@@ -6,7 +6,7 @@ Maknoon (مكنون) is a high-performance cryptographic engine designed to secu
 
 ---
 
-## V3 Platform Architecture
+## V4 Platform Architecture (Industrial Agility)
 
 | Capability | Technical Specification |
 | :--- | :--- |
@@ -14,9 +14,9 @@ Maknoon (مكنون) is a high-performance cryptographic engine designed to secu
 | **Unified Binary** | Single statically linked binary hosting both CLI and MCP server. |
 | **Dual-Transport MCP**| Native support for local `stdio` and remote `sse` (HTTPS). |
 | **Transport Security**| **Post-Quantum TLS 1.3** prioritization (ML-KEM hybrid). |
+| **Industrial Agility** | Live cryptographic profile migration via MCP runtime management. |
+| **Secret Sharding** | Shamir Secret Sharing (SSS) for decentralized vault governance. |
 | **Streaming Engine** | Parallel sequencer model with 64KB constant-memory chunking. |
-| **Config Management**| **Viper**-based hierarchy (Flags > Env > Config > Defaults). |
-| **Container Sandbox**| Zero-OS `scratch` build (~13MB) with minimal OS footprint. |
 | **Memory Hygiene** | Deterministic buffer zeroization and RAM pinning via `mlock()`. |
 
 ---
@@ -32,15 +32,12 @@ Analysis of the cryptographic primitives, the **Transport-Layer PQC** integratio
 ### 3. [[CLI Command Reference]]
 Comprehensive guide to the command-line interface, including the new `mcp` orchestration commands and **Viper** configuration.
 
-### 4. [[Post-Quantum L4 Tunnel Gateway]]
-Documentation for the user-space **QUIC Tunnel**, SOCKS5 encapsulation, and enclave-managed memory hygiene.
-
-### 5. [[AI Agent and Automation Integration]]
+### 4. [[AI Agent and Automation Integration]]
 Documentation for the **Dual-Transport MCP** implementation, automated agent handshakes, and secure SSE gateways.
 
-### 6. [[Post-Quantum Cryptographic Hardening Roadmap]]
+### 5. [[Post-Quantum Cryptographic Hardening Roadmap]]
 Strategic engineering objectives for future enhancements, including hardware security module (HSM) integration and side-channel hardening.
 
 ---
 
-> **V3 Stability Note:** The Maknoon V3 architecture is finalized. All integrations should prioritize the **Unified Binary** and **PQ-TLS 1.3** transport for remote agentic workflows.
+> **V4 Industrial Milestone:** Maknoon has successfully passed four high-impact "Red-Team" missions (Blind Proxy, Multi-Bridge, Dead Man, and Agility), validating its readiness for enterprise autonomous orchestration.

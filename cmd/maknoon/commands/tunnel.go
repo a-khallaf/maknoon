@@ -130,6 +130,7 @@ func tunnelListenCmd() *cobra.Command {
 
 func tunnelStartCmd() *cobra.Command {
 	var remote string
+	var bindAddr string
 	var localPort int
 	var useYamux bool
 	var useP2P bool
@@ -146,6 +147,7 @@ func tunnelStartCmd() *cobra.Command {
 
 			opts := tunnel.TunnelOptions{
 				RemoteEndpoint: remote,
+				BindAddr:       bindAddr,
 				LocalProxyPort: localPort,
 				UseYamux:       useYamux,
 				P2PMode:        useP2P,
@@ -172,7 +174,8 @@ func tunnelStartCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&remote, "remote", "", "Remote PQC Tunnel endpoint (host:port)")
-	cmd.Flags().IntVar(&localPort, "port", 1080, "Local SOCKS5 proxy port")
+	cmd.Flags().StringVar(&bindAddr, "bind", "127.0.0.1", "Interface to bind the SOCKS5 proxy to")
+	cmd.Flags().IntVarP(&localPort, "port", "p", 1080, "Local SOCKS5 proxy port")
 	cmd.Flags().BoolVar(&useYamux, "yamux", false, "Use TCP+Yamux mode")
 	cmd.Flags().BoolVar(&useP2P, "p2p", false, "Use libp2p for P2P mode")
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", "", "Remote P2P Multiaddr")

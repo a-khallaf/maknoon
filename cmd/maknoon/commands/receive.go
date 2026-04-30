@@ -54,13 +54,14 @@ func ReceiveCmd() *cobra.Command {
 				m := crypto.NewIdentityManager()
 				resolvedPriv := m.ResolveKeyPath(recvPrivateKey, "MAKNOON_PRIVATE_KEY")
 				if resolvedPriv == "" {
-					p.RenderError(fmt.Errorf("private key required for identity-based P2P"))
-					return nil
+					err := fmt.Errorf("private key required for identity-based P2P")
+					p.RenderError(err)
+					return err
 				}
 				privBytes, err := m.LoadPrivateKey(resolvedPriv, []byte(recvPassphrase), "", false)
 				if err != nil {
 					p.RenderError(err)
-					return nil
+					return err
 				}
 				opts.PrivateKey = privBytes
 			}
@@ -68,7 +69,7 @@ func ReceiveCmd() *cobra.Command {
 			status, err := GlobalContext.Engine.P2PReceive(&crypto.EngineContext{Context: context.Background()}, recvIdentity, code, opts)
 			if err != nil {
 				p.RenderError(err)
-				return nil
+				return err
 			}
 
 			// We need to peek into the first status message to get Multiaddrs for logging
@@ -79,7 +80,7 @@ func ReceiveCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "DEBUG: receive phase: %s\n", s.Phase)
 				if s.Error != nil {
 					p.RenderError(s.Error)
-					return nil
+					return s.Error
 				}
 				if s.Phase == "connecting" && s.Code != "" {
 					// Always print multiaddrs to stderr for mission visibility

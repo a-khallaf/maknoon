@@ -116,7 +116,7 @@ func (m *IdentityManager) SaveIdentity(basePath, baseName string, kemPub, kemPri
 			return nil
 		}
 		finalData := data
-		if isPrivate {
+		if isPrivate && len(passphrase) > 0 {
 			var b bytes.Buffer
 			if err := EncryptStream(bytes.NewReader(data), &b, passphrase, FlagNone, 1, profileID); err != nil {
 				return err
@@ -263,19 +263,25 @@ func (m *IdentityManager) LoadPrivateKey(path string, passphrase []byte, pin str
 		return m.UnlockPrivateKeyWithFIDOOrPass(passphrase, pin, path, isStdin)
 	}
 
-	// Case 2: Standard decryption with passphrase
+	// Case 2: Check if key is plain-text or protected
 	data, err := m.Store.ReadKey(path)
 	if err != nil {
 		return nil, &ErrIO{Path: path, Reason: err.Error()}
 	}
 
-	var decrypted bytes.Buffer
-	_, _, err = DecryptStream(bytes.NewReader(data), &decrypted, passphrase, 1, false)
-	if err != nil {
-		return nil, &ErrAuthentication{Reason: fmt.Sprintf("failed to unlock key: %v", err)}
+	// Peek at the first 4 bytes for the magic header
+	if len(data) >= 4 && string(data[:4]) == MagicHeader {
+		// Protected key
+		var decrypted bytes.Buffer
+		_, _, err = DecryptStream(bytes.NewReader(data), &decrypted, passphrase, 1, false)
+		if err != nil {
+			return nil, &ErrAuthentication{Reason: fmt.Sprintf("failed to unlock key: %v", err)}
+		}
+		return decrypted.Bytes(), nil
 	}
 
-	return decrypted.Bytes(), nil
+	// Plain-text key (no password used during generation)
+	return data, nil
 }
 
 func (m *IdentityManager) UnlockPrivateKeyWithFIDOOrPass(password []byte, pin string, resolvedPath string, isStdin bool) ([]byte, error) {

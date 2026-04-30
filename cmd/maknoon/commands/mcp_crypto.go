@@ -12,14 +12,16 @@ import (
 )
 
 func registerCryptoTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
-	s.AddTool(mcp.NewTool("encrypt_file", mcp.WithDescription("Encrypt a file")),
+	s.AddTool(mcp.NewTool("encrypt_file",
+		mcp.WithDescription("Encrypt a file"),
+	),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)
-			opts := crypto.Options{ProfileID: 1}
+			opts := crypto.Options{} // Will use engine default profile
 
 			passRaw := viper.GetString("passphrase")
 			if passRaw != "" {
-				opts.Passphrase = []byte(passRaw)
+				opts.Passphrase = crypto.SecretBytes(passRaw)
 			}
 
 			if pk := getString(args, "public_key", ""); pk != "" {
@@ -54,10 +56,17 @@ func registerCryptoTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
 			return mcp.NewToolResultText(`{"status":"success"}`), nil
 		})
 
-	s.AddTool(mcp.NewTool("inspect_file", mcp.WithDescription("Analyze header metadata")),
+	s.AddTool(mcp.NewTool("inspect_file",
+		mcp.WithDescription("Analyze header metadata"),
+	),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)
 			in, _ := os.Open(getString(args, "path", ""))
+			if in == nil {
+				return mcp.NewToolResultError("failed to open file"), nil
+			}
+			defer in.Close()
+
 			info, err := engine.Inspect(nil, in)
 			if err != nil {
 				return crypto.FormatMCPError(err, "inspect_file")
@@ -66,10 +75,15 @@ func registerCryptoTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
 			return mcp.NewToolResultText(string(res)), nil
 		})
 
-	s.AddTool(mcp.NewTool("gen_passphrase", mcp.WithDescription("Generate a secure mnemonic")),
+	s.AddTool(mcp.NewTool("gen_passphrase",
+		mcp.WithDescription("Generate a secure mnemonic"),
+	),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := getArgs(request)
 			words, _ := args["words"].(float64)
+			if words == 0 {
+				words = 4
+			}
 			pass, err := engine.GeneratePassphrase(nil, int(words), "-")
 			if err != nil {
 				return crypto.FormatMCPError(err, "gen_passphrase")

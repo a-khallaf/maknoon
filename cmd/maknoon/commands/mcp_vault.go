@@ -16,7 +16,7 @@ func registerVaultTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
 			args := getArgs(request)
 			service := getString(args, "service", "")
 			vault := getString(args, "vault", "default")
-			pass := []byte(viper.GetString("passphrase"))
+			pass := crypto.SecretBytes(viper.GetString("passphrase"))
 			entry, err := engine.VaultGet(nil, vault, service, pass, "")
 			if err != nil {
 				return crypto.FormatMCPError(err, "vault_get")
@@ -35,9 +35,9 @@ func registerVaultTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
 			entry := &crypto.VaultEntry{
 				Service:  getString(args, "service", ""),
 				Username: getString(args, "username", ""),
-				Password: []byte(getString(args, "password", "")),
+				Password: crypto.SecretBytes(getString(args, "password", "")),
 			}
-			err := engine.VaultSet(nil, getString(args, "vault", "default"), entry, []byte(viper.GetString("passphrase")), "")
+			err := engine.VaultSet(nil, getString(args, "vault", "default"), entry, crypto.SecretBytes(viper.GetString("passphrase")), "")
 			crypto.SafeClear(entry.Password)
 			if err != nil {
 				return crypto.FormatMCPError(err, "vault_set")
