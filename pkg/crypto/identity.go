@@ -514,26 +514,34 @@ func (id *Identity) Wipe() {
 }
 
 // AsLibp2pKey converts the Maknoon signing key to a libp2p private key.
-// In v3.1, we derive a deterministic Ed25519 key from the ML-DSA private key
-// to ensure compatibility with the libp2p ecosystem while maintaining PQC roots.
+// In v4.0, we support Hybrid SIG (ML-DSA + Ed25519). If an Ed25519 key is bundled,
+// we use it directly. Otherwise, we fallback to deterministic derivation.
 func (id *Identity) AsLibp2pKey() (libp2pcrypto.PrivKey, error) {
 	if len(id.SIGPriv) == 0 {
 		return nil, fmt.Errorf("signing key not loaded")
 	}
 
-	// We use the first 32 bytes of the SIGPriv (the seed) to create a deterministic Ed25519 key.
-	// This ensures that the same Maknoon Identity always produces the same PeerID.
-	seed := id.SIGPriv
-	if len(seed) > 32 {
-		seed = seed[:32]
+	var edPrivBytes []byte
+
+	// 1. Check for Hybrid Format (ML-DSA-87 + Ed25519)
+	// ML-DSA-87 Priv is 4896 bytes, Ed25519 Priv is 64 bytes.
+	if len(id.SIGPriv) >= 4896+64 {
+		edPrivBytes = id.SIGPriv[4896 : 4896+64]
+	} else if len(id.SIGPriv) >= 4032+64 { // ML-DSA-65
+		edPrivBytes = id.SIGPriv[4032 : 4032+64]
+	} else if len(id.SIGPriv) >= 128+64 { // SLH-DSA
+		edPrivBytes = id.SIGPriv[len(id.SIGPriv)-64:]
+	} else {
+		// 2. Fallback: Deterministic derivation from the first 32 bytes of SIGPriv
+		seed := id.SIGPriv
+		if len(seed) > 32 {
+			seed = seed[:32]
+		}
+		priv, _, err := libp2pcrypto.GenerateEd25519Key(bytes.NewReader(seed))
+		return priv, err
 	}
 
-	priv, _, err := libp2pcrypto.GenerateEd25519Key(bytes.NewReader(seed))
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate libp2p key: %w", err)
-	}
-
-	return priv, nil
+	return libp2pcrypto.UnmarshalEd25519PrivateKey(edPrivBytes)
 }
 
 // GetPeerID derives the libp2p PeerID from the identity's signing key.

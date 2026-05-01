@@ -25,11 +25,12 @@ func TestPublicKeyDerivation(t *testing.T) {
 	})
 
 	t.Run("DeriveSIGPublic", func(t *testing.T) {
-		derived, err := DeriveSIGPublic(spriv)
+		derivedPub, err := DeriveSIGPublic(spriv, 1)
+
 		if err != nil {
 			t.Fatalf("DeriveSIGPublic failed: %v", err)
 		}
-		if !bytes.Equal(derived, spub) {
+		if !bytes.Equal(derivedPub, spub) {
 			t.Error("Derived SIG public key mismatch")
 		}
 	})
@@ -39,7 +40,7 @@ func TestPublicKeyDerivation(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for invalid KEM key, got nil")
 		}
-		_, err = DeriveSIGPublic([]byte("invalid-key"))
+		_, err = DeriveSIGPublic([]byte("invalid-key"), 1)
 		if err == nil {
 			t.Error("Expected error for invalid SIG key, got nil")
 		}

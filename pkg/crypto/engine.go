@@ -139,6 +139,44 @@ func (e *Engine) TunnelStart(ectx *EngineContext, opts tunnel.TunnelOptions) (tu
 		return *e.activeTunnel, fmt.Errorf("a tunnel is already active")
 	}
 
+	// 0. Handle Petname Resolution for P2P addresses
+	targetAddr := opts.P2PAddr
+	if targetAddr == "" && strings.HasPrefix(opts.RemoteEndpoint, "@") {
+		targetAddr = opts.RemoteEndpoint
+	}
+
+	if opts.P2PMode && strings.HasPrefix(targetAddr, "@") {
+		reg := NewIdentityRegistry(nil)
+		record, err := reg.Resolve(ectx.Context, targetAddr)
+		if err != nil {
+			return tunnel.TunnelStatus{}, fmt.Errorf("failed to resolve tunnel peer '%s': %w", targetAddr, err)
+		}
+		if len(record.Multiaddrs) == 0 {
+			return tunnel.TunnelStatus{}, fmt.Errorf("resolved peer '%s' has no active multiaddrs", targetAddr)
+		}
+		// Prefer non-loopback addresses
+		var bestAddr string
+		for _, ma := range record.Multiaddrs {
+			if ma == "" {
+				continue
+			}
+			if !strings.Contains(ma, "/127.0.0.1/") && !strings.Contains(ma, "/::1/") {
+				bestAddr = ma
+				break
+			}
+		}
+		if bestAddr == "" && len(record.Multiaddrs) > 0 {
+			bestAddr = record.Multiaddrs[0]
+		}
+
+		if bestAddr == "" {
+			return tunnel.TunnelStatus{}, fmt.Errorf("failed to resolve a valid multiaddr for '%s' (found %d addrs)", targetAddr, len(record.Multiaddrs))
+		}
+
+		fmt.Fprintf(os.Stderr, "DEBUG: Selected best Multiaddr: %s\n", bestAddr)
+		opts.P2PAddr = bestAddr
+	}
+
 	var libp2pOpts []libp2p.Option
 	if opts.P2PMode && opts.Identity != "" {
 		id, err := e.Identities.LoadIdentity(opts.Identity, nil, "", false)

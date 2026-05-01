@@ -185,7 +185,12 @@ func (p *ProfileV3) GenerateSIGKeyPair() (pub, priv []byte, err error) {
 // Sign signs the data using the SLH-DSA-SHA2-128s private key.
 func (p *ProfileV3) Sign(data, privKeyBytes []byte) ([]byte, error) {
 	scheme := slhdsa.SHA2_128s.Scheme()
-	sk, err := scheme.UnmarshalBinaryPrivateKey(privKeyBytes)
+	slhPriv := privKeyBytes
+	if len(slhPriv) > scheme.PrivateKeySize() {
+		slhPriv = slhPriv[:scheme.PrivateKeySize()]
+	}
+
+	sk, err := scheme.UnmarshalBinaryPrivateKey(slhPriv)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signing key: %w", err)
 	}
@@ -196,9 +201,25 @@ func (p *ProfileV3) Sign(data, privKeyBytes []byte) ([]byte, error) {
 // Verify verifies the SLH-DSA-SHA2-128s signature.
 func (p *ProfileV3) Verify(data, sig, pubKeyBytes []byte) bool {
 	scheme := slhdsa.SHA2_128s.Scheme()
-	pk, err := scheme.UnmarshalBinaryPublicKey(pubKeyBytes)
+	slhPub := pubKeyBytes
+	if len(slhPub) > scheme.PublicKeySize() {
+		slhPub = slhPub[:scheme.PublicKeySize()]
+	}
+
+	pk, err := scheme.UnmarshalBinaryPublicKey(slhPub)
 	if err != nil {
 		return false
 	}
 	return scheme.Verify(pk, data, sig, nil)
+}
+
+// DeriveSIGPublic derives the public key from an SLH-DSA-SHA2-128s private key.
+func (p *ProfileV3) DeriveSIGPublic(privKeyBytes []byte) ([]byte, error) {
+	scheme := slhdsa.SHA2_128s.Scheme()
+	sk, err := scheme.UnmarshalBinaryPrivateKey(privKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+	pk := sk.Public().(slhdsa.PublicKey)
+	return pk.MarshalBinary()
 }

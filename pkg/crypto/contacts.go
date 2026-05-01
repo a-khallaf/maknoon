@@ -22,19 +22,39 @@ type Contact struct {
 }
 
 // DerivePeerID derives a libp2p PeerID from a Maknoon signing public key.
+// It supports Hybrid SIG (ML-DSA + Ed25519) and fallback derivation.
 func DerivePeerID(sigPub []byte) (string, error) {
 	if len(sigPub) == 0 {
 		return "", fmt.Errorf("signing public key required for peer ID derivation")
 	}
 
-	// We treat the first 32 bytes of the SIGPub (the Ed25519 part of the hybrid)
-	// as the libp2p identity.
-	raw := sigPub
-	if len(raw) > 32 {
-		raw = raw[:32]
+	var edPubBytes []byte
+
+	// 1. Check for Hybrid Format (ML-DSA-87 + Ed25519)
+	// ML-DSA-87 Pub is 2592 bytes, Ed25519 Pub is 32 bytes.
+	if len(sigPub) >= 2592+32 {
+		edPubBytes = sigPub[2592 : 2592+32]
+	} else if len(sigPub) >= 1952+32 { // ML-DSA-65
+		edPubBytes = sigPub[1952 : 1952+32]
+	} else if len(sigPub) >= 64+32 { // SLH-DSA
+		edPubBytes = sigPub[len(sigPub)-32:]
+	} else {
+		// 2. Fallback: Deterministic derivation from the first 32 bytes
+		// This must match the fallback in Identity.AsLibp2pKey
+		seed := sigPub
+		if len(seed) > 32 {
+			seed = seed[:32]
+		}
+		// In fallback, we treat sigPub[:32] as the public key directly if it's 32 bytes
+		// But that's risky. However, for consistency with old identities:
+		if len(seed) == 32 {
+			edPubBytes = seed
+		} else {
+			return "", fmt.Errorf("unsupported public key size for PeerID derivation")
+		}
 	}
 
-	pub, err := libp2pcrypto.UnmarshalEd25519PublicKey(raw)
+	pub, err := libp2pcrypto.UnmarshalEd25519PublicKey(edPubBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to unmarshal public key: %w", err)
 	}

@@ -119,8 +119,14 @@ func (p *ProfileV1) GenerateSIGKeyPair() (pub, priv []byte, err error) {
 
 // Sign signs the data using the ML-DSA-87 private key.
 func (p *ProfileV1) Sign(data, privKeyBytes []byte) ([]byte, error) {
+	// Support Hybrid SIG: isolate ML-DSA part
+	mldsaPriv := privKeyBytes
+	if len(mldsaPriv) > mldsa87.PrivateKeySize {
+		mldsaPriv = mldsaPriv[:mldsa87.PrivateKeySize]
+	}
+
 	sk := new(mldsa87.PrivateKey)
-	if err := sk.UnmarshalBinary(privKeyBytes); err != nil {
+	if err := sk.UnmarshalBinary(mldsaPriv); err != nil {
 		return nil, fmt.Errorf("invalid signing key: %w", err)
 	}
 
@@ -133,9 +139,25 @@ func (p *ProfileV1) Sign(data, privKeyBytes []byte) ([]byte, error) {
 
 // Verify verifies the ML-DSA-87 signature for the given data and public key.
 func (p *ProfileV1) Verify(data, sig, pubKeyBytes []byte) bool {
+	// Support Hybrid SIG: isolate ML-DSA part
+	mldsaPub := pubKeyBytes
+	if len(mldsaPub) > mldsa87.PublicKeySize {
+		mldsaPub = mldsaPub[:mldsa87.PublicKeySize]
+	}
+
 	pk := new(mldsa87.PublicKey)
-	if err := pk.UnmarshalBinary(pubKeyBytes); err != nil {
+	if err := pk.UnmarshalBinary(mldsaPub); err != nil {
 		return false
 	}
 	return mldsa87.Verify(pk, data, nil, sig)
+}
+
+// DeriveSIGPublic derives the public key from an ML-DSA-87 private key.
+func (p *ProfileV1) DeriveSIGPublic(privKeyBytes []byte) ([]byte, error) {
+	sk := new(mldsa87.PrivateKey)
+	if err := sk.UnmarshalBinary(privKeyBytes); err != nil {
+		return nil, err
+	}
+	pk := sk.Public().(*mldsa87.PublicKey)
+	return pk.MarshalBinary()
 }

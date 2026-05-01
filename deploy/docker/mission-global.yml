@@ -17,7 +17,7 @@ services:
     networks:
       global-net:
         ipv4_address: 172.30.0.10
-    command: ["mcp", "--transport", "sse", "--address", ":8080"]
+    command: ["maknoon", "mcp", "--transport", "sse", "--address", ":8080"]
 
   agent-ny:
     build:
@@ -29,7 +29,7 @@ services:
     networks:
       global-net:
         ipv4_address: 172.30.0.20
-    command: ["mcp", "--transport", "sse", "--address", ":8080"]
+    command: ["maknoon", "mcp", "--transport", "sse", "--address", ":8080"]
 
 networks:
   global-net:

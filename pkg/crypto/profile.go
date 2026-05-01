@@ -55,6 +55,8 @@ type Profile interface {
 	Sign(data, privKey []byte) ([]byte, error)
 	// Verify verifies the signature for the data using a public key.
 	Verify(data, sig, pubKey []byte) bool
+	// DeriveSIGPublic derives the public key from a private key.
+	DeriveSIGPublic(priv []byte) ([]byte, error)
 }
 
 var (

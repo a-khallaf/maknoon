@@ -118,10 +118,20 @@ func registerIdentityTools(s *server.MCPServer, engine crypto.MaknoonEngine) {
 			registry := getString(args, "registry", "nostr")
 			local, _ := args["local"].(bool)
 
+			var multiaddrs []string
+			if rawAddrs, ok := args["multiaddrs"].([]any); ok {
+				for _, a := range rawAddrs {
+					if str, ok := a.(string); ok {
+						multiaddrs = append(multiaddrs, str)
+					}
+				}
+			}
+
 			opts := crypto.IdentityPublishOptions{
 				Name:       getString(args, "name", ""),
 				Passphrase: viper.GetString("passphrase"),
 				Local:      local,
+				Multiaddrs: multiaddrs,
 			}
 
 			if registry == "nostr" {

@@ -120,6 +120,7 @@ func identityPublishCmd() *cobra.Command {
 	var useNostr bool
 	var useLocal bool
 	var desecToken string
+	var multiaddrs []string
 
 	cmd := &cobra.Command{
 		Use:   "publish [handle]",
@@ -140,6 +141,7 @@ func identityPublishCmd() *cobra.Command {
 				Desec:      useDesec,
 				DesecToken: desecToken,
 				Nostr:      useNostr,
+				Multiaddrs: multiaddrs,
 			}
 
 			if err := GlobalContext.Engine.IdentityPublish(nil, handle, opts); err != nil {
@@ -164,6 +166,7 @@ func identityPublishCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&useNostr, "nostr", false, "Automatically publish to Nostr relays (Default)")
 	cmd.Flags().BoolVar(&useLocal, "local", false, "Pin identity to local contacts only")
 	cmd.Flags().StringVar(&desecToken, "desec-token", "", "deSEC.io API token")
+	cmd.Flags().StringSliceVar(&multiaddrs, "multiaddr", nil, "Explicit Multiaddrs to broadcast (overrides auto-capture)")
 
 	return cmd
 }

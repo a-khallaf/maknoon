@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -96,10 +97,15 @@ func NewLibp2pHost(extraOpts ...libp2p.Option) (host.Host, error) {
 		return nil, err
 	}
 
+	port := os.Getenv("MAKNOON_P2P_PORT")
+	if port == "" {
+		port = "0"
+	}
+
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/tcp/0",
-			"/ip4/0.0.0.0/udp/0/quic-v1",
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port),
+			fmt.Sprintf("/ip4/0.0.0.0/udp/%s/quic-v1", port),
 		),
 		libp2p.ConnectionManager(cmgr),
 		libp2p.Security(noise.ID, noise.New),
@@ -109,6 +115,36 @@ func NewLibp2pHost(extraOpts ...libp2p.Option) (host.Host, error) {
 		libp2p.EnableRelay(),
 		libp2p.EnableHolePunching(),
 	}
+
+	// Try to find local non-loopback IPs to hint libp2p (helpful in Docker)
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, i := range ifaces {
+			addrs, err := i.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+				if ip == nil || ip.IsLoopback() {
+					continue
+				}
+				if ip.To4() != nil {
+					opts = append(opts, libp2p.ListenAddrStrings(
+						fmt.Sprintf("/ip4/%s/tcp/0", ip.String()),
+						fmt.Sprintf("/ip4/%s/udp/0/quic-v1", ip.String()),
+					))
+				}
+			}
+		}
+	}
+
 	opts = append(opts, extraOpts...)
 
 	return libp2p.New(opts...)

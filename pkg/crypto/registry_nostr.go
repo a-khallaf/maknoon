@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -39,15 +40,12 @@ func (r *NostrRegistry) Resolve(ctx context.Context, handle string) (*IdentityRe
 	var pubkey string
 
 	// 1. Handle NIP-05 (user@domain.com)
+	// Must contain @ and have a non-empty user part (part before @)
 	if strings.Contains(handle, "@") && !strings.HasPrefix(handle, "@nostr:") && !strings.HasPrefix(handle, "npub1") {
 		parts := strings.Split(handle, "@")
-		if len(parts) == 2 {
+		if len(parts) == 2 && parts[0] != "" {
 			user := parts[0]
 			domain := parts[1]
-			// Support potential '@domain.com' leading at
-			if user == "" {
-				return nil, fmt.Errorf("invalid NIP-05 handle: %s", handle)
-			}
 			url := fmt.Sprintf("https://%s/.well-known/nostr.json?name=%s", domain, user)
 
 			req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -96,16 +94,26 @@ func (r *NostrRegistry) Resolve(ctx context.Context, handle string) (*IdentityRe
 		Limit:   1,
 	}
 
+	if len(r.Relays) == 0 {
+		return nil, fmt.Errorf("no Nostr relays configured for resolution")
+	}
+
 	var latestEvent *nostr.Event
 	for _, url := range r.Relays {
 		relay, err := nostr.RelayConnect(ctx, url)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "DEBUG: Failed to connect to relay %s: %v\n", url, err)
 			continue
 		}
 
 		events, err := relay.QuerySync(ctx, filter)
 		relay.Close()
-		if err != nil || len(events) == 0 {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "DEBUG: Query failed on relay %s: %v\n", url, err)
+			continue
+		}
+		if len(events) == 0 {
+			fmt.Fprintf(os.Stderr, "DEBUG: No events found on relay %s for pubkey %s\n", url, pubkey)
 			continue
 		}
 
@@ -142,7 +150,7 @@ func (r *NostrRegistry) Publish(ctx context.Context, record *IdentityRecord) err
 }
 
 func (r *NostrRegistry) PublishWithKey(ctx context.Context, record *IdentityRecord, nostrPrivKey []byte) error {
-	privHex := string(nostrPrivKey)
+	privHex := hex.EncodeToString(nostrPrivKey)
 	pubHex, err := nostr.GetPublicKey(privHex)
 	if err != nil {
 		return fmt.Errorf("invalid nostr private key: %w", err)

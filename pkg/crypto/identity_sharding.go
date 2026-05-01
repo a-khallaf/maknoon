@@ -92,7 +92,7 @@ func (m *IdentityManager) CombineIdentity(mnemonics []string, output, passphrase
 	if err != nil {
 		return "", err
 	}
-	sigPub, err := DeriveSIGPublic(sigPriv)
+	sigPub, err := DeriveSIGPublic(sigPriv, 1)
 	if err != nil {
 		return "", err
 	}

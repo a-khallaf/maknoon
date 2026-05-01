@@ -10,13 +10,14 @@ import (
 
 // IdentityPublishOptions settings for publishing an identity.
 type IdentityPublishOptions struct {
-	Name       string // Local identity name
-	Passphrase string // Passphrase to unlock local identity
-	Local      bool   // Add to local contacts
-	DNS        bool   // Publish to DNS (via DHT)
-	Desec      bool   // Publish to deSEC
-	DesecToken string // deSEC API token
-	Nostr      bool   // Publish to Nostr
+	Name       string   // Local identity name
+	Passphrase string   // Passphrase to unlock local identity
+	Local      bool     // Add to local contacts
+	DNS        bool     // Publish to DNS (via DHT)
+	Desec      bool     // Publish to deSEC
+	DesecToken string   // deSEC API token
+	Nostr      bool     // Publish to Nostr
+	Multiaddrs []string // Optional Multiaddrs to broadcast
 }
 
 // IdentityPublish broadcasts an identity to configured decentralized registries.
@@ -39,16 +40,20 @@ func (m *IdentityManager) IdentityPublish(ctx context.Context, handle string, op
 
 	// 2. Create and sign record
 	record := &IdentityRecord{
-		Handle:    handle,
-		KEMPubKey: id.KEMPub,
-		SIGPubKey: id.SIGPub,
-		Timestamp: time.Now(),
+		Handle:     handle,
+		KEMPubKey:  id.KEMPub,
+		SIGPubKey:  id.SIGPub,
+		Timestamp:  time.Now(),
+		Multiaddrs: opts.Multiaddrs,
 	}
 
-	// 2b. Attempt to capture active P2P Multiaddrs if we are an active host
-	if m.P2P != nil {
+	// 2b. Attempt to capture active P2P Multiaddrs if none provided
+	if len(record.Multiaddrs) == 0 && m.P2P != nil {
 		if sess, err := m.P2P.ChatStart(nil, name, ""); err == nil {
+			// Wait a bit for libp2p to detect addresses
+			time.Sleep(2 * time.Second)
 			record.Multiaddrs = sess.Multiaddrs()
+			fmt.Fprintf(os.Stderr, "DEBUG: Captured Multiaddrs: %v\n", record.Multiaddrs)
 			sess.Close()
 		}
 	}

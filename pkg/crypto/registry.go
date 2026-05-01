@@ -154,19 +154,29 @@ func NewIdentityRegistry(conf *Config) IdentityRegistry {
 	return mr
 }
 
-func (m *MultiRegistry) Resolve(ctx context.Context, handle string) (*IdentityRecord, error) {
-	for _, r := range m.Registries {
-		if record, err := r.Resolve(ctx, handle); err == nil {
+func (r *MultiRegistry) Resolve(ctx context.Context, handle string) (*IdentityRecord, error) {
+	for _, reg := range r.Registries {
+		if record, err := reg.Resolve(ctx, handle); err == nil {
 			return record, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to resolve handle in any registry: %s", handle)
+	return nil, fmt.Errorf("could not resolve identity for %s", handle)
 }
 
-func (m *MultiRegistry) Publish(ctx context.Context, record *IdentityRecord) error {
-	return fmt.Errorf("use specific registry for publishing")
+func (r *MultiRegistry) Publish(ctx context.Context, record *IdentityRecord) error {
+	for _, reg := range r.Registries {
+		if err := reg.Publish(ctx, record); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to publish identity to any registry")
 }
 
-func (m *MultiRegistry) Revoke(ctx context.Context, handle string, proof []byte) error {
-	return fmt.Errorf("use specific registry for revocation")
+func (r *MultiRegistry) Revoke(ctx context.Context, handle string, proof []byte) error {
+	for _, reg := range r.Registries {
+		if err := reg.Revoke(ctx, handle, proof); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to revoke identity from any registry")
 }

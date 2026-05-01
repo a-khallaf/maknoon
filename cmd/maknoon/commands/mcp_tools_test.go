@@ -95,7 +95,7 @@ func TestMCPCryptoToolsParity(t *testing.T) {
 		t.Fatalf("Engine.Sign failed: %v", err)
 	}
 
-	sigPub, err := crypto.DeriveSIGPublic(sigPriv)
+	sigPub, err := crypto.DeriveSIGPublic(sigPriv, 1)
 	if err != nil {
 		t.Fatalf("DeriveSIGPublic failed: %v", err)
 	}

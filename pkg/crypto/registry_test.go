@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -19,7 +20,7 @@ func TestNostrRegistry(t *testing.T) {
 	defer SafeClear(spriv)
 	defer SafeClear(npriv)
 
-	handle := fmt.Sprintf("@nostr:%s", string(npub))
+	handle := fmt.Sprintf("@nostr:%s", hex.EncodeToString(npub))
 	record := &IdentityRecord{
 		Handle:    handle,
 		KEMPubKey: kpub,

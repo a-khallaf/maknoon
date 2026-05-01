@@ -3,7 +3,10 @@
 package crypto
 
 import (
+	"crypto/ed25519"
 	"crypto/hpke"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
@@ -22,11 +25,24 @@ func GeneratePQKeyPair(profileID byte) (kemPub, kemPriv, sigPub, sigPriv, nostrP
 		return nil, nil, nil, nil, nil, nil, err
 	}
 
-	sigPub, sigPriv, err = profile.GenerateSIGKeyPair()
+	mldsaPub, mldsaPriv, err := profile.GenerateSIGKeyPair()
 	if err != nil {
 		SafeClear(kemPriv)
 		return nil, nil, nil, nil, nil, nil, err
 	}
+
+	// Generate Ed25519 for libp2p compatibility (Hybrid SIG)
+	edPub, edPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		SafeClear(kemPriv)
+		SafeClear(mldsaPriv)
+		return nil, nil, nil, nil, nil, nil, err
+	}
+
+	// Bundle: ML-DSA + Ed25519
+	// We append Ed25519 to the end to maintain backward compatibility with partial reads if needed.
+	sigPub = append(mldsaPub, edPub...)
+	sigPriv = append(mldsaPriv, edPriv...)
 
 	// Generate Secp256k1 for Nostr
 	nostrPrivStr := nostr.GeneratePrivateKey()
@@ -36,19 +52,56 @@ func GeneratePQKeyPair(profileID byte) (kemPub, kemPriv, sigPub, sigPriv, nostrP
 		SafeClear(sigPriv)
 		return nil, nil, nil, nil, nil, nil, err
 	}
-	nostrPriv = []byte(nostrPrivStr)
-	nostrPub = []byte(nostrPubStr)
+	nostrPriv, _ = hex.DecodeString(nostrPrivStr)
+	nostrPub, _ = hex.DecodeString(nostrPubStr)
 
 	return
 }
 
-// DeriveNostrPublic derives the hex public key from a Nostr private key hex string.
-func DeriveNostrPublic(privKeyBytes []byte) ([]byte, error) {
-	pub, err := nostr.GetPublicKey(string(privKeyBytes))
+// DeriveSIGPublic derives the public key from an ML-DSA+Ed25519 hybrid private key.
+func DeriveSIGPublic(privKeyBytes []byte, profileID byte) ([]byte, error) {
+	profile, err := GetProfile(profileID, nil)
+	if err != nil {
+		profile = DefaultProfile()
+	}
+
+	// ML-DSA part
+	mldsaSize := 0
+	if p, ok := profile.(*ProfileV1); ok {
+		mldsaSize = mldsa87.PrivateKeySize
+		_ = p
+	} else {
+		// Fallback or handle other profiles
+		mldsaSize = mldsa87.PrivateKeySize
+	}
+
+	if len(privKeyBytes) < mldsaSize {
+		return nil, fmt.Errorf("invalid SIG private key size")
+	}
+
+	mldsaPriv := privKeyBytes[:mldsaSize]
+	mldsaPub, err := profile.DeriveSIGPublic(mldsaPriv)
 	if err != nil {
 		return nil, err
 	}
-	return []byte(pub), nil
+
+	// Ed25519 part
+	if len(privKeyBytes) >= mldsaSize+ed25519.PrivateKeySize {
+		edPriv := ed25519.PrivateKey(privKeyBytes[mldsaSize : mldsaSize+ed25519.PrivateKeySize])
+		edPub := edPriv.Public().(ed25519.PublicKey)
+		return append(mldsaPub, edPub...), nil
+	}
+
+	return mldsaPub, nil
+}
+
+// DeriveNostrPublic derives the hex public key from a Nostr private key hex string.
+func DeriveNostrPublic(privKeyBytes []byte) ([]byte, error) {
+	pub, err := nostr.GetPublicKey(hex.EncodeToString(privKeyBytes))
+	if err != nil {
+		return nil, err
+	}
+	return hex.DecodeString(pub)
 }
 
 // DeriveKEMPublic derives the public key from a Hybrid KEM private key.
@@ -59,16 +112,6 @@ func DeriveKEMPublic(privKeyBytes []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid KEM private key: %w", err)
 	}
 	return sk.PublicKey().Bytes(), nil
-}
-
-// DeriveSIGPublic derives the public key from an ML-DSA private key.
-func DeriveSIGPublic(privKeyBytes []byte) ([]byte, error) {
-	sk := new(mldsa87.PrivateKey)
-	if err := sk.UnmarshalBinary(privKeyBytes); err != nil {
-		return nil, fmt.Errorf("invalid SIG private key: %w", err)
-	}
-	pk := sk.Public().(*mldsa87.PublicKey)
-	return pk.MarshalBinary()
 }
 
 // SignData signs a message using a Post-Quantum private key.
