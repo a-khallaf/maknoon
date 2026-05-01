@@ -2,8 +2,10 @@ package crypto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -36,29 +38,58 @@ func NewNostrRegistry() *NostrRegistry {
 func (r *NostrRegistry) Resolve(ctx context.Context, handle string) (*IdentityRecord, error) {
 	var pubkey string
 
-	// 1. Handle npub or hex pubkey
-	if strings.HasPrefix(handle, "npub1") {
-		_, v, err := nip19.Decode(handle)
-		if err != nil {
-			return nil, fmt.Errorf("invalid npub: %w", err)
+	// 1. Handle NIP-05 (user@domain.com)
+	if strings.Contains(handle, "@") && !strings.HasPrefix(handle, "@nostr:") && !strings.HasPrefix(handle, "npub1") {
+		parts := strings.Split(handle, "@")
+		if len(parts) == 2 {
+			user := parts[0]
+			domain := parts[1]
+			// Support potential '@domain.com' leading at
+			if user == "" {
+				return nil, fmt.Errorf("invalid NIP-05 handle: %s", handle)
+			}
+			url := fmt.Sprintf("https://%s/.well-known/nostr.json?name=%s", domain, user)
+
+			req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil && resp.StatusCode == 200 {
+				var result struct {
+					Names map[string]string `json:"names"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+					if pk, ok := result.Names[user]; ok {
+						pubkey = pk
+					}
+				}
+				resp.Body.Close()
+			}
 		}
-		pubkey = v.(string)
-	} else if strings.HasPrefix(handle, "@nostr:") {
-		handle = strings.TrimPrefix(handle, "@nostr:")
-		if strings.HasPrefix(handle, "npub1") {
-			_, v, err := nip19.Decode(handle)
+	}
+
+	if pubkey == "" {
+		// 2. Handle npub or hex pubkey or simple @name (if hex)
+		cleanHandle := strings.TrimPrefix(handle, "@")
+		if strings.HasPrefix(cleanHandle, "npub1") {
+			_, v, err := nip19.Decode(cleanHandle)
 			if err != nil {
 				return nil, fmt.Errorf("invalid npub: %w", err)
 			}
 			pubkey = v.(string)
-		} else {
-			pubkey = handle // Assume hex
+		} else if len(cleanHandle) == 64 {
+			// Check if it's hex
+			if _, err := hex.DecodeString(cleanHandle); err == nil {
+				pubkey = cleanHandle
+			}
 		}
-	} else {
-		return nil, fmt.Errorf("unsupported nostr handle format: %s", handle)
 	}
 
-	// 2. Query relays for Kind 0 event
+	if pubkey == "" {
+		// 3. Last resort: Try to find Kind 0 by name (not standard, but helpful for local testing)
+		// Standard Nostr requires hex/npub for authorship query.
+		return nil, fmt.Errorf("unsupported nostr handle format or resolution failed: %s", handle)
+	}
+
+	// 3. Query relays for Kind 0 event
 	filter := nostr.Filter{
 		Kinds:   []int{0},
 		Authors: []string{pubkey},

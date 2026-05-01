@@ -45,6 +45,14 @@ func (m *IdentityManager) IdentityPublish(ctx context.Context, handle string, op
 		Timestamp: time.Now(),
 	}
 
+	// 2b. Attempt to capture active P2P Multiaddrs if we are an active host
+	if m.P2P != nil {
+		if sess, err := m.P2P.ChatStart(nil, name, ""); err == nil {
+			record.Multiaddrs = sess.Multiaddrs()
+			sess.Close()
+		}
+	}
+
 	if err := record.Sign(id.SIGPriv); err != nil {
 		return fmt.Errorf("failed to sign identity record: %w", err)
 	}

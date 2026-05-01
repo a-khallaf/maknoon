@@ -368,6 +368,7 @@ func NewEngine(policy SecurityPolicy, idMgr *IdentityManager, conf *Config, vaul
 		contactsPath: filepath.Join(conf.Paths.VaultsDir, "..", "contacts.db"),
 	}
 
+	e.Identities.P2P = e // Inject P2P back-reference
 	return e, nil
 }
 

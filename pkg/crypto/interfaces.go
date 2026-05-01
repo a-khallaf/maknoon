@@ -108,6 +108,7 @@ type VaultManager interface {
 type P2PService interface {
 	P2PSend(ectx *EngineContext, identityName string, inputName string, r io.Reader, opts P2PSendOptions) (string, <-chan P2PStatus, error)
 	P2PReceive(ectx *EngineContext, identityName string, code string, opts P2PReceiveOptions) (<-chan P2PStatus, error)
+	ChatStart(ectx *EngineContext, identityName string, target string) (*P2PChatSession, error)
 	ValidateWormholeURL(ectx *EngineContext, u string) error
 }
 

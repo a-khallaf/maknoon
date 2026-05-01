@@ -21,12 +21,13 @@ type IdentityRegistry interface {
 
 // IdentityRecord is the self-signed payload stored in registries.
 type IdentityRecord struct {
-	Handle    string    `json:"handle"`
-	KEMPubKey []byte    `json:"kem_pub"`
-	SIGPubKey []byte    `json:"sig_pub"`
-	Timestamp time.Time `json:"timestamp"`
-	Signature []byte    `json:"signature,omitempty"`
-	Revoked   bool      `json:"revoked,omitempty"`
+	Handle     string    `json:"handle"`
+	KEMPubKey  []byte    `json:"kem_pub"`
+	SIGPubKey  []byte    `json:"sig_pub"`
+	Multiaddrs []string  `json:"multiaddrs,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+	Signature  []byte    `json:"signature,omitempty"`
+	Revoked    bool      `json:"revoked,omitempty"`
 }
 
 // Sign signs the record using the user's ML-DSA private key.

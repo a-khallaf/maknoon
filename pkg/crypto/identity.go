@@ -46,6 +46,7 @@ type Identity struct {
 type IdentityManager struct {
 	Store    KeyStore
 	Contacts *ContactManager
+	P2P      P2PService
 }
 
 // NewIdentityManager creates an IdentityManager with default paths.

@@ -1,0 +1,39 @@
+services:
+  nostr-relay:
+    image: scsibug/nostr-rs-relay:latest
+    ports:
+      - "8008:8080"
+    networks:
+      global-net:
+        ipv4_address: 172.30.0.5
+
+  agent-london:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      - MAKNOON_PASSPHRASE=london-secret
+      - MAKNOON_JSON=1
+    networks:
+      global-net:
+        ipv4_address: 172.30.0.10
+    command: ["mcp", "--transport", "sse", "--address", ":8080"]
+
+  agent-ny:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      - MAKNOON_PASSPHRASE=ny-secret
+      - MAKNOON_JSON=1
+    networks:
+      global-net:
+        ipv4_address: 172.30.0.20
+    command: ["mcp", "--transport", "sse", "--address", ":8080"]
+
+networks:
+  global-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
