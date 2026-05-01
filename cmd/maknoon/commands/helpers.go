@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
@@ -201,12 +200,10 @@ func getPassphrase(prompt string) ([]byte, bool, error) {
 	return p, true, nil
 }
 
-// handleEngineEvents consumes the telemetry stream and updates the UI (e.g., progress bars).
+// handleEngineEvents consumes the telemetry stream and updates the UI.
 func handleEngineEvents(events <-chan crypto.EngineEvent, quiet bool) {
-	var bar *progressbar.ProgressBar
-
-	// Never show progress bars in JSON or Agent mode, or if explicitly quiet
-	if quiet || GlobalContext.UI.JSON || viper.GetString("agent_mode") == "1" || !GlobalContext.UI.Interactive {
+	// Never show status in JSON or Agent mode, or if explicitly quiet
+	if quiet || GlobalContext.UI.JSON || viper.GetString("agent_mode") == "1" {
 		for range events {
 			// Drain events
 		}
@@ -217,25 +214,34 @@ func handleEngineEvents(events <-chan crypto.EngineEvent, quiet bool) {
 		switch e := ev.(type) {
 		case crypto.EventEncryptionStarted:
 			if e.TotalBytes > 0 {
-				bar = progressbar.DefaultBytes(e.TotalBytes, "protecting")
+				fmt.Fprintf(os.Stderr, "[*] Protecting: %s\n", formatBytes(e.TotalBytes))
 			} else {
-				fmt.Fprintln(os.Stderr, "Protecting...")
+				fmt.Fprintln(os.Stderr, "[*] Protecting...")
 			}
 		case crypto.EventDecryptionStarted:
 			if e.TotalBytes > 0 {
-				bar = progressbar.DefaultBytes(e.TotalBytes, "unprotecting")
+				fmt.Fprintf(os.Stderr, "[*] Unprotecting: %s\n", formatBytes(e.TotalBytes))
 			} else {
-				fmt.Fprintln(os.Stderr, "Unprotecting...")
+				fmt.Fprintln(os.Stderr, "[*] Unprotecting...")
 			}
 		case crypto.EventChunkProcessed:
-			if bar != nil {
-				_ = bar.Add64(e.BytesProcessed)
-			}
+			// For CLI humans, we could print dots or just stay silent until completion
+			// to avoid log flooding. Let's stay silent for chunks.
 		}
 	}
-	if bar != nil {
-		_ = bar.Finish()
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
 	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 func printJSON(data interface{}) {

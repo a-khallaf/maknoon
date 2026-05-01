@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -115,21 +114,19 @@ func SendCmd() *cobra.Command {
 			}
 
 			// Progress loop
-			var bar *progressbar.ProgressBar
 			for s := range status {
 				if s.Error != nil {
 					p.RenderError(s.Error)
 					return s.Error
 				}
-				if !quietSend && bar == nil && s.BytesTotal > 0 {
-					bar = progressbar.DefaultBytes(s.BytesTotal, "sending")
-				}
-				if bar != nil && s.BytesDone > 0 {
-					_ = bar.Set64(s.BytesDone)
+				if !quietSend && s.Phase == "transferring" && s.BytesTotal > 0 {
+					// Single line status for human operators
+					fmt.Fprintf(os.Stderr, "\r[*] Sending: %s / %s", formatBytes(s.BytesDone), formatBytes(s.BytesTotal))
 				}
 				if s.Phase == "success" {
 					if !quietSend {
-						p.RenderMessage("\n✨ Transfer complete!")
+						fmt.Fprintln(os.Stderr)
+						p.RenderMessage("✨ Transfer complete!")
 					}
 					if GlobalContext.UI.JSON {
 						p.RenderSuccess(map[string]string{"status": "success"})

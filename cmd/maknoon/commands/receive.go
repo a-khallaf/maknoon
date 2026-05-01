@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/al-Zamakhshari/maknoon/pkg/crypto"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -72,12 +71,7 @@ func ReceiveCmd() *cobra.Command {
 				return err
 			}
 
-			// We need to peek into the first status message to get Multiaddrs for logging
-			// But the loop below handles it. The issue might be that s.Addrs is empty.
-
-			var bar *progressbar.ProgressBar
 			for s := range status {
-				fmt.Fprintf(os.Stderr, "DEBUG: receive phase: %s\n", s.Phase)
 				if s.Error != nil {
 					p.RenderError(s.Error)
 					return s.Error
@@ -91,17 +85,14 @@ func ReceiveCmd() *cobra.Command {
 						p.RenderMessage(fmt.Sprintf("🕳️  Waiting for peer. Share your PeerID: %s", s.Code))
 					}
 				}
-				if !quietRecv {
-					if bar == nil && s.BytesTotal > 0 {
-						bar = progressbar.DefaultBytes(s.BytesTotal, "receiving")
-					}
-					if bar != nil && s.BytesDone > 0 {
-						_ = bar.Set64(s.BytesDone)
-					}
+				if !quietRecv && s.Phase == "transferring" && s.BytesTotal > 0 {
+					// Single line status for human operators
+					fmt.Fprintf(os.Stderr, "\r[*] Receiving: %s / %s", formatBytes(s.BytesDone), formatBytes(s.BytesTotal))
 				}
 				if s.Phase == "success" {
 					if !quietRecv {
-						p.RenderMessage(fmt.Sprintf("\n✨ Success! Data saved to: %s", s.FileName))
+						fmt.Fprintln(os.Stderr)
+						p.RenderMessage(fmt.Sprintf("✨ Success! Data saved to: %s", s.FileName))
 					}
 					if GlobalContext.UI.JSON {
 						p.RenderSuccess(map[string]string{"status": "success", "file": s.FileName})
